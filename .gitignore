@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.vercel/
+*.log
+.env*
+.DS_Store
+node_modules/
+*.zip
+.next/
+node_modules/
+*.zip
+.next/
+path/to/VERY_BIG_FILE

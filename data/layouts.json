@@ -1,0 +1,237 @@
+{
+  "hero_spread": {
+    "name": "Hero Spread",
+    "canvas": {
+      "width_px": 3600,
+      "height_px": 2400,
+      "dpi": 300,
+      "bleed_px": 38,
+      "margin_px": 150
+    },
+    "image_slots": [
+      {
+        "id": "main_image",
+        "anchor": { "x": 0.5, "y": 0.45 },
+        "size": { "w": 0.65, "h": 0.65 },
+        "fit": "cover",
+        "mask": "soft-circle",
+        "z_index": 2,
+        "jitter": {
+          "dx": [-0.03, 0.03],
+          "dy": [-0.02, 0.02],
+          "scale": [0.98, 1.02],
+          "rotate_deg": [-2, 2]
+        }
+      }
+    ],
+    "text_frames": [
+      {
+        "id": "narration",
+        "anchor": { "x": 0.5, "y": 0.85 },
+        "box": { "w": 0.7, "h": 0.15 },
+        "z_index": 3,
+        "styles": {
+          "font_family": "Patrick Hand",
+          "font_size_pt": 24,
+          "text_align": "center",
+          "color": "#2D3748",
+          "line_height": 1.4
+        },
+        "jitter": {
+          "dx": [-0.02, 0.02],
+          "dy": [-0.01, 0.01],
+          "rotate_deg": [-1, 1]
+        }
+      }
+    ],
+    "decorations": {
+      "enabled": true,
+      "elements": ["stars", "hearts", "clouds"],
+      "density": 0.3
+    }
+  },
+  "action_focus": {
+    "name": "Action Focus",
+    "canvas": {
+      "width_px": 3600,
+      "height_px": 2400,
+      "dpi": 300,
+      "bleed_px": 38,
+      "margin_px": 150
+    },
+    "image_slots": [
+      {
+        "id": "main_image",
+        "anchor": { "x": 0.35, "y": 0.5 },
+        "size": { "w": 0.45, "h": 0.6 },
+        "fit": "contain",
+        "mask": "rounded-rect",
+        "z_index": 2,
+        "jitter": {
+          "dx": [-0.02, 0.02],
+          "dy": [-0.02, 0.02],
+          "scale": [0.97, 1.03],
+          "rotate_deg": [-3, 3]
+        }
+      }
+    ],
+    "text_frames": [
+      {
+        "id": "narration",
+        "anchor": { "x": 0.72, "y": 0.5 },
+        "box": { "w": 0.35, "h": 0.4 },
+        "z_index": 3,
+        "styles": {
+          "font_family": "Patrick Hand",
+          "font_size_pt": 22,
+          "text_align": "left",
+          "color": "#2D3748",
+          "line_height": 1.5
+        },
+        "jitter": {
+          "dx": [-0.015, 0.015],
+          "dy": [-0.015, 0.015],
+          "rotate_deg": [-1.5, 1.5]
+        }
+      }
+    ]
+  },
+  "portrait_emphasis": {
+    "name": "Portrait Emphasis",
+    "canvas": {
+      "width_px": 3600,
+      "height_px": 2400,
+      "dpi": 300,
+      "bleed_px": 38,
+      "margin_px": 150
+    },
+    "image_slots": [
+      {
+        "id": "main_image",
+        "anchor": { "x": 0.5, "y": 0.4 },
+        "size": { "w": 0.5, "h": 0.5 },
+        "fit": "cover",
+        "mask": "soft-circle",
+        "z_index": 2,
+        "jitter": {
+          "dx": [-0.02, 0.02],
+          "dy": [-0.02, 0.02],
+          "scale": [0.98, 1.02],
+          "rotate_deg": [-2, 2]
+        }
+      }
+    ],
+    "text_frames": [
+      {
+        "id": "narration",
+        "anchor": { "x": 0.5, "y": 0.75 },
+        "box": { "w": 0.6, "h": 0.15 },
+        "z_index": 3,
+        "styles": {
+          "font_family": "Patrick Hand",
+          "font_size_pt": 22,
+          "text_align": "center",
+          "color": "#2D3748",
+          "line_height": 1.4
+        },
+        "jitter": {
+          "dx": [-0.015, 0.015],
+          "dy": [-0.01, 0.01],
+          "rotate_deg": [-1, 1]
+        }
+      }
+    ]
+  },
+  "collage": {
+    "name": "Collage",
+    "canvas": {
+      "width_px": 3600,
+      "height_px": 2400,
+      "dpi": 300,
+      "bleed_px": 38,
+      "margin_px": 150
+    },
+    "image_slots": [
+      {
+        "id": "main_image",
+        "anchor": { "x": 0.5, "y": 0.5 },
+        "size": { "w": 0.7, "h": 0.7 },
+        "fit": "contain",
+        "mask": "rounded-rect",
+        "z_index": 2,
+        "jitter": {
+          "dx": [-0.03, 0.03],
+          "dy": [-0.03, 0.03],
+          "scale": [0.95, 1.05],
+          "rotate_deg": [-5, 5]
+        }
+      }
+    ],
+    "text_frames": [
+      {
+        "id": "narration",
+        "anchor": { "x": 0.5, "y": 0.9 },
+        "box": { "w": 0.8, "h": 0.1 },
+        "z_index": 3,
+        "styles": {
+          "font_family": "Patrick Hand",
+          "font_size_pt": 20,
+          "text_align": "center",
+          "color": "#2D3748",
+          "line_height": 1.3
+        },
+        "jitter": {
+          "dx": [-0.02, 0.02],
+          "dy": [-0.01, 0.01],
+          "rotate_deg": [-1, 1]
+        }
+      }
+    ]
+  },
+  "closing_spread": {
+    "name": "Closing Spread",
+    "canvas": {
+      "width_px": 3600,
+      "height_px": 2400,
+      "dpi": 300,
+      "bleed_px": 38,
+      "margin_px": 150
+    },
+    "image_slots": [
+      {
+        "id": "main_image",
+        "anchor": { "x": 0.5, "y": 0.35 },
+        "size": { "w": 0.6, "h": 0.45 },
+        "fit": "cover",
+        "mask": "soft-circle",
+        "z_index": 2,
+        "jitter": {
+          "dx": [-0.02, 0.02],
+          "dy": [-0.02, 0.02],
+          "scale": [0.98, 1.02],
+          "rotate_deg": [-2, 2]
+        }
+      }
+    ],
+    "text_frames": [
+      {
+        "id": "narration",
+        "anchor": { "x": 0.5, "y": 0.7 },
+        "box": { "w": 0.7, "h": 0.2 },
+        "z_index": 3,
+        "styles": {
+          "font_family": "Patrick Hand",
+          "font_size_pt": 26,
+          "text_align": "center",
+          "color": "#2D3748",
+          "line_height": 1.5
+        },
+        "jitter": {
+          "dx": [-0.02, 0.02],
+          "dy": [-0.01, 0.01],
+          "rotate_deg": [-1, 1]
+        }
+      }
+    ]
+  }
+}

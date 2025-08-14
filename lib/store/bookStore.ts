@@ -1,6 +1,8 @@
+// lib/store/bookStore.ts
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+// Complete Page interface with all new fields
 interface Page {
   page_number: number;
   scene_type: string;
@@ -9,6 +11,15 @@ interface Page {
   illustration_url?: string;
   layout_template: string;
   resolved_layout?: any;
+  // New fields for camera angles and actions
+  shot?: string;
+  shot_custom?: string;
+  closest_shot?: string;
+  action_id?: string;
+  action_label?: string;
+  emotion?: string;
+  emotion_custom?: string;
+  page_turn_cue?: boolean;
 }
 
 interface BookStore {
@@ -28,6 +39,8 @@ interface BookStore {
     title: string;
     pages: Page[];
     metadata?: any;
+    refrain?: string;
+    style?: string;
   } | null;
   
   // Illustrations
@@ -36,8 +49,10 @@ interface BookStore {
     url: string;
     style: string;
     seed?: number;
+    shot?: string;
+    action_id?: string;
   }[];
-  illustrationStyle: 'watercolor' | 'crayon' | 'pencil';
+  illustrationStyle: 'wondrous' | 'crayon' | 'vintage' | 'watercolor' | 'pencil';
   
   // Layout
   layouts: {
@@ -67,7 +82,7 @@ export const useBookStore = create<BookStore>()(
       conversation: [],
       storyData: null,
       illustrations: [],
-      illustrationStyle: 'watercolor',
+      illustrationStyle: 'wondrous',
       layouts: {},
       version: '',
       

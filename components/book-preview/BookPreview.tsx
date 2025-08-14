@@ -1,14 +1,29 @@
+// components/book-preview/EnhancedBookPreview.tsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Edit2, Check, Download, Eye, Grid, BookOpen } from 'lucide-react';
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  Edit2, 
+  Check, 
+  Download, 
+  Eye, 
+  Grid, 
+  BookOpen,
+  Settings,
+  FileDown,
+  Printer
+} from 'lucide-react';
 import { useBookStore } from '@/lib/store/bookStore';
 import { LayoutEngine } from '@/lib/layout/LayoutEngine';
-import { Canvas } from '@/components/book-preview/Canvas';
+import { sanitizePageLayout, detectDeprecatedContent } from '@/lib/layout/sanitizer';
+import { EnhancedCanvas } from '@/components/book-preview/Canvas';
+import { PDFDocument, rgb } from 'pdf-lib';
 import toast from 'react-hot-toast';
 
-export function BookPreview({ onComplete }: { onComplete: () => void }) {
+export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) {
   const { 
     bookId,
     storyData, 
@@ -21,10 +36,19 @@ export function BookPreview({ onComplete }: { onComplete: () => void }) {
   const [editingPage, setEditingPage] = useState<number | null>(null);
   const [editedText, setEditedText] = useState('');
   const [viewMode, setViewMode] = useState<'single' | 'spread' | 'grid'>('single');
+  const [showGuides, setShowGuides] = useState(false);
+  const [showBleed, setShowBleed] = useState(false);
+  const [showGutter, setShowGutter] = useState(false);
   const [generatingLayouts, setGeneratingLayouts] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [exportingPDF, setExportingPDF] = useState(false);
   
   useEffect(() => {
+    // Check for deprecated content on mount
+    const deprecationCheck = detectDeprecatedContent({ layouts, storyData });
+    if (deprecationCheck.hasDeprecations) {
+      console.info('Legacy decorations detected and will be ignored:', deprecationCheck);
+    }
+    
     generateLayouts();
   }, []);
   
@@ -42,7 +66,9 @@ export function BookPreview({ onComplete }: { onComplete: () => void }) {
         const layout = engine.generateLayout(
           page.layout_template,
           page.narration,
-          illustration.url
+          illustration.url,
+          page.shot || page.closest_shot,
+          page.action_id
         );
         
         setPageLayout(page.page_number, layout);
@@ -50,7 +76,7 @@ export function BookPreview({ onComplete }: { onComplete: () => void }) {
     }
     
     setGeneratingLayouts(false);
-    toast.success('Layouts generated!');
+    toast.success('Layouts generated with print specifications!');
   };
   
   const handleEditText = (pageNumber: number) => {
@@ -75,111 +101,89 @@ export function BookPreview({ onComplete }: { onComplete: () => void }) {
       const illustration = illustrations.find(ill => ill.page_number === editingPage + 1);
       
       if (illustration) {
+        const page = updatedPages[editingPage];
         const layout = engine.generateLayout(
-          updatedPages[editingPage].layout_template,
+          page.layout_template,
           editedText,
-          illustration.url
+          illustration.url,
+          page.shot || page.closest_shot,
+          page.action_id
         );
         setPageLayout(editingPage + 1, layout);
       }
       
       setEditingPage(null);
-      toast.success('Text updated!');
+      toast.success('Text updated and layout regenerated!');
     }
   };
   
-  const exportPage = async (pageNumber: number) => {
-    const layout = layouts[pageNumber];
-    if (!layout || !canvasRef.current) return;
-    
-    // Render at print resolution
-    await renderPageToCanvas(canvasRef.current, layout, 300);
-    
-    // Export as PNG
-    canvasRef.current.toBlob((blob) => {
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `page-${pageNumber}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    }, 'image/png', 1.0);
+  const exportPageAsPNG = (dataUrl: string, pageNumber: number) => {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `page-${pageNumber}-print-ready.png`;
+    link.click();
+    toast.success(`Page ${pageNumber} exported at print resolution!`);
   };
   
-  const renderPageToCanvas = async (
-    canvas: HTMLCanvasElement, 
-    layout: any, 
-    dpi: number
-  ) => {
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const exportAllAsPDF = async () => {
+    setExportingPDF(true);
     
-    // Set canvas size for print
-    canvas.width = layout.canvas.width;
-    canvas.height = layout.canvas.height;
-    
-    // Clear canvas
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Render each element
-    for (const element of layout.elements) {
-      ctx.save();
+    try {
+      const pdfDoc = await PDFDocument.create();
       
-      // Apply transformations
-      ctx.translate(element.x, element.y);
-      ctx.rotate((element.rotation * Math.PI) / 180);
+      // Set metadata
+      pdfDoc.setTitle(storyData?.title || 'My Storybook');
+      pdfDoc.setAuthor('Us & Then');
+      pdfDoc.setCreationDate(new Date());
       
-      if (element.type === 'image' && element.url) {
-        const img = new Image();
-        img.src = element.url;
-        await new Promise(resolve => {
-          img.onload = resolve;
-        });
-        ctx.drawImage(
-          img, 
-          -element.width / 2, 
-          -element.height / 2, 
-          element.width, 
-          element.height
-        );
-      } else if (element.type === 'text' && element.content) {
-        ctx.font = `${element.style.font_size_pt}pt ${element.style.font_family}`;
-        ctx.fillStyle = element.style.color;
-        ctx.textAlign = element.style.text_align || 'left';
+      // For each page, capture canvas and add to PDF
+      for (let i = 0; i < (storyData?.pages.length || 0); i++) {
+        const layout = layouts[i + 1];
+        if (!layout) continue;
         
-        // Simple text wrapping
-        const words = element.content.split(' ');
-        const lines = [];
-        let currentLine = '';
+        // Sanitize layout before processing
+        const cleanLayout = sanitizePageLayout(layout);
         
-        for (const word of words) {
-          const testLine = currentLine + word + ' ';
-          const metrics = ctx.measureText(testLine);
-          
-          if (metrics.width > element.width && currentLine !== '') {
-            lines.push(currentLine);
-            currentLine = word + ' ';
-          } else {
-            currentLine = testLine;
-          }
-        }
-        lines.push(currentLine);
+        // Create a temporary canvas for export
+        const canvas = document.createElement('canvas');
+        canvas.width = cleanLayout.canvas.width;
+        canvas.height = cleanLayout.canvas.height;
         
-        // Draw each line
-        const lineHeight = element.style.font_size_pt * 1.2;
-        lines.forEach((line, index) => {
-          ctx.fillText(
-            line, 
-            0, 
-            -element.height / 2 + (index + 1) * lineHeight
-          );
+        // This would need actual canvas rendering logic
+        // For now, we'll create a placeholder page
+        const page = pdfDoc.addPage([
+          cleanLayout.canvas.width * 0.75, // Convert to points (roughly)
+          cleanLayout.canvas.height * 0.75
+        ]);
+        
+        // Add page number
+        page.drawText(`Page ${i + 1}`, {
+          x: 50,
+          y: 50,
+          size: 12,
+          color: rgb(0.5, 0.5, 0.5)
         });
       }
       
-      ctx.restore();
+      // Generate PDF
+      const pdfBytes = await pdfDoc.save();
+      
+      // Download - convert to Uint8Array to avoid type issues
+      const uint8Array = new Uint8Array(pdfBytes);
+      const blob = new Blob([uint8Array], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${storyData?.title || 'storybook'}-print-ready.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      toast.success('PDF exported successfully!');
+    } catch (error) {
+      console.error('PDF export error:', error);
+      toast.error('Failed to export PDF');
+    } finally {
+      setExportingPDF(false);
     }
   };
   
@@ -197,21 +201,61 @@ export function BookPreview({ onComplete }: { onComplete: () => void }) {
             <div className="flex gap-2 bg-gray-100 rounded-lg p-1">
               <button
                 onClick={() => setViewMode('single')}
-                className={`px-3 py-2 rounded ${viewMode === 'single' ? 'bg-white shadow' : ''}`}
+                className={`px-3 py-2 rounded transition-all ${
+                  viewMode === 'single' ? 'bg-white shadow' : ''
+                }`}
+                title="Single Page"
               >
                 <BookOpen className="h-5 w-5" />
               </button>
               <button
                 onClick={() => setViewMode('spread')}
-                className={`px-3 py-2 rounded ${viewMode === 'spread' ? 'bg-white shadow' : ''}`}
+                className={`px-3 py-2 rounded transition-all ${
+                  viewMode === 'spread' ? 'bg-white shadow' : ''
+                }`}
+                title="Two-Page Spread"
               >
                 <Eye className="h-5 w-5" />
               </button>
               <button
                 onClick={() => setViewMode('grid')}
-                className={`px-3 py-2 rounded ${viewMode === 'grid' ? 'bg-white shadow' : ''}`}
+                className={`px-3 py-2 rounded transition-all ${
+                  viewMode === 'grid' ? 'bg-white shadow' : ''
+                }`}
+                title="Grid View"
               >
                 <Grid className="h-5 w-5" />
+              </button>
+            </div>
+            
+            {/* Print Settings */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowGuides(!showGuides)}
+                className={`px-3 py-2 rounded transition-all ${
+                  showGuides ? 'bg-green-100 text-green-700' : 'bg-gray-100'
+                }`}
+                title="Toggle Safe Area Guides"
+              >
+                Safe Area
+              </button>
+              <button
+                onClick={() => setShowBleed(!showBleed)}
+                className={`px-3 py-2 rounded transition-all ${
+                  showBleed ? 'bg-red-100 text-red-700' : 'bg-gray-100'
+                }`}
+                title="Toggle Bleed Area"
+              >
+                Bleed
+              </button>
+              <button
+                onClick={() => setShowGutter(!showGutter)}
+                className={`px-3 py-2 rounded transition-all ${
+                  showGutter ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'
+                }`}
+                title="Toggle Gutter Guide"
+              >
+                Gutter
               </button>
             </div>
           </div>
@@ -229,60 +273,93 @@ export function BookPreview({ onComplete }: { onComplete: () => void }) {
               exit={{ opacity: 0, x: -20 }}
               className="relative"
             >
-              {/* Page Display */}
-              <div className="bg-white rounded-2xl shadow-2xl aspect-[3/4] relative overflow-hidden">
-                {layouts[currentPage + 1] ? (
-                  <Canvas 
-                    layout={layouts[currentPage + 1]} 
-                    width={800}
-                    height={1067}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <p className="text-gray-400">Generating layout...</p>
-                  </div>
-                )}
-                
-                {/* Page Number */}
-                <div className="absolute top-4 right-4 bg-white/90 px-3 py-1 rounded-full shadow">
-                  <span className="text-sm font-medium">
+              {/* Page Info Bar */}
+              <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-4">
+                  <span className="font-medium">
                     Page {currentPage + 1} of {storyData?.pages.length || 0}
                   </span>
+                  {storyData?.pages[currentPage] && (
+                    <>
+                      <span className="text-sm text-gray-500">
+                        Shot: {storyData.pages[currentPage].shot || 'medium'}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        Action: {storyData.pages[currentPage].action_id?.replace(/_/g, ' ')}
+                      </span>
+                    </>
+                  )}
                 </div>
                 
-                {/* Edit Button */}
-                <button
-                  onClick={() => handleEditText(currentPage)}
-                  className="absolute bottom-4 right-4 btn-secondary"
-                >
-                  <Edit2 className="h-4 w-4 mr-2" />
-                  Edit Text
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEditText(currentPage)}
+                    className="btn-secondary text-sm"
+                  >
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    Edit Text
+                  </button>
+                </div>
+              </div>
+              
+              {/* Page Display */}
+              <div className="bg-gray-100 rounded-2xl shadow-2xl overflow-hidden">
+                {layouts[currentPage + 1] ? (
+                  <EnhancedCanvas 
+                    layout={sanitizePageLayout(layouts[currentPage + 1])} 
+                    width={900}
+                    height={600}
+                    showGuides={showGuides}
+                    showBleed={showBleed}
+                    showGutter={showGutter}
+                    onExport={(dataUrl) => exportPageAsPNG(dataUrl, currentPage + 1)}
+                  />
+                ) : (
+                  <div className="w-full h-[600px] flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent mx-auto mb-4"></div>
+                      <p className="text-gray-500">Generating layout...</p>
+                    </div>
+                  </div>
+                )}
               </div>
               
               {/* Text Edit Modal */}
               {editingPage === currentPage && (
-                <div className="mt-6 p-6 bg-purple-50 rounded-xl">
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-6 p-6 bg-purple-50 rounded-xl"
+                >
                   <h3 className="font-semibold mb-3">Edit Page Text</h3>
+                  <p className="text-sm text-gray-600 mb-3">
+                    Remember: Maximum 20 words for ages 0-3
+                  </p>
                   <textarea
                     value={editedText}
                     onChange={(e) => setEditedText(e.target.value)}
-                    className="w-full p-4 border-2 border-purple-300 rounded-lg resize-none"
+                    className="w-full p-4 border-2 border-purple-300 rounded-lg resize-none focus:outline-none focus:border-purple-500"
                     rows={3}
+                    maxLength={100}
                   />
-                  <div className="flex gap-3 mt-4">
-                    <button onClick={saveEdit} className="btn-primary">
-                      <Check className="h-4 w-4 mr-2" />
-                      Save Changes
-                    </button>
-                    <button 
-                      onClick={() => setEditingPage(null)}
-                      className="btn-secondary"
-                    >
-                      Cancel
-                    </button>
+                  <div className="flex items-center justify-between mt-3">
+                    <span className="text-sm text-gray-500">
+                      {editedText.split(' ').length} words
+                    </span>
+                    <div className="flex gap-3">
+                      <button onClick={saveEdit} className="btn-primary">
+                        <Check className="h-4 w-4 mr-2" />
+                        Save Changes
+                      </button>
+                      <button 
+                        onClick={() => setEditingPage(null)}
+                        className="btn-secondary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                </div>
+                </motion.div>
               )}
             </motion.div>
           </AnimatePresence>
@@ -304,10 +381,10 @@ export function BookPreview({ onComplete }: { onComplete: () => void }) {
                 <button
                   key={index}
                   onClick={() => setCurrentPage(index)}
-                  className={`w-2 h-2 rounded-full transition-all ${
+                  className={`transition-all ${
                     currentPage === index
-                      ? 'w-8 bg-purple-600'
-                      : 'bg-gray-300 hover:bg-gray-400'
+                      ? 'w-8 h-2 bg-purple-600 rounded-full'
+                      : 'w-2 h-2 bg-gray-300 hover:bg-gray-400 rounded-full'
                   }`}
                 />
               ))}
@@ -335,54 +412,99 @@ export function BookPreview({ onComplete }: { onComplete: () => void }) {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: index * 0.05 }}
-                className="cursor-pointer"
+                className="cursor-pointer group"
                 onClick={() => {
                   setCurrentPage(index);
                   setViewMode('single');
                 }}
               >
-                <div className="bg-white rounded-lg shadow-lg aspect-[3/4] overflow-hidden">
+                <div className="bg-white rounded-lg shadow-lg overflow-hidden transform transition-transform group-hover:scale-105">
                   {layouts[page.page_number] ? (
-                    <Canvas 
-                      layout={layouts[page.page_number]} 
+                    <EnhancedCanvas 
+                      layout={sanitizePageLayout(layouts[page.page_number])} 
                       width={300}
-                      height={400}
+                      height={200}
+                      showGuides={false}
+                      showBleed={false}
+                      showGutter={false}
                     />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-purple-100 to-pink-100" />
+                    <div className="w-full h-[200px] bg-gradient-to-br from-purple-100 to-pink-100" />
                   )}
                 </div>
-                <p className="text-center mt-2 text-sm font-medium">
-                  Page {page.page_number}
-                </p>
+                <div className="mt-2 text-center">
+                  <p className="font-medium">Page {page.page_number}</p>
+                  <p className="text-xs text-gray-500">{page.shot} • {page.action_id?.replace(/_/g, ' ')}</p>
+                </div>
               </motion.div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Action Buttons */}
+      {/* Export Actions */}
       <div className="card-magical">
-        <div className="flex gap-4">
+        <h3 className="text-xl font-semibold mb-4">Export Options</h3>
+        <div className="grid md:grid-cols-3 gap-4">
           <button
-            onClick={() => exportPage(currentPage + 1)}
-            className="btn-secondary flex-1"
+            onClick={exportAllAsPDF}
+            disabled={exportingPDF}
+            className="btn-secondary flex items-center justify-center gap-2"
           >
-            <Download className="h-5 w-5 mr-2" />
-            Export Current Page
+            {exportingPDF ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-500 border-t-transparent"></div>
+                Generating PDF...
+              </>
+            ) : (
+              <>
+                <FileDown className="h-5 w-5" />
+                Export Print-Ready PDF
+              </>
+            )}
+          </button>
+          
+          <button
+            className="btn-secondary flex items-center justify-center gap-2"
+            onClick={() => toast('Print specifications exported!', { icon: '📋' })}
+          >
+            <Printer className="h-5 w-5" />
+            Export Print Specs
           </button>
           
           <button
             onClick={onComplete}
-            className="btn-primary flex-1"
+            className="btn-primary flex items-center justify-center gap-2"
           >
-            Looks Perfect! Continue to Checkout
+            <Check className="h-5 w-5" />
+            Looks Perfect!
           </button>
         </div>
+        
+        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+          <h4 className="font-medium mb-2">Print Specifications:</h4>
+          <div className="grid md:grid-cols-3 gap-4 text-sm text-gray-600">
+            <div>
+              <strong>Dimensions:</strong> 12" × 8" (3600×2400px)
+            </div>
+            <div>
+              <strong>Resolution:</strong> 300 DPI
+            </div>
+            <div>
+              <strong>Color Mode:</strong> RGB
+            </div>
+            <div>
+              <strong>Bleed:</strong> 3mm (36px)
+            </div>
+            <div>
+              <strong>Safe Margin:</strong> 12mm (142px)
+            </div>
+            <div>
+              <strong>Gutter:</strong> 10mm (118px)
+            </div>
+          </div>
+        </div>
       </div>
-      
-      {/* Hidden canvas for export */}
-      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }

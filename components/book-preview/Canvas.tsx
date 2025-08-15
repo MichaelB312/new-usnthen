@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PageLayout, LayoutElement } from '@/lib/layout/LayoutEngine';
+import { PageLayout, LayoutElement } from '@/lib/layout/EnhancedLayoutEngine';
 
 // Try to import react-konva if available
 let Stage: any, Layer: any, KonvaImage: any, Text: any, Rect: any, Group: any;

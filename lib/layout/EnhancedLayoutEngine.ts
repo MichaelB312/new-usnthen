@@ -1,4 +1,4 @@
-// lib/layout/LayoutEngine.ts
+// lib/layout/EnhancedLayoutEngine.ts
 
 // ==================== Type Definitions ====================
 export type CanonShot = "wide" | "medium" | "closeup" | "birdseye" | "low";
@@ -36,6 +36,9 @@ export interface TextStyle {
   line_height: number;
   background_color?: string;
   padding?: number;
+  font_weight?: string;
+  text_shadow?: string;
+  letter_spacing?: string;
 }
 
 export interface PageLayout {
@@ -60,83 +63,86 @@ export interface PageLayout {
   };
 }
 
-// ==================== Canonicalizers ====================
-const SHOT_MAP: Record<string, CanonShot> = {
-  "wide": "wide",
-  "establishing": "wide",
-  "panoramic": "wide",
-  "full": "wide",
-  "medium": "medium",
-  "two-shot": "medium",
-  "mid": "medium",
-  "half": "medium",
-  "closeup": "closeup",
-  "close-up": "closeup",
-  "close": "closeup",
-  "extreme close-up": "closeup",
-  "ecu": "closeup",
-  "macro": "closeup",
-  "birdseye": "birdseye",
-  "bird's-eye": "birdseye",
-  "overhead": "birdseye",
-  "top-down": "birdseye",
-  "aerial": "birdseye",
-  "low": "low",
-  "worm's-eye": "low",
-  "low angle": "low",
-  "ground": "low"
-};
-
-export function canonicalizeShot(s?: string, fallback: CanonShot = "medium"): CanonShot {
-  if (!s) return fallback;
-  const key = s.toLowerCase().trim().replace(/[_-]/g, ' ');
-  return SHOT_MAP[key] ?? fallback;
-}
-
-export function canonicalizeEmotion(e?: string): CoreEmotion {
-  const key = (e || "").toLowerCase();
-  if (["joy", "curiosity", "calm", "pride", "wonder"].includes(key)) {
-    return key as CoreEmotion;
-  }
-  return "joy"; // Safe default for toddlers
-}
-
-// ==================== Layout Templates ====================
+// ==================== Layout Templates with BIGGER FONTS ====================
 const LAYOUT_CONFIGS: Record<LayoutTemplate, any> = {
   hero_spread: {
     name: "Hero Spread",
     image: { x: 0.5, y: 0.45, w: 0.65, h: 0.65 },
-    text: { x: 0.5, y: 0.85, w: 0.7, h: 0.12 },
-    textStyle: { font_size_pt: 48, text_align: 'center' as const }
+    text: { x: 0.5, y: 0.85, w: 0.7, h: 0.15 },
+    textStyle: { 
+      font_size_pt: 72,  // BIGGER! Was 48
+      text_align: 'center' as const,
+      font_weight: '800', // Extra bold
+      letter_spacing: '0.02em'
+    }
   },
   action_focus: {
     name: "Action Focus",
     image: { x: 0.35, y: 0.5, w: 0.45, h: 0.6 },
     text: { x: 0.72, y: 0.5, w: 0.35, h: 0.4 },
-    textStyle: { font_size_pt: 42, text_align: 'left' as const }
+    textStyle: { 
+      font_size_pt: 64,  // BIGGER! Was 42
+      text_align: 'left' as const,
+      font_weight: '700',
+      letter_spacing: '0.01em'
+    }
   },
   portrait_emphasis: {
     name: "Portrait Emphasis",
     image: { x: 0.5, y: 0.4, w: 0.5, h: 0.5 },
-    text: { x: 0.5, y: 0.75, w: 0.6, h: 0.12 },
-    textStyle: { font_size_pt: 44, text_align: 'center' as const }
+    text: { x: 0.5, y: 0.75, w: 0.6, h: 0.15 },
+    textStyle: { 
+      font_size_pt: 68,  // BIGGER! Was 44
+      text_align: 'center' as const,
+      font_weight: '700',
+      letter_spacing: '0.02em'
+    }
   },
   collage: {
     name: "Collage",
     image: { x: 0.5, y: 0.5, w: 0.7, h: 0.7 },
     text: { x: 0.5, y: 0.9, w: 0.8, h: 0.08 },
-    textStyle: { font_size_pt: 40, text_align: 'center' as const }
+    textStyle: { 
+      font_size_pt: 60,  // BIGGER! Was 40
+      text_align: 'center' as const,
+      font_weight: '800',
+      letter_spacing: '0.01em'
+    }
   },
   closing_spread: {
     name: "Closing Spread",
     image: { x: 0.5, y: 0.35, w: 0.6, h: 0.45 },
     text: { x: 0.5, y: 0.7, w: 0.7, h: 0.2 },
-    textStyle: { font_size_pt: 52, text_align: 'center' as const }
+    textStyle: { 
+      font_size_pt: 76,  // BIGGER! Was 52
+      text_align: 'center' as const,
+      font_weight: '900', // Black weight
+      letter_spacing: '0.03em'
+    }
   }
 };
 
+// Baby-friendly color palettes
+const TEXT_COLORS = {
+  default: '#2D1B69',     // Deep purple
+  warm: '#D2386C',        // Warm pink
+  playful: '#FF6B35',     // Orange
+  calm: '#4ECDC4',        // Teal
+  happy: '#FFD93D'        // Yellow
+};
+
+// Fun fonts for babies (in order of preference)
+const BABY_FONTS = [
+  'Comic Sans MS',        // Playful
+  'Patrick Hand',         // Handwritten
+  'Caveat',              // Casual script
+  'Fredoka One',         // Rounded and bold
+  'Bubblegum Sans',      // Cute and round
+  'Arial Rounded MT Bold' // Fallback rounded
+];
+
 // ==================== Main Layout Engine ====================
-export class LayoutEngine {
+export class EnhancedLayoutEngine {
   private seed: number;
   private random: () => number;
   private specs: PrintSpecs;
@@ -182,15 +188,27 @@ export class LayoutEngine {
     return min + this.random() * (max - min);
   }
   
+  // Get emotion-based text color
+  private getTextColorForEmotion(emotion?: string): string {
+    switch(emotion) {
+      case 'joy': return TEXT_COLORS.happy;
+      case 'curiosity': return TEXT_COLORS.playful;
+      case 'calm': return TEXT_COLORS.calm;
+      case 'pride': return TEXT_COLORS.warm;
+      default: return TEXT_COLORS.default;
+    }
+  }
+  
   generateLayout(
     templateName: string,
     narration: string,
     illustrationUrl: string,
     shot?: string,
-    actionId?: string
+    actionId?: string,
+    emotion?: string
   ): PageLayout {
     // Get canonical shot type
-    const canonShot = canonicalizeShot(shot);
+    const canonShot = this.canonicalizeShot(shot);
     
     // Map shot to template if not specified
     const template = templateName as LayoutTemplate || this.shotToTemplate(canonShot);
@@ -264,14 +282,14 @@ export class LayoutEngine {
       layout.elements.push(imageElement);
     }
     
-    // Place text with plaque background
+    // Place text with colorful plaque background
     if (narration) {
       const textJitterX = this.getRandomInRange(-0.015, 0.015);
       const textJitterY = this.getRandomInRange(-0.01, 0.01);
       const textJitterRotation = this.getRandomInRange(-1, 1);
       
-      // Text background plaque (keeping as it's part of text, not decoration)
-      const plaquePadding = 20;
+      // Colorful text background plaque
+      const plaquePadding = 40; // Bigger padding for baby books
       const plaqueElement: LayoutElement = {
         type: 'text',
         id: 'text_plaque',
@@ -286,12 +304,13 @@ export class LayoutEngine {
           text_align: 'center',
           color: '',
           line_height: 0,
-          background_color: 'rgba(255, 255, 255, 0.95)'
+          // Fun gradient background for babies
+          background_color: 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,240,245,0.95) 100%)'
         },
         zIndex: 3
       };
       
-      // Text element
+      // Text element with bigger, bolder font
       const textElement: LayoutElement = {
         type: 'text',
         id: 'narration',
@@ -302,11 +321,14 @@ export class LayoutEngine {
         rotation: textJitterRotation,
         content: narration,
         style: {
-          font_family: 'Patrick Hand',
+          font_family: BABY_FONTS[0], // Use most playful font
           font_size_pt: config.textStyle.font_size_pt,
           text_align: config.textStyle.text_align,
-          color: '#2D3748',
-          line_height: 1.4
+          color: this.getTextColorForEmotion(emotion),
+          line_height: 1.6, // More spacing for readability
+          font_weight: config.textStyle.font_weight,
+          text_shadow: '2px 2px 4px rgba(0,0,0,0.1)', // Soft shadow for depth
+          letter_spacing: config.textStyle.letter_spacing
         },
         zIndex: 4
       };
@@ -328,6 +350,22 @@ export class LayoutEngine {
     return layout;
   }
   
+  private canonicalizeShot(s?: string, fallback: CanonShot = "medium"): CanonShot {
+    const SHOT_MAP: Record<string, CanonShot> = {
+      "wide": "wide",
+      "medium": "medium",
+      "closeup": "closeup",
+      "close-up": "closeup",
+      "birdseye": "birdseye",
+      "bird's-eye": "birdseye",
+      "low": "low"
+    };
+    
+    if (!s) return fallback;
+    const key = s.toLowerCase().trim().replace(/[_-]/g, ' ');
+    return SHOT_MAP[key] ?? fallback;
+  }
+  
   private shotToTemplate(shot: CanonShot): LayoutTemplate {
     const mappings: Record<CanonShot, LayoutTemplate> = {
       'wide': 'hero_spread',
@@ -341,11 +379,11 @@ export class LayoutEngine {
   
   private getScaleForShot(shot: CanonShot): number {
     const scales: Record<CanonShot, number> = {
-      'wide': 0.6,      // 60% - show environment
-      'medium': 0.75,   // 75% - balanced
-      'closeup': 0.9,   // 90% - fill frame
-      'birdseye': 0.3,  // 30% - show context
-      'low': 0.8        // 80% - imposing
+      'wide': 0.6,
+      'medium': 0.75,
+      'closeup': 0.9,
+      'birdseye': 0.3,
+      'low': 0.8
     };
     return scales[shot];
   }
@@ -354,12 +392,10 @@ export class LayoutEngine {
     const halfWidth = element.width / 2;
     const halfHeight = element.height / 2;
     
-    // Constrain X
     const minX = safeArea.x + halfWidth;
     const maxX = safeArea.x + safeArea.width - halfWidth;
     element.x = Math.max(minX, Math.min(maxX, element.x));
     
-    // Constrain Y
     const minY = safeArea.y + halfHeight;
     const maxY = safeArea.y + safeArea.height - halfHeight;
     element.y = Math.max(minY, Math.min(maxY, element.y));
@@ -371,16 +407,13 @@ export class LayoutEngine {
     const gutterLeft = gutterArea.x;
     const gutterRight = gutterArea.x + gutterArea.width;
     
-    // If element overlaps gutter, shift it
     if (elementLeft < gutterRight && elementRight > gutterLeft) {
       const leftDistance = gutterLeft - elementLeft;
       const rightDistance = elementRight - gutterRight;
       
       if (leftDistance < rightDistance) {
-        // Shift left
         element.x = gutterLeft - element.width / 2 - 20;
       } else {
-        // Shift right
         element.x = gutterRight + element.width / 2 + 20;
       }
     }
@@ -392,7 +425,6 @@ export class LayoutEngine {
         const a = layout.elements[i];
         const b = layout.elements[j];
         
-        // Skip if one is the text plaque and the other is text
         if ((a.id === 'text_plaque' && b.id === 'narration') ||
             (b.id === 'text_plaque' && a.id === 'narration')) continue;
         
@@ -416,37 +448,5 @@ export class LayoutEngine {
     const bBottom = b.y + b.height / 2;
     
     return !(aRight < bLeft || aLeft > bRight || aBottom < bTop || aTop > bBottom);
-  }
-  
-  // Export layout as print-ready specifications
-  exportPrintSpecs(layout: PageLayout): any {
-    return {
-      dimensions: {
-        width_mm: Math.round((layout.canvas.width / layout.canvas.dpi) * 25.4),
-        height_mm: Math.round((layout.canvas.height / layout.canvas.dpi) * 25.4),
-        width_px: layout.canvas.width,
-        height_px: layout.canvas.height,
-        dpi: layout.canvas.dpi
-      },
-      bleed: {
-        mm: this.specs.bleed_mm,
-        px: layout.canvas.bleed
-      },
-      margins: {
-        mm: this.specs.margin_mm,
-        px: layout.canvas.margin
-      },
-      gutter: {
-        mm: this.specs.gutter_mm,
-        px: layout.canvas.gutter
-      },
-      elements: layout.elements.map(el => ({
-        ...el,
-        x_mm: Math.round((el.x / layout.canvas.dpi) * 25.4),
-        y_mm: Math.round((el.y / layout.canvas.dpi) * 25.4),
-        width_mm: Math.round((el.width / layout.canvas.dpi) * 25.4),
-        height_mm: Math.round((el.height / layout.canvas.dpi) * 25.4)
-      }))
-    };
   }
 }

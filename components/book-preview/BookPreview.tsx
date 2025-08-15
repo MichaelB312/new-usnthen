@@ -17,7 +17,7 @@ import {
   Printer
 } from 'lucide-react';
 import { useBookStore } from '@/lib/store/bookStore';
-import { LayoutEngine } from '@/lib/layout/LayoutEngine';
+import { EnhancedLayoutEngine } from '@/lib/layout/EnhancedLayoutEngine';
 import { sanitizePageLayout, detectDeprecatedContent } from '@/lib/layout/sanitizer';
 import { EnhancedCanvas } from '@/components/book-preview/Canvas';
 import { PDFDocument, rgb } from 'pdf-lib';
@@ -62,7 +62,7 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       const illustration = illustrations.find(ill => ill.page_number === page.page_number);
       
       if (illustration) {
-        const engine = new LayoutEngine(bookId || 'default', page.page_number);
+        const engine = new EnhancedLayoutEngine(bookId || 'default', page.page_number);
         const layout = engine.generateLayout(
           page.layout_template,
           page.narration,
@@ -97,7 +97,7 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       });
       
       // Regenerate layout for this page
-      const engine = new LayoutEngine(bookId || 'default', editingPage + 1);
+      const engine = new EnhancedLayoutEngine(bookId || 'default', editingPage + 1);
       const illustration = illustrations.find(ill => ill.page_number === editingPage + 1);
       
       if (illustration) {

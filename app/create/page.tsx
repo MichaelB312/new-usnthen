@@ -7,7 +7,7 @@ import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Ho
 import { ChatInterface } from '@/components/story-wizard/ChatInterface';
 import { ProfileForm } from '@/components/baby-profile/ProfileForm';
 import { StoryReview } from '@/components/story-review/StoryReview';
-import { EnhancedImageGenerator as ImageGenerator } from '@/components/illustrations/ImageGenerator';
+import { BatchedImageGenerator as ImageGenerator } from '@/components/illustrations/BatchedImageGenerator';
 import { EnhancedBookPreview as BookPreview } from '@/components/book-preview/BookPreview';
 import { useBookStore } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';

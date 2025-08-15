@@ -1,4 +1,4 @@
-// lib/store/bookStore.ts
+// lib/store/bookStore.ts - Key changes for data URL support
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
@@ -29,7 +29,7 @@ interface BookStore {
     baby_name: string;
     birthdate: string;
     gender: 'boy' | 'girl' | 'neutral';
-    baby_photo_url?: string;
+    baby_photo_url?: string; // This is already a data URL
     photo_file?: File;
   } | null;
   
@@ -43,14 +43,16 @@ interface BookStore {
     style?: string;
   } | null;
   
-  // Illustrations
+  // Illustrations - UPDATED to store data URLs
   illustrations: {
     page_number: number;
-    url: string;
+    url: string; // This will now be a data URL (data:image/png;base64,...)
     style: string;
     seed?: number;
     shot?: string;
     action_id?: string;
+    prompt?: string;
+    model?: string;
   }[];
   illustrationStyle: 'wondrous' | 'crayon' | 'vintage' | 'watercolor' | 'pencil';
   
@@ -90,7 +92,18 @@ export const useBookStore = create<BookStore>()(
       setProfile: (profile) => set({ babyProfile: profile }),
       setConversation: (conversation) => set({ conversation }),
       setStory: (story) => set({ storyData: story }),
-      setIllustrations: (illustrations) => set({ illustrations }),
+      
+      // IMPORTANT: When setting illustrations, they now contain data URLs
+      setIllustrations: (illustrations) => {
+        // Ensure all URLs are data URLs or proper URLs
+        const validatedIllustrations = illustrations.map(ill => ({
+          ...ill,
+          // If the URL doesn't start with 'data:' or 'http', it might be invalid
+          url: ill.url || ill.dataUrl || '' // Support both url and dataUrl fields
+        }));
+        set({ illustrations: validatedIllustrations });
+      },
+      
       setIllustrationStyle: (style) => set({ illustrationStyle: style }),
       setPageLayout: (pageNumber, layout) => set((state) => ({
         layouts: { ...state.layouts, [pageNumber]: layout }
@@ -120,6 +133,9 @@ export const useBookStore = create<BookStore>()(
     }),
     {
       name: 'us-and-then-book',
+      // Add serialization for large data URLs if needed
+      serialize: (state) => JSON.stringify(state),
+      deserialize: (str) => JSON.parse(str),
     }
   )
 );

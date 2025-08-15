@@ -35,6 +35,7 @@ export interface SanitizedPageLayout {
   seed: number;
   template: string;
   shot: string;
+  mode?: 'image70' | 'text70' | 'fullBleed' | 'closeup' | 'spread'; // ADDED THIS LINE
   debug?: {
     collisionChecks: boolean;
     safeAreaViolations: string[];
@@ -77,6 +78,9 @@ export function sanitizePageLayout(layout: any): SanitizedPageLayout {
   // Remove decorations field from root if it exists
   const { decorations: _deprecatedDecorations, ...cleanLayout } = layout;
   
+  // Preserve the mode if it exists
+  const mode = layout.mode;
+  
   // Sanitize elements array
   const sanitizedElements = (layout.elements || [])
     .map(sanitizeElement)
@@ -84,7 +88,8 @@ export function sanitizePageLayout(layout: any): SanitizedPageLayout {
   
   return {
     ...cleanLayout,
-    elements: sanitizedElements
+    elements: sanitizedElements,
+    mode: mode // ADDED THIS LINE to preserve the mode
   };
 }
 

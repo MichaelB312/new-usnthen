@@ -1,4 +1,4 @@
-// components/book-preview/EnhancedBookPreview.tsx
+// components/book-preview/BookPreview.tsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -14,7 +14,8 @@ import {
   BookOpen,
   Settings,
   FileDown,
-  Printer
+  Printer,
+  Home
 } from 'lucide-react';
 import { useBookStore } from '@/lib/store/bookStore';
 import { EnhancedLayoutEngine } from '@/lib/layout/EnhancedLayoutEngine';
@@ -62,13 +63,15 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       const illustration = illustrations.find(ill => ill.page_number === page.page_number);
       
       if (illustration) {
+        // Use enhanced layout engine with new print specs
         const engine = new EnhancedLayoutEngine(bookId || 'default', page.page_number);
         const layout = engine.generateLayout(
-          page.layout_template,
+          page.layout_template || 'auto',
           page.narration,
           illustration.url,
           page.shot || page.closest_shot,
-          page.action_id
+          page.action_id,
+          page.emotion
         );
         
         setPageLayout(page.page_number, layout);
@@ -76,7 +79,7 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
     }
     
     setGeneratingLayouts(false);
-    toast.success('Layouts generated with print specifications!');
+    toast.success('Layouts generated with enhanced print specifications!');
   };
   
   const handleEditText = (pageNumber: number) => {
@@ -103,11 +106,12 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       if (illustration) {
         const page = updatedPages[editingPage];
         const layout = engine.generateLayout(
-          page.layout_template,
+          page.layout_template || 'auto',
           editedText,
           illustration.url,
           page.shot || page.closest_shot,
-          page.action_id
+          page.action_id,
+          page.emotion
         );
         setPageLayout(editingPage + 1, layout);
       }
@@ -287,6 +291,11 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
                       <span className="text-sm text-gray-500">
                         Action: {storyData.pages[currentPage].action_id?.replace(/_/g, ' ')}
                       </span>
+                      {layouts[currentPage + 1]?.mode && (
+                        <span className="text-sm text-purple-600 font-medium">
+                          Layout: {layouts[currentPage + 1].mode}
+                        </span>
+                      )}
                     </>
                   )}
                 </div>
@@ -306,7 +315,7 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
               <div className="bg-gray-100 rounded-2xl shadow-2xl overflow-hidden">
                 {layouts[currentPage + 1] ? (
                   <EnhancedCanvas 
-                    layout={sanitizePageLayout(layouts[currentPage + 1])} 
+                    layout={layouts[currentPage + 1]} 
                     width={900}
                     height={600}
                     showGuides={showGuides}
@@ -402,6 +411,74 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
         </div>
       )}
 
+      {/* Spread View */}
+      {viewMode === 'spread' && (
+        <div className="card-magical">
+          <div className="grid grid-cols-2 gap-8">
+            {/* Left Page */}
+            <div>
+              <div className="text-center mb-2 text-sm text-gray-500">
+                Page {currentPage * 2 + 1}
+              </div>
+              {layouts[currentPage * 2 + 1] ? (
+                <EnhancedCanvas 
+                  layout={layouts[currentPage * 2 + 1]} 
+                  width={450}
+                  height={300}
+                  showGuides={showGuides}
+                  showBleed={showBleed}
+                  showGutter={showGutter}
+                />
+              ) : (
+                <div className="w-full h-[300px] bg-gray-100 rounded-lg" />
+              )}
+            </div>
+            
+            {/* Right Page */}
+            <div>
+              <div className="text-center mb-2 text-sm text-gray-500">
+                Page {currentPage * 2 + 2}
+              </div>
+              {layouts[currentPage * 2 + 2] ? (
+                <EnhancedCanvas 
+                  layout={layouts[currentPage * 2 + 2]} 
+                  width={450}
+                  height={300}
+                  showGuides={showGuides}
+                  showBleed={showBleed}
+                  showGutter={showGutter}
+                />
+              ) : (
+                <div className="w-full h-[300px] bg-gray-100 rounded-lg" />
+              )}
+            </div>
+          </div>
+          
+          {/* Spread Navigation */}
+          <div className="flex items-center justify-between mt-8">
+            <button
+              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+              disabled={currentPage === 0}
+              className="btn-secondary"
+            >
+              Previous Spread
+            </button>
+            
+            <span className="text-sm text-gray-600">
+              Spread {currentPage + 1} of {Math.ceil((storyData?.pages.length || 0) / 2)}
+            </span>
+            
+            <button
+              onClick={() => setCurrentPage(Math.min(Math.ceil((storyData?.pages.length || 0) / 2) - 1, currentPage + 1))}
+              disabled={currentPage >= Math.ceil((storyData?.pages.length || 0) / 2) - 1}
+              className="btn-secondary"
+            >
+              Next Spread
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Grid View */}
       {viewMode === 'grid' && (
         <div className="card-magical">
@@ -421,7 +498,7 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
                 <div className="bg-white rounded-lg shadow-lg overflow-hidden transform transition-transform group-hover:scale-105">
                   {layouts[page.page_number] ? (
                     <EnhancedCanvas 
-                      layout={sanitizePageLayout(layouts[page.page_number])} 
+                      layout={layouts[page.page_number]} 
                       width={300}
                       height={200}
                       showGuides={false}
@@ -434,7 +511,14 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
                 </div>
                 <div className="mt-2 text-center">
                   <p className="font-medium">Page {page.page_number}</p>
-                  <p className="text-xs text-gray-500">{page.shot} • {page.action_id?.replace(/_/g, ' ')}</p>
+                  <p className="text-xs text-gray-500">
+                    {page.shot} • {page.action_id?.replace(/_/g, ' ')}
+                  </p>
+                  {layouts[page.page_number]?.mode && (
+                    <p className="text-xs text-purple-600 font-medium">
+                      Layout: {layouts[page.page_number].mode}
+                    </p>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -482,7 +566,7 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
         </div>
         
         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-          <h4 className="font-medium mb-2">Print Specifications:</h4>
+          <h4 className="font-medium mb-2">Enhanced Print Specifications:</h4>
           <div className="grid md:grid-cols-3 gap-4 text-sm text-gray-600">
             <div>
               <strong>Dimensions:</strong> 12" × 8" (3600×2400px)
@@ -500,7 +584,13 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
               <strong>Safe Margin:</strong> 12mm (142px)
             </div>
             <div>
-              <strong>Gutter:</strong> 10mm (118px)
+              <strong>Gutter:</strong> 10mm (100px)
+            </div>
+            <div className="col-span-3 mt-2 pt-2 border-t">
+              <strong>Layout Modes:</strong> image70, text70, fullBleed, closeup, spread
+            </div>
+            <div className="col-span-3">
+              <strong>Text Size:</strong> 42-56pt for toddler readability
             </div>
           </div>
         </div>
@@ -508,3 +598,6 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
     </div>
   );
 }
+
+// Also export as default for compatibility
+export default EnhancedBookPreview;

@@ -1,18 +1,6 @@
 // app/api/generate-image/route.ts
 /**
- * Single-page image generation endpoint using OpenAI GPT-IMAGE-1
- * 
- * GPT-IMAGE-1 advantages over DALL-E-2:
- * - Better facial feature consistency (input_fidelity: high)
- * - Supports up to 16 images for better character consistency
- * - Larger file size limit (50MB vs 4MB)
- * - Better quality options (high/medium/low)
- * - Automatic size determination
- * - Transparent background support
- * - Always returns base64 (no URL expiration)
- * 
- * NOTE: The OpenAI SDK TypeScript types don't include GPT-IMAGE-1 parameters yet,
- * so we use 'any' type for the API call parameters to bypass type checking.
+ * Optimized image generation - 1024×1024 for preview, upscale only on export
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -22,25 +10,24 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-// Force Node runtime for fs/sharp compatibility
+// Force Node runtime
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 minutes max
+export const maxDuration = 300; // 5 minutes
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 120000,   // 2 minute SDK timeout
-  maxRetries: 2,     // SDK-level retries
+  timeout: 120000,
+  maxRetries: 2,
 });
 
-// PNG conversion cache (in-memory for this worker)
+// Cache for processed plates
 const plateCache = new Map<string, string>();
 
 interface GenerateImageRequest {
   bookId: string;
   pageNumber: number;
-  babyPhotoUrl?: string; // Only needed if plate not cached
-  additionalPhotos?: string[]; // Optional: more reference photos for better consistency
+  babyPhotoUrl?: string;
   pageData: {
     narration: string;
     shot: string;
@@ -48,107 +35,94 @@ interface GenerateImageRequest {
     action_label?: string;
   };
   style: 'wondrous' | 'crayon' | 'vintage';
+  size?: 'preview' | 'print'; // Optional size mode
 }
 
-// Style tag mappings (enhanced for GPT-IMAGE-1)
 const STYLE_TAGS = {
-  wondrous: 'Wondrous Illustration Style (magical, airy watercolor with soft edges and dreamy atmosphere)',
-  crayon: 'Crayon Illustration Style (waxy, hand-drawn texture with visible strokes)',
-  vintage: 'Vintage Illustration Style (mid-century print aesthetic with muted colors)'
+  wondrous: 'Wondrous watercolor style, soft and dreamy',
+  crayon: 'Crayon drawing style, hand-drawn texture',
+  vintage: 'Vintage illustration style, muted colors'
 } as const;
 
-// Shot type mappings
 const SHOT_DESCRIPTIONS = {
   wide: 'wide shot showing full environment',
-  medium: 'medium shot showing character and immediate surroundings',
-  closeup: 'close-up shot focusing on face and expressions',
+  medium: 'medium shot showing character and surroundings',
+  closeup: 'close-up shot focusing on face',
   birdseye: "bird's-eye view from above",
   low: 'low angle shot looking up'
 } as const;
 
 /**
- * Get or create RGBA PNG plate for this book
+ * GET handler - returns 405 Method Not Allowed
+ */
+export async function GET() {
+  return NextResponse.json(
+    { 
+      error: 'Method Not Allowed',
+      message: 'This endpoint only accepts POST requests'
+    },
+    { 
+      status: 405,
+      headers: { 
+        'Allow': 'POST, DELETE',
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+}
+
+/**
+ * Process baby photo to RGBA PNG
  */
 async function getOrCreatePlate(bookId: string, babyPhotoUrl?: string): Promise<string> {
-  // Check memory cache first
   const cacheKey = `plate-${bookId}`;
   if (plateCache.has(cacheKey)) {
     const cachedPath = plateCache.get(cacheKey)!;
     if (fs.existsSync(cachedPath)) {
-      console.log(`Using cached plate for bookId: ${bookId}`);
       return cachedPath;
     }
   }
   
-  // Check temp file
-  const tmpPath = path.join(os.tmpdir(), `us-then-${bookId}-plate-rgba.png`);
+  const tmpPath = path.join(os.tmpdir(), `us-then-${bookId}-plate.png`);
   if (fs.existsSync(tmpPath)) {
-    console.log(`Found existing plate file for bookId: ${bookId}`);
     plateCache.set(cacheKey, tmpPath);
     return tmpPath;
   }
   
-  // Need to create new plate
   if (!babyPhotoUrl) {
-    throw new Error('Baby photo URL required to create plate');
+    throw new Error('Baby photo required');
   }
   
   try {
     const sharp = await import('sharp').then(m => m.default);
-    
-    // Extract base64 data
     const base64Data = babyPhotoUrl.replace(/^data:image\/\w+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
     
-    // Convert to RGBA PNG with alpha channel
+    // Resize to reasonable size for processing (max 1024px)
     const pngBuffer = await sharp(buffer)
-      .rotate() // Respect EXIF orientation
+      .rotate()
+      .resize(1024, 1024, { 
+        fit: 'inside',
+        withoutEnlargement: true 
+      })
       .toColourspace('srgb')
-      .ensureAlpha(1) // ADD ALPHA CHANNEL - CRITICAL!
+      .ensureAlpha(1)
       .png({ compressionLevel: 9 })
       .toBuffer();
     
-    // Verify RGBA (required for both dall-e-2 and gpt-image-1)
-    const metadata = await sharp(pngBuffer).metadata();
-    console.log('PNG metadata for GPT-IMAGE-1:', {
-      channels: metadata.channels,
-      hasAlpha: metadata.hasAlpha,
-      width: metadata.width,
-      height: metadata.height,
-      format: metadata.format,
-      size: `${(buffer.length / 1024 / 1024).toFixed(2)}MB` // Show size (max 50MB for gpt-image-1)
-    });
-    
-    if (metadata.channels !== 4 || !metadata.hasAlpha) {
-      throw new Error('PNG must be RGBA with alpha channel');
-    }
-    
-    // Save to temp file
     await fs.promises.writeFile(tmpPath, pngBuffer);
-    
-    // Cache the path
     plateCache.set(cacheKey, tmpPath);
     
-    console.log(`Created new RGBA PNG plate for bookId ${bookId}`);
+    console.log(`Created plate for ${bookId} (${pngBuffer.length / 1024}KB)`);
     return tmpPath;
   } catch (error) {
     console.error('PNG conversion error:', error);
-    throw new Error('Failed to convert image to RGBA PNG format');
+    throw new Error('Failed to process image');
   }
 }
 
 /**
- * Clean narration text for image generation
- */
-function cleanNarrationForImage(narration: string): string {
-  return narration
-    .replace(/\s*…?and then—\s*$/i, '') // Remove page-turn cue
-    .replace(/[.!?]+$/, '') // Remove ending punctuation
-    .trim();
-}
-
-/**
- * Build prompt for image generation (optimized for GPT-IMAGE-1)
+ * Build prompt for GPT-IMAGE-1
  */
 function buildPrompt(
   page: GenerateImageRequest['pageData'],
@@ -157,238 +131,138 @@ function buildPrompt(
   const shotType = page.shot || 'medium';
   const shotLine = SHOT_DESCRIPTIONS[shotType as keyof typeof SHOT_DESCRIPTIONS] || 'medium shot';
   
-  const actionLine = page.action_label || 
-    page.action_id.replace(/_/g, ' ').toLowerCase();
-  
-  const sceneLine = cleanNarrationForImage(page.narration)
+  const sceneLine = page.narration
+    .replace(/\s*…?and then—\s*$/i, '')
+    .replace(/[.!?]+$/, '')
+    .trim()
     .toLowerCase();
   
-  // GPT-IMAGE-1 supports up to 32000 characters, so we can be more descriptive
-  const detailedPrompt = [
+  return [
     shotLine,
     sceneLine,
-    actionLine,
-    'clean composition',
-    'picture-book for ages 0-3',
+    page.action_label || page.action_id.replace(/_/g, ' '),
+    'children\'s book illustration',
     STYLE_TAGS[style],
-    'maintain consistent character appearance',
-    'child-friendly illustration',
-    'bright and engaging colors',
+    'consistent character',
     'simple background',
-    'professional children\'s book quality'
+    'bright colors'
   ].join(', ');
-  
-  return detailedPrompt;
 }
 
 /**
- * Retry wrapper for transient errors
- */
-async function withRetries<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
-  let lastErr: any;
-  for (let i = 0; i < tries; i++) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      lastErr = err;
-      
-      // Check if it's a model availability issue
-      if (err?.message?.includes('model') && err?.message?.includes('gpt-image-1')) {
-        console.warn('GPT-IMAGE-1 not available, will fallback to DALL-E-2');
-        throw err; // Don't retry model errors
-      }
-      
-      const transient = 
-        err?.code === 'ECONNRESET' || 
-        err?.name === 'APIConnectionError' ||
-        err?.message?.includes('ECONNRESET');
-      
-      if (!transient || i === tries - 1) throw err;
-      
-      const delay = 500 * Math.pow(2, i); // Exponential backoff
-      console.log(`Retry ${i + 1}/${tries} after ${delay}ms due to: ${err.code || err.name}`);
-      await new Promise(r => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
-}
-
-/**
- * Main POST handler for single page generation
+ * Main POST handler
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
-  let modelUsed = 'unknown'; // Track which model was used
   
   try {
     const body: GenerateImageRequest = await request.json();
-    const { bookId, pageNumber, babyPhotoUrl, additionalPhotos, pageData, style } = body;
+    const { bookId, pageNumber, babyPhotoUrl, pageData, style, size = 'preview' } = body;
     
-    console.log(`Generating page ${pageNumber} for book ${bookId} using GPT-IMAGE-1`);
+    console.log(`Generating page ${pageNumber} for book ${bookId}`);
+    console.log(`Size mode: ${size}, Style: ${style}, Shot: ${pageData.shot}`);
     
-    // Get or create the RGBA plate
+    // Get processed plate
     const platePath = await getOrCreatePlate(bookId, babyPhotoUrl);
-    
-    // Read PNG file into buffer
     const pngBuffer = await fs.promises.readFile(platePath);
     
-    // Create primary image file
+    // Create file for OpenAI
     const imageFile = await toFile(
       pngBuffer, 
       'plate.png',
       { type: 'image/png' }
     );
     
-    // Prepare images array (GPT-IMAGE-1 can accept multiple images)
-    const images = [imageFile];
-    
-    // Add additional reference photos if provided (up to 16 total)
-    if (additionalPhotos && additionalPhotos.length > 0) {
-      console.log(`Adding ${additionalPhotos.length} additional reference photos`);
-      for (let i = 0; i < Math.min(additionalPhotos.length, 15); i++) {
-        try {
-          const additionalBase64 = additionalPhotos[i].replace(/^data:image\/\w+;base64,/, '');
-          const additionalBuffer = Buffer.from(additionalBase64, 'base64');
-          const additionalFile = await toFile(
-            additionalBuffer,
-            `ref-${i}.png`,
-            { type: 'image/png' }
-          );
-          images.push(additionalFile);
-        } catch (err) {
-          console.warn(`Failed to add reference photo ${i}:`, err);
-        }
-      }
-    }
-    
-    // Build the prompt
+    // Build prompt
     const pagePrompt = buildPrompt(pageData, style);
-    console.log(`Page ${pageNumber} prompt: ${pagePrompt}`);
+    console.log(`Prompt: ${pagePrompt.substring(0, 100)}...`);
     
-    let response: any;
-    modelUsed = 'gpt-image-1'; // Set default
-    
+    // Call GPT-IMAGE-1
+    let response;
     try {
-      // Try GPT-IMAGE-1 first
-      response = await withRetries(async () => {
-        console.log(`Calling OpenAI GPT-IMAGE-1 for page ${pageNumber}...`);
-        
-        // TypeScript workaround: The SDK types don't include GPT-IMAGE-1 params yet
-        // So we build the params object with proper typing bypass
-        const params: any = {
-          model: 'gpt-image-1',  // Using the better model!
-          image: images.length === 1 ? images[0] : images, // Single or multiple images
-          prompt: pagePrompt,
-          n: 1,
-          // GPT-IMAGE-1 specific parameters (not in TypeScript types yet)
-          input_fidelity: 'high', // Better face matching!
-          quality: 'high',        // High quality output
-          size: 'auto',           // Let model choose best size
-          background: 'transparent', // Keep transparency
-          output_format: 'png'    // PNG format
-        };
-        
-        return openai.images.edit(params);
-      });
-    } catch (gptError: any) {
-      // Fallback to DALL-E-2 if GPT-IMAGE-1 fails
-      console.warn('GPT-IMAGE-1 failed, falling back to DALL-E-2:', gptError.message);
-      modelUsed = 'dall-e-2';
+      const params: any = {
+        model: 'gpt-image-1',
+        image: imageFile,
+        prompt: pagePrompt,
+        n: 1,
+        size: '1024x1024', // Always generate at 1024 for speed
+        quality: 'high',
+        background: 'transparent',
+        output_format: 'png'
+      };
       
-      response = await withRetries(async () => {
-        console.log(`Calling OpenAI DALL-E-2 for page ${pageNumber}...`);
-        
-        // DALL-E-2 requires shorter prompt (max 1000 chars)
-        const shortPrompt = pagePrompt.substring(0, 1000);
-        
-        return openai.images.edit({
-          model: 'dall-e-2',
-          image: images[0], // DALL-E-2 only supports one image
-          prompt: shortPrompt,
-          n: 1,
-          size: '1024x1024',
-          response_format: 'url'
-        });
-      });
+      response = await openai.images.edit(params);
+    } catch (error: any) {
+      console.error('OpenAI error:', error);
+      throw new Error(error.message || 'Image generation failed');
     }
     
-    // Check response based on model
-    // GPT-IMAGE-1 always returns base64, DALL-E-2 can return URL or base64
+    // Extract image
     let imageBase64: string;
-    
-    if (response.data && response.data.length > 0) {
-      const imageData = response.data[0];
-      
-      // Handle both b64_json and url formats
-      if ('b64_json' in imageData && imageData.b64_json) {
-        imageBase64 = imageData.b64_json;
-      } else if ('url' in imageData && imageData.url) {
-        // Fallback for URL response (shouldn't happen with GPT-IMAGE-1)
-        console.log('Unexpected URL response from GPT-IMAGE-1, fetching image...');
-        const imageResponse = await fetch(imageData.url);
-        const buffer = await imageResponse.arrayBuffer();
-        imageBase64 = Buffer.from(buffer).toString('base64');
-      } else {
-        throw new Error('No image data in response');
-      }
+    if (response.data?.[0]?.b64_json) {
+      imageBase64 = response.data[0].b64_json;
+    } else if (response.data?.[0]?.url) {
+      const imgResponse = await fetch(response.data[0].url);
+      const buffer = await imgResponse.arrayBuffer();
+      imageBase64 = Buffer.from(buffer).toString('base64');
     } else {
-      throw new Error('Empty response from OpenAI');
+      throw new Error('No image in response');
     }
     
+    // Process with sharp for optimization
+    const sharp = await import('sharp').then(m => m.default);
     const imageBuffer = Buffer.from(imageBase64, 'base64');
-    console.log(`OpenAI ${modelUsed} generation successful for page ${pageNumber}`);
     
-    // Upscale the image
-    let finalImage: string;
+    // For preview: keep at 1024, convert to optimized PNG or WebP
+    let finalBuffer: Buffer;
+    let mimeType: string;
     
-    try {
-      const sharp = await import('sharp').then(m => m.default);
-      if (sharp) {
-        // Upscale to print resolution
-        const upscaledBuffer = await sharp(imageBuffer)
-          .resize(3600, 2400, {
-            fit: 'contain',
-            background: { r: 255, g: 255, b: 255, alpha: 0 }
-          })
-          .ensureAlpha(1) // Keep alpha channel
-          .png()
-          .toBuffer();
-        
-        finalImage = `data:image/png;base64,${upscaledBuffer.toString('base64')}`;
-        console.log(`Page ${pageNumber} upscaled to print resolution`);
-      } else {
-        finalImage = `data:image/png;base64,${imageBase64}`;
-      }
-    } catch (upscaleError) {
-      console.warn('Upscaling failed, using original:', upscaleError);
-      finalImage = `data:image/png;base64,${imageBase64}`;
+    if (size === 'print') {
+      // Only upscale if specifically requested for print
+      // Most baby books are 7×7" = 2100×2100px at 300 DPI
+      finalBuffer = await sharp(imageBuffer)
+        .resize(2100, 2100, {
+          fit: 'contain',
+          background: { r: 255, g: 255, b: 255, alpha: 0 }
+        })
+        .png({ quality: 95 })
+        .toBuffer();
+      mimeType = 'image/png';
+      console.log(`Upscaled to print size: ${finalBuffer.length / 1024}KB`);
+    } else {
+      // For preview: optimize at 1024
+      finalBuffer = await sharp(imageBuffer)
+        .png({ 
+          quality: 85,
+          compressionLevel: 9,
+          palette: true // Use palette for smaller size
+        })
+        .toBuffer();
+      mimeType = 'image/png';
+      console.log(`Optimized preview: ${finalBuffer.length / 1024}KB`);
     }
+    
+    // Create data URL (much smaller now!)
+    const dataUrl = `data:${mimeType};base64,${finalBuffer.toString('base64')}`;
     
     const elapsedMs = Date.now() - startTime;
     console.log(`Page ${pageNumber} completed in ${elapsedMs}ms`);
     
-    // Return success response
     return NextResponse.json({ 
       success: true,
       page_number: pageNumber,
-      url: finalImage,
+      dataUrl, // Smaller data URL
+      size: size === 'print' ? '2100x2100' : '1024x1024',
+      sizeKB: Math.round(finalBuffer.length / 1024),
       prompt: pagePrompt,
-      style: style,
+      style,
       shot: pageData.shot,
       action_id: pageData.action_id,
       elapsed_ms: elapsedMs,
-      model: modelUsed, // Shows which model was actually used
-      settings: modelUsed === 'gpt-image-1' ? {
-        input_fidelity: 'high',
-        quality: 'high',
-        background: 'transparent'
-      } : {
-        size: '1024x1024',
-        response_format: 'url'
-      }
+      model: 'gpt-image-1'
     }, {
       headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Cache-Control': 'no-store',
         'Pragma': 'no-cache'
       }
     });
@@ -396,48 +270,27 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error(`Error generating page:`, error);
     
-    const elapsedMs = Date.now() - startTime;
-    
-    // Provide helpful error messages for common issues
-    let errorMessage = error.message || 'Failed to generate image';
-    
-    if (error.message?.includes('format must be in')) {
-      errorMessage = 'Image must be PNG format with alpha channel (RGBA)';
-    } else if (error.message?.includes('50MB')) {
-      errorMessage = 'Image file too large (max 50MB for gpt-image-1)';
-    } else if (error.message?.includes('model')) {
-      errorMessage = 'Model error - ensure gpt-image-1 is available';
-    }
-    
     return NextResponse.json(
       { 
         success: false, 
-        error: errorMessage,
-        elapsed_ms: elapsedMs,
-        model: modelUsed || 'attempted: gpt-image-1',
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        error: error.message || 'Failed to generate image',
+        elapsed_ms: Date.now() - startTime
       },
-      { 
-        status: 500,
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate'
-        }
-      }
+      { status: 500 }
     );
   }
 }
 
 /**
- * Cleanup endpoint for temp files
+ * DELETE handler - cleanup temp files
  */
-export async function DELETE(request: NextRequest) {
+export async function DELETE() {
   try {
     const tmpDir = os.tmpdir();
     const files = await fs.promises.readdir(tmpDir);
     
-    // Clean up old us-then PNG files (older than 1 hour)
-    const oneHourAgo = Date.now() - (60 * 60 * 1000);
     let cleaned = 0;
+    const oneHourAgo = Date.now() - (60 * 60 * 1000);
     
     for (const file of files) {
       if (file.startsWith('us-then-') && file.endsWith('.png')) {
@@ -454,13 +307,12 @@ export async function DELETE(request: NextRequest) {
       }
     }
     
-    // Clear cache
     plateCache.clear();
     
     return NextResponse.json({ 
       success: true, 
       cleaned,
-      message: `Cleaned ${cleaned} old temporary files`
+      message: `Cleaned ${cleaned} old files`
     });
   } catch (error) {
     return NextResponse.json(

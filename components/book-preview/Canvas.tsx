@@ -1,11 +1,13 @@
-// components/book-preview/EnhancedCanvas.tsx
+// components/book-preview/Canvas.tsx
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PageLayout, LayoutElement } from '@/lib/layout/EnhancedLayoutEngine';
+// Don't import Rect type at all since we don't use it directly
+import { PageLayout, LayoutElement, CANVAS_W, CANVAS_H, SAFE, GUTTER, BLEED } from '@/lib/layout/EnhancedLayoutEngine';
+import { FileDown } from 'lucide-react';
 
 // Try to import react-konva if available
-let Stage: any, Layer: any, KonvaImage: any, Text: any, Rect: any, Group: any;
+let Stage: any, Layer: any, KonvaImage: any, Text: any, KonvaRect: any, Group: any, Line: any;
 let Konva: any;
 
 try {
@@ -14,8 +16,9 @@ try {
   Layer = konvaImports.Layer;
   KonvaImage = konvaImports.Image;
   Text = konvaImports.Text;
-  Rect = konvaImports.Rect;
+  KonvaRect = konvaImports.Rect;  // Rename to KonvaRect to avoid conflicts
   Group = konvaImports.Group;
+  Line = konvaImports.Line;
   Konva = require('konva');
 } catch (e) {
   console.warn('React-Konva not available, using fallback canvas rendering');
@@ -43,26 +46,26 @@ export function EnhancedCanvas({
   const stageRef = useRef<any>(null);
   const [images, setImages] = useState<Record<string, HTMLImageElement>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [exportMode, setExportMode] = useState(false);
   
   // If react-konva is not available, use fallback canvas
   if (!Stage) {
     return (
-      <div style={{ width, height }} className="relative">
-        <canvas 
-          width={width}
-          height={height}
-          className="w-full h-full"
-        />
-        <p className="absolute top-2 left-2 text-xs text-gray-500">
-          Install react-konva for enhanced preview
-        </p>
-      </div>
+      <FallbackCanvas 
+        layout={layout}
+        width={width}
+        height={height}
+        showGuides={showGuides}
+        showBleed={showBleed}
+        showGutter={showGutter}
+        onExport={onExport}
+      />
     );
   }
   
   // Calculate scale to fit display
-  const scaleX = width / layout.canvas.width;
-  const scaleY = height / layout.canvas.height;
+  const scaleX = width / CANVAS_W;
+  const scaleY = height / CANVAS_H;
   const scale = Math.min(scaleX, scaleY);
   
   // Load all images
@@ -98,23 +101,24 @@ export function EnhancedCanvas({
     loadImages();
   }, [layout]);
   
-  // Export high-quality image
+  // Export high-quality image at print resolution
   const exportImage = () => {
     if (!stageRef.current) return;
     
-    // Temporarily scale up for export
+    setExportMode(true);
     const stage = stageRef.current;
-    const oldScale = stage.scaleX();
     
-    // Export at print resolution
+    // Temporarily scale up for export at print resolution
+    const oldScale = stage.scaleX();
     stage.scale({ x: 1, y: 1 });
     stage.size({ 
-      width: layout.canvas.width, 
-      height: layout.canvas.height 
+      width: CANVAS_W, 
+      height: CANVAS_H 
     });
     
+    // Export at 300 DPI (use pixelRatio: 3 for high quality)
     const dataUrl = stage.toDataURL({
-      pixelRatio: 1,
+      pixelRatio: 3, // High quality export
       mimeType: 'image/png',
       quality: 1
     });
@@ -122,6 +126,7 @@ export function EnhancedCanvas({
     // Restore display scale
     stage.scale({ x: scale, y: scale });
     stage.size({ width, height });
+    setExportMode(false);
     
     if (onExport) {
       onExport(dataUrl);
@@ -144,47 +149,34 @@ export function EnhancedCanvas({
             width={element.width}
             height={element.height}
             rotation={element.rotation}
-            offsetX={0}
-            offsetY={0}
           />
         );
         
       case 'text':
-        // Create text background if specified or if it's the plaque
         const textGroup = [];
         
-        if (element.id === 'text_plaque') {
-          // This is the background plaque for text
+        // Text background plaque
+        if (element.id === 'text_plaque' || element.style?.background_color) {
+          const padding = element.style?.padding || 20;
           textGroup.push(
-            <Rect
-              key={element.id}
-              x={element.x - element.width / 2}
-              y={element.y - element.height / 2}
-              width={element.width}
-              height={element.height}
-              fill={element.style?.background_color || 'rgba(255, 255, 255, 0.95)'}
-              cornerRadius={10}
-              rotation={element.rotation}
-            />
-          );
-        } else if (element.style?.background_color) {
-          // Regular text with optional background
-          const padding = element.style.padding || 20;
-          textGroup.push(
-            <Rect
+            <KonvaRect
               key={`${element.id}_bg`}
               x={element.x - element.width / 2 - padding}
               y={element.y - element.height / 2 - padding}
               width={element.width + padding * 2}
               height={element.height + padding * 2}
-              fill={element.style.background_color}
-              cornerRadius={10}
+              fill={element.style?.background_color || 'rgba(255, 255, 255, 0.95)'}
+              cornerRadius={15}
               rotation={element.rotation}
+              shadowColor="rgba(0,0,0,0.1)"
+              shadowBlur={10}
+              shadowOffsetX={0}
+              shadowOffsetY={5}
             />
           );
         }
         
-        // Only render actual text if there's content
+        // Only render text if there's content
         if (element.content) {
           textGroup.push(
             <Text
@@ -194,14 +186,15 @@ export function EnhancedCanvas({
               y={element.y - element.height / 2}
               width={element.width}
               height={element.height}
-              fontSize={element.style?.font_size_pt || 24}
+              fontSize={element.style?.font_size_pt || 42} // Large toddler-friendly font
               fontFamily={element.style?.font_family || 'Patrick Hand'}
               fill={element.style?.color || '#2D3748'}
               align={element.style?.text_align || 'center'}
               verticalAlign="middle"
-              lineHeight={element.style?.line_height || 1.4}
+              lineHeight={element.style?.line_height || 1.6}
               rotation={element.rotation}
               wrap="word"
+              fontStyle={element.style?.font_weight ? `${element.style.font_weight} ` : ''}
             />
           );
         }
@@ -231,90 +224,226 @@ export function EnhancedCanvas({
       >
         <Layer>
           {/* Background */}
-          <Rect
+          <KonvaRect
             x={0}
             y={0}
-            width={layout.canvas.width}
-            height={layout.canvas.height}
+            width={CANVAS_W}
+            height={CANVAS_H}
             fill="#FFFFFF"
           />
           
           {/* Bleed area (if enabled) */}
           {showBleed && (
-            <>
-              <Rect
-                x={-layout.canvas.bleed}
-                y={-layout.canvas.bleed}
-                width={layout.canvas.width + layout.canvas.bleed * 2}
-                height={layout.canvas.bleed}
-                fill="rgba(255, 0, 0, 0.1)"
+            <Group opacity={0.3}>
+              {/* Top bleed */}
+              <KonvaRect
+                x={-BLEED}
+                y={-BLEED}
+                width={CANVAS_W + BLEED * 2}
+                height={BLEED}
+                fill="red"
               />
-              <Rect
-                x={-layout.canvas.bleed}
-                y={layout.canvas.height}
-                width={layout.canvas.width + layout.canvas.bleed * 2}
-                height={layout.canvas.bleed}
-                fill="rgba(255, 0, 0, 0.1)"
+              {/* Bottom bleed */}
+              <KonvaRect
+                x={-BLEED}
+                y={CANVAS_H}
+                width={CANVAS_W + BLEED * 2}
+                height={BLEED}
+                fill="red"
               />
-              <Rect
-                x={-layout.canvas.bleed}
+              {/* Left bleed */}
+              <KonvaRect
+                x={-BLEED}
                 y={0}
-                width={layout.canvas.bleed}
-                height={layout.canvas.height}
-                fill="rgba(255, 0, 0, 0.1)"
+                width={BLEED}
+                height={CANVAS_H}
+                fill="red"
               />
-              <Rect
-                x={layout.canvas.width}
+              {/* Right bleed */}
+              <KonvaRect
+                x={CANVAS_W}
                 y={0}
-                width={layout.canvas.bleed}
-                height={layout.canvas.height}
-                fill="rgba(255, 0, 0, 0.1)"
+                width={BLEED}
+                height={CANVAS_H}
+                fill="red"
               />
-            </>
+            </Group>
           )}
           
           {/* Safe area guides (if enabled) */}
-          {showGuides && (
-            <Rect
+          {showGuides && layout.safeArea && (
+            <KonvaRect
               x={layout.safeArea.x}
               y={layout.safeArea.y}
-              width={layout.safeArea.width}
-              height={layout.safeArea.height}
-              stroke="rgba(0, 255, 0, 0.3)"
-              strokeWidth={2}
+              width={layout.safeArea.w}
+              height={layout.safeArea.h}
+              stroke="rgba(0, 255, 0, 0.5)"
+              strokeWidth={3}
               fill="transparent"
-              dash={[10, 5]}
+              dash={[15, 10]}
             />
           )}
           
           {/* Gutter guide (if enabled) */}
-          {showGutter && (
-            <Rect
-              x={layout.gutterArea.x}
-              y={layout.gutterArea.y}
-              width={layout.gutterArea.width}
-              height={layout.gutterArea.height}
-              fill="rgba(0, 0, 255, 0.1)"
-              stroke="rgba(0, 0, 255, 0.3)"
-              strokeWidth={2}
-              dash={[10, 5]}
-            />
+          {showGutter && layout.gutterArea && (
+            <Group>
+              <KonvaRect
+                x={layout.gutterArea.x}
+                y={layout.gutterArea.y}
+                width={layout.gutterArea.w}
+                height={layout.gutterArea.h}
+                fill="rgba(0, 0, 255, 0.1)"
+              />
+              <Line
+                points={[
+                  CANVAS_W / 2, 0,
+                  CANVAS_W / 2, CANVAS_H
+                ]}
+                stroke="rgba(0, 0, 255, 0.5)"
+                strokeWidth={2}
+                dash={[10, 5]}
+              />
+            </Group>
           )}
           
           {/* Render all elements sorted by z-index */}
           {layout.elements
             .sort((a, b) => a.zIndex - b.zIndex)
             .map(element => renderElement(element))}
+          
+          {/* Layout mode indicator */}
+          {showGuides && layout.mode && (
+            <Text
+              text={`Mode: ${layout.mode} | Shot: ${layout.shot}`}
+              x={10}
+              y={10}
+              fontSize={14}
+              fill="rgba(0,0,0,0.5)"
+              fontFamily="monospace"
+            />
+          )}
         </Layer>
       </Stage>
       
-      {/* Export button */}
+      {/* Export controls */}
+      {onExport && (
+        <div className="absolute top-4 right-4 flex gap-2">
+          <button
+            onClick={exportImage}
+            disabled={exportMode}
+            className="btn-secondary text-sm flex items-center gap-2 bg-white/90 backdrop-blur"
+          >
+            <FileDown className="h-4 w-4" />
+            {exportMode ? 'Exporting...' : 'Export Print-Ready'}
+          </button>
+        </div>
+      )}
+      
+      {/* Print specs indicator */}
+      {showGuides && (
+        <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur rounded-lg p-2 text-xs">
+          <div className="font-mono">
+            <div>Canvas: {CANVAS_W}×{CANVAS_H}px @ 300dpi</div>
+            <div>Safe: {SAFE}px margin</div>
+            <div>Gutter: {GUTTER}px</div>
+            <div>Bleed: {BLEED}px</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Fallback canvas implementation when Konva is not available
+function FallbackCanvas({ 
+  layout, 
+  width, 
+  height,
+  showGuides,
+  showBleed,
+  showGutter,
+  onExport
+}: EnhancedCanvasProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Clear canvas
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Scale to fit
+    const scale = Math.min(width / CANVAS_W, height / CANVAS_H);
+    ctx.save();
+    ctx.scale(scale, scale);
+    
+    // Draw guides if enabled
+    if (showGuides && layout.safeArea) {
+      ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([15, 10]);
+      ctx.strokeRect(
+        layout.safeArea.x,
+        layout.safeArea.y,
+        layout.safeArea.w,
+        layout.safeArea.h
+      );
+      ctx.setLineDash([]);
+    }
+    
+    if (showGutter && layout.gutterArea) {
+      ctx.fillStyle = 'rgba(0, 0, 255, 0.1)';
+      ctx.fillRect(
+        layout.gutterArea.x,
+        layout.gutterArea.y,
+        layout.gutterArea.w,
+        layout.gutterArea.h
+      );
+    }
+    
+    // Draw placeholder for elements
+    ctx.fillStyle = '#E9D5FF';
+    ctx.fillRect(100, 100, CANVAS_W - 200, CANVAS_H - 200);
+    
+    // Draw text
+    ctx.fillStyle = '#4C1D95';
+    ctx.font = 'bold 48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Install react-konva for full preview', CANVAS_W / 2, CANVAS_H / 2);
+    
+    ctx.restore();
+  }, [layout, width, height, showGuides, showBleed, showGutter]);
+  
+  const handleExport = () => {
+    if (canvasRef.current && onExport) {
+      const dataUrl = canvasRef.current.toDataURL('image/png', 1.0);
+      onExport(dataUrl);
+    }
+  };
+  
+  return (
+    <div className="relative">
+      <canvas 
+        ref={canvasRef}
+        width={width}
+        height={height}
+        className="w-full h-full"
+      />
+      <div className="absolute top-2 left-2 text-xs text-gray-500 bg-white/90 p-2 rounded">
+        Install react-konva for enhanced preview
+      </div>
       {onExport && (
         <button
-          onClick={exportImage}
+          onClick={handleExport}
           className="absolute top-4 right-4 btn-secondary text-sm"
         >
-          Export Print-Ready
+          Export (Basic)
         </button>
       )}
     </div>

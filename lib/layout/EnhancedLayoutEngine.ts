@@ -1,17 +1,25 @@
 // lib/layout/EnhancedLayoutEngine.ts
 
+// ==================== Print Specifications ====================
+export const CANVAS_W = 3600; // 12" @ 300dpi
+export const CANVAS_H = 2400; // 8"  @ 300dpi
+export const BLEED = 36;      // ~3mm
+export const SAFE = 142;      // ~12mm margin
+export const GUTTER = 100;    // keep faces/text out of center
+
 // ==================== Type Definitions ====================
+export type Rect = { x: number; y: number; w: number; h: number };
+export type LayoutMode = "image70" | "text70" | "fullBleed" | "closeup" | "spread";
 export type CanonShot = "wide" | "medium" | "closeup" | "birdseye" | "low";
 export type CoreEmotion = "joy" | "curiosity" | "calm" | "pride" | "wonder";
-export type LayoutTemplate = "hero_spread" | "action_focus" | "portrait_emphasis" | "collage" | "closing_spread";
 
 export interface PrintSpecs {
-  width_px: number;      // 3600px
-  height_px: number;     // 2400px  
-  dpi: number;          // 300
-  bleed_mm: number;     // 3mm
-  margin_mm: number;    // 12mm
-  gutter_mm: number;    // 10mm
+  width_px: number;
+  height_px: number;
+  dpi: number;
+  bleed_mm: number;
+  margin_mm: number;
+  gutter_mm: number;
 }
 
 export interface LayoutElement {
@@ -51,76 +59,154 @@ export interface PageLayout {
     gutter: number;
   };
   elements: LayoutElement[];
-  safeArea: { x: number; y: number; width: number; height: number };
-  bleedArea: { x: number; y: number; width: number; height: number };
-  gutterArea: { x: number; y: number; width: number; height: number };
+  safeArea: Rect;
+  bleedArea: Rect;
+  gutterArea: Rect;
   seed: number;
   template: string;
   shot: string;
+  mode: LayoutMode;
   debug?: {
     collisionChecks: boolean;
     safeAreaViolations: string[];
   };
 }
 
-// ==================== Layout Templates with BIGGER FONTS ====================
-const LAYOUT_CONFIGS: Record<LayoutTemplate, any> = {
-  hero_spread: {
-    name: "Hero Spread",
-    image: { x: 0.5, y: 0.45, w: 0.65, h: 0.65 },
-    text: { x: 0.5, y: 0.85, w: 0.7, h: 0.15 },
-    textStyle: { 
-      font_size_pt: 72,  // BIGGER! Was 48
-      text_align: 'center' as const,
-      font_weight: '800', // Extra bold
-      letter_spacing: '0.02em'
+// ==================== Layout Mode Selection ====================
+export function chooseLayoutFromShot(
+  shot: string, 
+  wordsCount: number
+): LayoutMode {
+  const s = shot.toLowerCase();
+  
+  if (s.includes("bird") || s.includes("overhead") || s.includes("birdseye")) {
+    return "image70";
+  }
+  if (s.includes("close") || s.includes("closeup")) {
+    return "closeup";
+  }
+  if (s.includes("low")) {
+    return wordsCount <= 14 ? "fullBleed" : "image70";
+  }
+  if (s.includes("wide")) {
+    return wordsCount <= 14 ? "fullBleed" : "image70";
+  }
+  
+  // Default logic based on word count
+  return wordsCount > 16 ? "text70" : "image70";
+}
+
+// ==================== Frame Computation ====================
+export function computeFrames(
+  mode: LayoutMode,
+  imageAR: number = 1.5 // default aspect ratio
+): { imageFrame: Rect; textFrame?: Rect; safeRect: Rect; gutterRect: Rect } {
+  const safeRect: Rect = { 
+    x: SAFE, 
+    y: SAFE, 
+    w: CANVAS_W - 2 * SAFE, 
+    h: CANVAS_H - 2 * SAFE 
+  };
+  
+  const gutterRect: Rect = { 
+    x: CANVAS_W / 2 - GUTTER / 2, 
+    y: 0, 
+    w: GUTTER, 
+    h: CANVAS_H 
+  };
+
+  switch (mode) {
+    case "fullBleed": {
+      return { 
+        imageFrame: { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H }, 
+        safeRect, 
+        gutterRect 
+      };
     }
-  },
-  action_focus: {
-    name: "Action Focus",
-    image: { x: 0.35, y: 0.5, w: 0.45, h: 0.6 },
-    text: { x: 0.72, y: 0.5, w: 0.35, h: 0.4 },
-    textStyle: { 
-      font_size_pt: 64,  // BIGGER! Was 42
-      text_align: 'left' as const,
-      font_weight: '700',
-      letter_spacing: '0.01em'
+    
+    case "image70": {
+      const iw = Math.round(safeRect.w * 0.66);
+      const ih = Math.min(Math.round(iw / imageAR), safeRect.h);
+      const adjW = Math.round(ih * imageAR);
+      const imageFrame: Rect = { 
+        x: safeRect.x, 
+        y: safeRect.y + (safeRect.h - ih) / 2, 
+        w: adjW, 
+        h: ih 
+      };
+      const textFrame: Rect = { 
+        x: imageFrame.x + imageFrame.w + 40, 
+        y: safeRect.y, 
+        w: safeRect.w - adjW - 40, 
+        h: safeRect.h 
+      };
+      return { imageFrame, textFrame, safeRect, gutterRect };
     }
-  },
-  portrait_emphasis: {
-    name: "Portrait Emphasis",
-    image: { x: 0.5, y: 0.4, w: 0.5, h: 0.5 },
-    text: { x: 0.5, y: 0.75, w: 0.6, h: 0.15 },
-    textStyle: { 
-      font_size_pt: 68,  // BIGGER! Was 44
-      text_align: 'center' as const,
-      font_weight: '700',
-      letter_spacing: '0.02em'
+    
+    case "text70": {
+      const textFrame: Rect = { 
+        x: safeRect.x, 
+        y: safeRect.y, 
+        w: Math.round(safeRect.w * 0.62), 
+        h: safeRect.h 
+      };
+      const iw = Math.round(safeRect.w - textFrame.w - 40);
+      const ih = Math.min(Math.round(iw / imageAR), safeRect.h);
+      const imageFrame: Rect = { 
+        x: textFrame.x + textFrame.w + 40, 
+        y: safeRect.y + (safeRect.h - ih) / 2, 
+        w: iw, 
+        h: ih 
+      };
+      return { imageFrame, textFrame, safeRect, gutterRect };
     }
-  },
-  collage: {
-    name: "Collage",
-    image: { x: 0.5, y: 0.5, w: 0.7, h: 0.7 },
-    text: { x: 0.5, y: 0.9, w: 0.8, h: 0.08 },
-    textStyle: { 
-      font_size_pt: 60,  // BIGGER! Was 40
-      text_align: 'center' as const,
-      font_weight: '800',
-      letter_spacing: '0.01em'
+    
+    case "closeup": {
+      const iw = Math.round(safeRect.w * 0.85);
+      const ih = Math.min(Math.round(iw / imageAR), safeRect.h);
+      const imageFrame: Rect = { 
+        x: safeRect.x + (safeRect.w - iw) / 2, 
+        y: safeRect.y + (safeRect.h - ih) / 2, 
+        w: iw, 
+        h: ih 
+      };
+      const textFrame: Rect = { 
+        x: safeRect.x + 40, 
+        y: safeRect.y + safeRect.h - 360, 
+        w: safeRect.w - 80, 
+        h: 300 
+      };
+      return { imageFrame, textFrame, safeRect, gutterRect };
     }
-  },
-  closing_spread: {
-    name: "Closing Spread",
-    image: { x: 0.5, y: 0.35, w: 0.6, h: 0.45 },
-    text: { x: 0.5, y: 0.7, w: 0.7, h: 0.2 },
-    textStyle: { 
-      font_size_pt: 76,  // BIGGER! Was 52
-      text_align: 'center' as const,
-      font_weight: '900', // Black weight
-      letter_spacing: '0.03em'
+    
+    case "spread": {
+      // Fill safe area; actual double-page compositing occurs at export
+      return { 
+        imageFrame: safeRect, 
+        safeRect, 
+        gutterRect 
+      };
     }
   }
-};
+}
+
+// ==================== Character Scale Rules ====================
+export function getCharacterScaleForShot(shot: CanonShot): number {
+  switch (shot) {
+    case "closeup":
+      return 0.9; // Up to 90% for close-ups
+    case "birdseye":
+      return 0.25; // 20-30% for exploration/bird's-eye
+    case "wide":
+      return 0.3; // Smaller in wide shots
+    case "medium":
+      return 0.55; // Default 50-60%
+    case "low":
+      return 0.6; // Slightly larger for dramatic effect
+    default:
+      return 0.5;
+  }
+}
 
 // Baby-friendly color palettes
 const TEXT_COLORS = {
@@ -131,14 +217,14 @@ const TEXT_COLORS = {
   happy: '#FFD93D'        // Yellow
 };
 
-// Fun fonts for babies (in order of preference)
+// Toddler-friendly fonts
 const BABY_FONTS = [
-  'Comic Sans MS',        // Playful
-  'Patrick Hand',         // Handwritten
-  'Caveat',              // Casual script
-  'Fredoka One',         // Rounded and bold
-  'Bubblegum Sans',      // Cute and round
-  'Arial Rounded MT Bold' // Fallback rounded
+  'Comic Sans MS',
+  'Patrick Hand',
+  'Caveat',
+  'Fredoka One',
+  'Bubblegum Sans',
+  'Arial Rounded MT Bold'
 ];
 
 // ==================== Main Layout Engine ====================
@@ -155,10 +241,9 @@ export class EnhancedLayoutEngine {
     this.seed = this.hashCode(seedString);
     this.random = this.createSeededRandom(this.seed);
     
-    // Print specifications
     this.specs = {
-      width_px: 3600,
-      height_px: 2400,
+      width_px: CANVAS_W,
+      height_px: CANVAS_H,
       dpi: 300,
       bleed_mm: 3,
       margin_mm: 12,
@@ -188,7 +273,6 @@ export class EnhancedLayoutEngine {
     return min + this.random() * (max - min);
   }
   
-  // Get emotion-based text color
   private getTextColorForEmotion(emotion?: string): string {
     switch(emotion) {
       case 'joy': return TEXT_COLORS.happy;
@@ -210,93 +294,91 @@ export class EnhancedLayoutEngine {
     // Get canonical shot type
     const canonShot = this.canonicalizeShot(shot);
     
-    // Map shot to template if not specified
-    const template = templateName as LayoutTemplate || this.shotToTemplate(canonShot);
-    const config = LAYOUT_CONFIGS[template];
+    // Count words for layout decision
+    const wordCount = narration ? narration.split(/\s+/).length : 0;
     
-    // Calculate pixel values
-    const bleedPx = this.mmToPx(this.specs.bleed_mm);
-    const marginPx = this.mmToPx(this.specs.margin_mm);
-    const gutterPx = this.mmToPx(this.specs.gutter_mm);
+    // Choose layout mode based on shot and word count
+    const mode = chooseLayoutFromShot(canonShot, wordCount);
+    
+    // Compute frames for this mode
+    const frames = computeFrames(mode);
+    
+    // Get character scale
+    const characterScale = getCharacterScaleForShot(canonShot);
     
     const layout: PageLayout = {
       canvas: {
-        width: this.specs.width_px,
-        height: this.specs.height_px,
-        dpi: this.specs.dpi,
-        bleed: bleedPx,
-        margin: marginPx,
-        gutter: gutterPx
+        width: CANVAS_W,
+        height: CANVAS_H,
+        dpi: 300,
+        bleed: BLEED,
+        margin: SAFE,
+        gutter: GUTTER
       },
       elements: [],
-      safeArea: {
-        x: marginPx,
-        y: marginPx,
-        width: this.specs.width_px - (marginPx * 2),
-        height: this.specs.height_px - (marginPx * 2)
-      },
+      safeArea: frames.safeRect,
       bleedArea: {
-        x: -bleedPx,
-        y: -bleedPx,
-        width: this.specs.width_px + (bleedPx * 2),
-        height: this.specs.height_px + (bleedPx * 2)
+        x: -BLEED,
+        y: -BLEED,
+        w: CANVAS_W + 2 * BLEED,
+        h: CANVAS_H + 2 * BLEED
       },
-      gutterArea: {
-        x: (this.specs.width_px / 2) - (gutterPx / 2),
-        y: 0,
-        width: gutterPx,
-        height: this.specs.height_px
-      },
+      gutterArea: frames.gutterRect,
       seed: this.seed,
-      template: template,
+      template: templateName,
       shot: canonShot,
+      mode: mode,
       debug: {
         collisionChecks: false,
         safeAreaViolations: []
       }
     };
     
-    // Apply character scale based on shot type
-    const scaleMultiplier = this.getScaleForShot(canonShot);
-    
-    // Place main image with micro-jitter
-    if (illustrationUrl) {
-      const jitterX = this.getRandomInRange(-0.02, 0.02);
-      const jitterY = this.getRandomInRange(-0.02, 0.02);
-      const jitterRotation = this.getRandomInRange(-2, 2);
+    // Place main image with character scale
+    if (illustrationUrl && frames.imageFrame) {
+      const jitterX = this.getRandomInRange(-10, 10);
+      const jitterY = this.getRandomInRange(-10, 10);
+      const jitterRotation = this.getRandomInRange(-1, 1);
+      
+      // Apply character scale to image dimensions
+      const scaledWidth = frames.imageFrame.w * characterScale;
+      const scaledHeight = frames.imageFrame.h * characterScale;
       
       const imageElement: LayoutElement = {
         type: 'image',
         id: 'main_image',
-        x: (config.image.x + jitterX) * this.specs.width_px,
-        y: (config.image.y + jitterY) * this.specs.height_px,
-        width: config.image.w * this.specs.width_px * scaleMultiplier,
-        height: config.image.h * this.specs.height_px * scaleMultiplier,
+        x: frames.imageFrame.x + frames.imageFrame.w / 2 + jitterX,
+        y: frames.imageFrame.y + frames.imageFrame.h / 2 + jitterY,
+        width: scaledWidth,
+        height: scaledHeight,
         rotation: jitterRotation,
         url: illustrationUrl,
         zIndex: 2
       };
       
-      // Ensure image stays in safe area
-      this.constrainToSafeArea(imageElement, layout.safeArea);
+      // Ensure image avoids gutter
+      this.avoidGutter(imageElement, frames.gutterRect);
       layout.elements.push(imageElement);
     }
     
-    // Place text with colorful plaque background
-    if (narration) {
-      const textJitterX = this.getRandomInRange(-0.015, 0.015);
-      const textJitterY = this.getRandomInRange(-0.01, 0.01);
-      const textJitterRotation = this.getRandomInRange(-1, 1);
+    // Place text with toddler-friendly sizing
+    if (narration && frames.textFrame) {
+      const textJitterX = this.getRandomInRange(-5, 5);
+      const textJitterY = this.getRandomInRange(-5, 5);
+      const textJitterRotation = this.getRandomInRange(-0.5, 0.5);
       
-      // Colorful text background plaque
-      const plaquePadding = 40; // Bigger padding for baby books
+      // Calculate font size based on word count (42-56pt for toddlers)
+      const baseFontSize = wordCount <= 10 ? 56 : wordCount <= 15 ? 48 : 42;
+      
+      // Text background plaque
+      const plaquePadding = 30;
       const plaqueElement: LayoutElement = {
         type: 'text',
         id: 'text_plaque',
-        x: (config.text.x + textJitterX) * this.specs.width_px,
-        y: (config.text.y + textJitterY) * this.specs.height_px,
-        width: config.text.w * this.specs.width_px + plaquePadding * 2,
-        height: config.text.h * this.specs.height_px + plaquePadding * 2,
+        x: frames.textFrame.x + frames.textFrame.w / 2 + textJitterX,
+        y: frames.textFrame.y + frames.textFrame.h / 2 + textJitterY,
+        width: frames.textFrame.w + plaquePadding * 2,
+        height: frames.textFrame.h + plaquePadding * 2,
         rotation: textJitterRotation,
         style: {
           font_family: '',
@@ -304,38 +386,37 @@ export class EnhancedLayoutEngine {
           text_align: 'center',
           color: '',
           line_height: 0,
-          // Fun gradient background for babies
-          background_color: 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,240,245,0.95) 100%)'
+          background_color: 'rgba(255, 255, 255, 0.95)'
         },
         zIndex: 3
       };
       
-      // Text element with bigger, bolder font
+      // Text element
       const textElement: LayoutElement = {
         type: 'text',
         id: 'narration',
-        x: (config.text.x + textJitterX) * this.specs.width_px,
-        y: (config.text.y + textJitterY) * this.specs.height_px,
-        width: config.text.w * this.specs.width_px,
-        height: config.text.h * this.specs.height_px,
+        x: frames.textFrame.x + frames.textFrame.w / 2 + textJitterX,
+        y: frames.textFrame.y + frames.textFrame.h / 2 + textJitterY,
+        width: frames.textFrame.w,
+        height: frames.textFrame.h,
         rotation: textJitterRotation,
         content: narration,
         style: {
-          font_family: BABY_FONTS[0], // Use most playful font
-          font_size_pt: config.textStyle.font_size_pt,
-          text_align: config.textStyle.text_align,
+          font_family: BABY_FONTS[0],
+          font_size_pt: baseFontSize,
+          text_align: mode === 'text70' ? 'left' : 'center',
           color: this.getTextColorForEmotion(emotion),
-          line_height: 1.6, // More spacing for readability
-          font_weight: config.textStyle.font_weight,
-          text_shadow: '2px 2px 4px rgba(0,0,0,0.1)', // Soft shadow for depth
-          letter_spacing: config.textStyle.letter_spacing
+          line_height: 1.6,
+          font_weight: '700',
+          text_shadow: '2px 2px 4px rgba(0,0,0,0.1)',
+          letter_spacing: '0.02em'
         },
         zIndex: 4
       };
       
-      // Keep text out of gutter
-      this.avoidGutter(textElement, layout.gutterArea);
-      this.constrainToSafeArea(textElement, layout.safeArea);
+      // Ensure text avoids gutter
+      this.avoidGutter(textElement, frames.gutterRect);
+      this.avoidGutter(plaqueElement, frames.gutterRect);
       
       layout.elements.push(plaqueElement);
       layout.elements.push(textElement);
@@ -344,8 +425,9 @@ export class EnhancedLayoutEngine {
     // Sort by z-index
     layout.elements.sort((a, b) => a.zIndex - b.zIndex);
     
-    // Check for collisions
+    // Check for collisions and safe area violations
     layout.debug!.collisionChecks = this.checkCollisions(layout);
+    this.checkSafeAreaViolations(layout);
     
     return layout;
   }
@@ -366,51 +448,18 @@ export class EnhancedLayoutEngine {
     return SHOT_MAP[key] ?? fallback;
   }
   
-  private shotToTemplate(shot: CanonShot): LayoutTemplate {
-    const mappings: Record<CanonShot, LayoutTemplate> = {
-      'wide': 'hero_spread',
-      'medium': 'action_focus',
-      'closeup': 'portrait_emphasis',
-      'birdseye': 'collage',
-      'low': 'hero_spread'
-    };
-    return mappings[shot];
-  }
-  
-  private getScaleForShot(shot: CanonShot): number {
-    const scales: Record<CanonShot, number> = {
-      'wide': 0.6,
-      'medium': 0.75,
-      'closeup': 0.9,
-      'birdseye': 0.3,
-      'low': 0.8
-    };
-    return scales[shot];
-  }
-  
-  private constrainToSafeArea(element: LayoutElement, safeArea: PageLayout['safeArea']) {
-    const halfWidth = element.width / 2;
-    const halfHeight = element.height / 2;
-    
-    const minX = safeArea.x + halfWidth;
-    const maxX = safeArea.x + safeArea.width - halfWidth;
-    element.x = Math.max(minX, Math.min(maxX, element.x));
-    
-    const minY = safeArea.y + halfHeight;
-    const maxY = safeArea.y + safeArea.height - halfHeight;
-    element.y = Math.max(minY, Math.min(maxY, element.y));
-  }
-  
-  private avoidGutter(element: LayoutElement, gutterArea: PageLayout['gutterArea']) {
+  private avoidGutter(element: LayoutElement, gutterArea: Rect) {
     const elementLeft = element.x - element.width / 2;
     const elementRight = element.x + element.width / 2;
     const gutterLeft = gutterArea.x;
-    const gutterRight = gutterArea.x + gutterArea.width;
+    const gutterRight = gutterArea.x + gutterArea.w;
     
+    // Check if element overlaps with gutter
     if (elementLeft < gutterRight && elementRight > gutterLeft) {
       const leftDistance = gutterLeft - elementLeft;
       const rightDistance = elementRight - gutterRight;
       
+      // Move to the side with more space
       if (leftDistance < rightDistance) {
         element.x = gutterLeft - element.width / 2 - 20;
       } else {
@@ -419,12 +468,13 @@ export class EnhancedLayoutEngine {
     }
   }
   
-  checkCollisions(layout: PageLayout): boolean {
+  private checkCollisions(layout: PageLayout): boolean {
     for (let i = 0; i < layout.elements.length; i++) {
       for (let j = i + 1; j < layout.elements.length; j++) {
         const a = layout.elements[i];
         const b = layout.elements[j];
         
+        // Skip plaque-text pairs
         if ((a.id === 'text_plaque' && b.id === 'narration') ||
             (b.id === 'text_plaque' && a.id === 'narration')) continue;
         
@@ -448,5 +498,28 @@ export class EnhancedLayoutEngine {
     const bBottom = b.y + b.height / 2;
     
     return !(aRight < bLeft || aLeft > bRight || aBottom < bTop || aTop > bBottom);
+  }
+  
+  private checkSafeAreaViolations(layout: PageLayout) {
+    const safe = layout.safeArea;
+    
+    layout.elements.forEach(element => {
+      const left = element.x - element.width / 2;
+      const right = element.x + element.width / 2;
+      const top = element.y - element.height / 2;
+      const bottom = element.y + element.height / 2;
+      
+      const violations = [];
+      if (left < safe.x) violations.push('left');
+      if (right > safe.x + safe.w) violations.push('right');
+      if (top < safe.y) violations.push('top');
+      if (bottom > safe.y + safe.h) violations.push('bottom');
+      
+      if (violations.length > 0 && layout.debug) {
+        layout.debug.safeAreaViolations.push(
+          `${element.id}: ${violations.join(', ')}`
+        );
+      }
+    });
   }
 }

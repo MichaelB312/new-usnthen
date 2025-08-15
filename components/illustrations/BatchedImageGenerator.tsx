@@ -1,4 +1,4 @@
-// components/illustrations/TrulySequentialGenerator.tsx
+// components/illustrations/BatchedImageGenerator.tsx
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -15,14 +15,15 @@ import {
   XCircle,
   Play,
   Pause,
-  Lock
+  Lock,
+  Clock
 } from 'lucide-react';
 import { useBookStore } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';
 
 interface GeneratedImage {
   page_number: number;
-  url: string;
+  dataUrl: string; // CHANGED: Use dataUrl instead of url
   style: string;
   shot: string;
   action_id: string;
@@ -31,7 +32,12 @@ interface GeneratedImage {
   error?: string;
   elapsed_ms?: number;
   model?: string;
+  timestamp?: number;
 }
+
+// Constants for timing
+const PAGE_TIMEOUT_MS = 300000; // 5 minutes per page (minimum 3 minutes requested)
+const GAP_BETWEEN_PAGES_MS = 3000; // 3 second gap between pages
 
 export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }) {
   const { 
@@ -50,10 +56,13 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
   const [progress, setProgress] = useState(0);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [currentGeneratingPage, setCurrentGeneratingPage] = useState<number | null>(null);
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [pageStartTime, setPageStartTime] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // CRITICAL: Generation lock to prevent multiple concurrent runs
+  // CRITICAL: Generation lock and runId to prevent parallel runs
   const generationLockRef = useRef<boolean>(false);
+  const runIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   
   // Enhanced style options
@@ -86,7 +95,7 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
     if (storyData?.pages) {
       const initialImages: GeneratedImage[] = storyData.pages.map(page => ({
         page_number: page.page_number,
-        url: '',
+        dataUrl: '', // CHANGED: Initialize with empty dataUrl
         style: illustrationStyle,
         shot: page.shot || 'medium',
         action_id: page.action_id || '',
@@ -132,13 +141,16 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
   };
 
   /**
-   * THE ONLY GENERATION FUNCTION - TRULY SEQUENTIAL WITH LOCK
+   * TRUE SEQUENTIAL GENERATION - One page at a time with data URLs
    */
   const generateAllSequentially = async () => {
-    // CRITICAL: Check if already generating
+    // CRITICAL: Check and acquire lock
     if (generationLockRef.current) {
       console.warn('⚠️ Generation already in progress! Ignoring duplicate request.');
-      toast.error('Generation already in progress!');
+      toast.error('Generation already in progress!', { 
+        icon: '🔒',
+        duration: 3000 
+      });
       return;
     }
     
@@ -147,15 +159,19 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
       return;
     }
     
-    // ACQUIRE LOCK
+    // Acquire lock and set runId
     generationLockRef.current = true;
-    console.log('🔒 Generation lock acquired');
+    runIdRef.current = crypto.randomUUID();
+    const currentRunId = runIdRef.current;
+    
+    console.log(`🔒 Generation lock acquired - RunID: ${currentRunId}`);
     
     setGenerating(true);
     setProgress(0);
     setCurrentGeneratingPage(null);
+    setStartTime(Date.now());
     
-    // Create new abort controller
+    // Create new abort controller for this run
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -166,14 +182,30 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
     const successfulImages: any[] = [];
     
     try {
-      console.log(`\n${'='.repeat(50)}`);
-      console.log('🚀 STARTING TRULY SEQUENTIAL GENERATION');
+      console.log(`\n${'='.repeat(60)}`);
+      console.log('🚀 STARTING TRUE SEQUENTIAL GENERATION');
       console.log(`📚 Total pages: ${totalPages}`);
+      console.log(`🎨 Style: ${illustrationStyle}`);
       console.log(`⏰ Start time: ${new Date().toISOString()}`);
-      console.log(`${'='.repeat(50)}\n`);
+      console.log(`🔑 RunID: ${currentRunId}`);
+      console.log(`⏱️ Timeout per page: ${PAGE_TIMEOUT_MS / 1000}s`);
+      console.log(`⏸️ Gap between pages: ${GAP_BETWEEN_PAGES_MS / 1000}s`);
+      console.log(`${'='.repeat(60)}\n`);
       
-      // PROCESS EACH PAGE ONE BY ONE
+      // Show info toast
+      toast('Generating illustrations sequentially...', {
+        icon: '🎨',
+        duration: 5000
+      });
+      
+      // PROCESS EACH PAGE STRICTLY SEQUENTIALLY
       for (let i = 0; i < totalPages; i++) {
+        // Check if this run was cancelled
+        if (runIdRef.current !== currentRunId) {
+          console.log('❌ Run cancelled - RunID mismatch');
+          break;
+        }
+        
         if (abortControllerRef.current?.signal.aborted) {
           console.log('❌ Generation aborted by user');
           break;
@@ -182,12 +214,15 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
         const page = storyData.pages[i];
         const pageNumber = page.page_number;
         
-        console.log(`\n${'─'.repeat(40)}`);
+        console.log(`\n${'─'.repeat(50)}`);
         console.log(`📄 PAGE ${pageNumber} / ${totalPages}`);
-        console.log(`⏰ Start: ${new Date().toISOString()}`);
-        console.log(`${'─'.repeat(40)}`);
+        console.log(`🎬 Shot: ${page.shot || 'medium'}`);
+        console.log(`🎭 Action: ${page.action_id || 'default'}`);
+        console.log(`⏰ Page start: ${new Date().toISOString()}`);
+        console.log(`${'─'.repeat(50)}`);
         
         setCurrentGeneratingPage(pageNumber);
+        setPageStartTime(Date.now());
         
         // Update UI to show generating
         setGeneratedImages(prev => prev.map(img => 
@@ -197,21 +232,21 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
         ));
         
         try {
-          // CREATE REQUEST WITH 5 MINUTE TIMEOUT
-          const controller = new AbortController();
+          // Create page-specific abort controller with timeout
+          const pageController = new AbortController();
           const timeoutId = setTimeout(() => {
-            console.log(`⏱️ Page ${pageNumber} timeout after 5 minutes`);
-            controller.abort();
-          }, 300000); // 5 minutes
+            console.log(`⏱️ Page ${pageNumber} timeout after ${PAGE_TIMEOUT_MS / 1000}s`);
+            pageController.abort();
+          }, PAGE_TIMEOUT_MS);
           
-          console.log(`📤 Sending request for page ${pageNumber}...`);
+          console.log(`📤 Sending POST request for page ${pageNumber}...`);
           const startTime = Date.now();
           
-          // MAKE THE API CALL
+          // MAKE THE API CALL - POST only
           const response = await fetch('/api/generate-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
+            signal: pageController.signal,
             body: JSON.stringify({
               bookId,
               pageNumber,
@@ -229,22 +264,26 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
           clearTimeout(timeoutId);
           const elapsed = Date.now() - startTime;
           
-          console.log(`📥 Response for page ${pageNumber}: Status=${response.status}, Time=${elapsed}ms`);
+          console.log(`📥 Response for page ${pageNumber}:`);
+          console.log(`   Status: ${response.status}`);
+          console.log(`   Time: ${(elapsed / 1000).toFixed(1)}s`);
           
           if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`HTTP ${response.status}: ${errorText.slice(0, 100)}`);
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
           }
           
           const data = await response.json();
           
-          if (data.success && data.url) {
+          // IMPORTANT: Use dataUrl from response
+          if (data.success && data.dataUrl) {
             // SUCCESS!
             successCount++;
             
+            // Store with dataUrl for direct display
             successfulImages.push({
               page_number: pageNumber,
-              url: data.url,
+              url: data.dataUrl, // Store as url for compatibility with store
               style: illustrationStyle,
               shot: data.shot || page.shot || 'medium',
               action_id: data.action_id || page.action_id || '',
@@ -252,27 +291,33 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
               model: data.model
             });
             
-            // Update UI
+            // Update UI with dataUrl
             setGeneratedImages(prev => prev.map(img => 
               img.page_number === pageNumber 
                 ? { 
                     ...img, 
-                    url: data.url,
+                    dataUrl: data.dataUrl, // IMPORTANT: Store dataUrl
                     prompt: data.prompt,
                     status: 'success' as const,
                     elapsed_ms: data.elapsed_ms,
-                    model: data.model
+                    model: data.model,
+                    timestamp: Date.now()
                   }
                 : img
             ));
             
             console.log(`✅ PAGE ${pageNumber} SUCCESS`);
-            console.log(`   Model: ${data.model}`);
-            console.log(`   Time: ${(data.elapsed_ms/1000).toFixed(1)}s`);
+            console.log(`   Model: ${data.model || 'gpt-image-1'}`);
+            console.log(`   Time: ${(data.elapsed_ms / 1000).toFixed(1)}s`);
+            console.log(`   Quality: ${data.settings?.quality || 'high'}`);
+            console.log(`   Data URL length: ${data.dataUrl.length} chars`);
             
-            toast.success(`Page ${pageNumber} completed!`, { duration: 2000 });
+            toast.success(`Page ${pageNumber} complete!`, { 
+              duration: 2000,
+              icon: '✅'
+            });
           } else {
-            throw new Error(data.error || 'No image URL received');
+            throw new Error(data.error || 'No image data received');
           }
           
         } catch (error: any) {
@@ -289,24 +334,29 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
               : img
           ));
           
-          toast.error(`Page ${pageNumber} failed: ${error.message}`, { duration: 3000 });
+          toast.error(`Page ${pageNumber} failed: ${error.message}`, { 
+            duration: 3000,
+            icon: '❌'
+          });
         }
         
         // Update progress
         setProgress((i + 1) / totalPages);
         
-        // CRITICAL: WAIT 3 SECONDS BEFORE NEXT PAGE
+        // CRITICAL: WAIT BETWEEN PAGES (except for last page)
         if (i < totalPages - 1) {
-          console.log(`⏳ Waiting 3 seconds before next page...`);
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          console.log(`⏳ Waiting ${GAP_BETWEEN_PAGES_MS / 1000}s before next page...`);
+          await new Promise(resolve => setTimeout(resolve, GAP_BETWEEN_PAGES_MS));
         }
       }
       
-      console.log(`\n${'='.repeat(50)}`);
+      const totalTime = Date.now() - (startTime || Date.now());
+      console.log(`\n${'='.repeat(60)}`);
       console.log('🏁 GENERATION COMPLETE');
       console.log(`✅ Success: ${successCount}/${totalPages} pages`);
+      console.log(`⏱️ Total time: ${(totalTime / 1000).toFixed(1)}s`);
       console.log(`⏰ End time: ${new Date().toISOString()}`);
-      console.log(`${'='.repeat(50)}\n`);
+      console.log(`${'='.repeat(60)}\n`);
       
       // Save successful images to store
       if (successfulImages.length > 0) {
@@ -314,7 +364,9 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
         console.log(`💾 Saved ${successfulImages.length} images to store`);
         
         if (successCount === totalPages) {
-          toast.success('All illustrations generated successfully!');
+          toast.success('All illustrations generated successfully! 🎉', {
+            duration: 5000
+          });
           setTimeout(onComplete, 1500);
         } else {
           toast(`Generated ${successCount} of ${totalPages} images`, {
@@ -332,10 +384,13 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
     } finally {
       // RELEASE LOCK
       generationLockRef.current = false;
+      runIdRef.current = null;
       console.log('🔓 Generation lock released');
       
       setGenerating(false);
       setCurrentGeneratingPage(null);
+      setStartTime(null);
+      setPageStartTime(null);
       abortControllerRef.current = null;
     }
   };
@@ -347,7 +402,8 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
     if (abortControllerRef.current) {
       console.log('🛑 Cancelling generation...');
       abortControllerRef.current.abort();
-      toast('Generation cancelled');
+      runIdRef.current = null; // Clear runId to stop the loop
+      toast('Generation cancelled', { icon: '🛑' });
     }
   };
 
@@ -365,6 +421,19 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
       case 'error':
         return <XCircle className="w-4 h-4 text-red-500" />;
     }
+  };
+
+  /**
+   * Format elapsed time
+   */
+  const formatTime = (ms: number) => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (minutes > 0) {
+      return `${minutes}m ${remainingSeconds}s`;
+    }
+    return `${seconds}s`;
   };
 
   return (
@@ -409,17 +478,17 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
             />
             <button 
               onClick={() => {
-                if (!generating) {
+                if (!generating && !generationLockRef.current) {
                   setPhotoPreview('');
                   setGeneratedImages(prev => prev.map(img => ({ 
                     ...img, 
-                    url: '', 
+                    dataUrl: '', 
                     status: 'pending' as const 
                   })));
                 }
               }}
               className="btn-secondary"
-              disabled={generating}
+              disabled={generating || generationLockRef.current}
             >
               Change Photo
             </button>
@@ -446,13 +515,13 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
                   key={style.id}
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => !generating && setIllustrationStyle(style.id as any)}
-                  disabled={generating}
+                  onClick={() => !generating && !generationLockRef.current && setIllustrationStyle(style.id as any)}
+                  disabled={generating || generationLockRef.current}
                   className={`relative p-8 rounded-2xl border-3 transition-all ${
                     illustrationStyle === style.id
                       ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
                       : 'border-gray-200 hover:border-purple-300 bg-white'
-                  } ${generating ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  } ${(generating || generationLockRef.current) ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <Icon className="h-10 w-10 text-purple-600 mb-4 mx-auto" />
                   <h3 className="text-xl font-semibold mb-2">{style.name}</h3>
@@ -464,13 +533,29 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
         </motion.div>
       )}
 
-      {/* Generation */}
+      {/* Generation Control */}
       {photoPreview && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="card-magical"
         >
+          {/* Important Notice */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="flex items-start gap-3">
+              <Clock className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-blue-900">
+                  Sequential Processing - Please be patient
+                </p>
+                <p className="text-xs text-blue-700 mt-1">
+                  Each page is generated one at a time with GPT-IMAGE-1. 
+                  This can take 1-3 minutes per page. Please don't close this tab.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {!generating && generatedImages.every(img => img.status === 'pending') && (
             <button
               onClick={generateAllSequentially}
@@ -480,7 +565,7 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
               {generationLockRef.current ? (
                 <>
                   <Lock className="h-7 w-7" />
-                  Generation in Progress...
+                  Generation Locked...
                 </>
               ) : (
                 <>
@@ -494,28 +579,28 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
           {generating && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
-                <h3 className="text-2xl font-patrick gradient-text">
-                  Generating Illustrations One by One...
-                </h3>
+                <div>
+                  <h3 className="text-2xl font-patrick gradient-text">
+                    Generating Page {currentGeneratingPage} of {storyData?.pages.length}
+                  </h3>
+                  {startTime && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Total time: {formatTime(Date.now() - startTime)}
+                    </p>
+                  )}
+                  {pageStartTime && currentGeneratingPage && (
+                    <p className="text-xs text-gray-500">
+                      Current page: {formatTime(Date.now() - pageStartTime)}
+                    </p>
+                  )}
+                </div>
                 <button
                   onClick={cancelGeneration}
                   className="btn-secondary px-4 py-2"
                 >
+                  <Pause className="h-4 w-4 mr-2" />
                   Cancel
                 </button>
-              </div>
-              
-              {/* Info message */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-700">
-                  <strong>Sequential Processing:</strong> Each page is generated one at a time.
-                  Current page takes 1-3 minutes with GPT-IMAGE-1.
-                </p>
-                {currentGeneratingPage && (
-                  <p className="text-xs text-blue-600 mt-1">
-                    <strong>Now generating: Page {currentGeneratingPage}</strong>
-                  </p>
-                )}
               </div>
               
               {/* Progress Bar */}
@@ -538,7 +623,7 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
                     key={img.page_number}
                     className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all ${
                       img.status === 'generating' 
-                        ? 'bg-yellow-50 border-yellow-400 scale-110 shadow-lg' 
+                        ? 'bg-yellow-50 border-yellow-400 scale-110 shadow-lg animate-pulse' 
                         : img.status === 'success'
                         ? 'bg-green-50 border-green-400'
                         : img.status === 'error'
@@ -554,17 +639,30 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
                       </span>
                     )}
                     {img.model && (
-                      <span className="text-xs text-purple-600">
+                      <span className="text-xs text-purple-600 font-mono">
                         {img.model === 'gpt-image-1' ? 'GPT' : 'D2'}
                       </span>
                     )}
                   </div>
                 ))}
               </div>
+              
+              {/* Current Page Info */}
+              {currentGeneratingPage && (
+                <div className="bg-purple-50 rounded-lg p-4">
+                  <p className="text-sm text-purple-700">
+                    <strong>Processing:</strong> Page {currentGeneratingPage} - {
+                      storyData?.pages[currentGeneratingPage - 1]?.shot || 'medium'
+                    } shot - {
+                      storyData?.pages[currentGeneratingPage - 1]?.action_id?.replace(/_/g, ' ') || 'scene'
+                    }
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Results Grid */}
+          {/* Results Grid - USING DATA URLs */}
           {!generating && generatedImages.some(img => img.status !== 'pending') && (
             <div className="space-y-6">
               <h3 className="text-2xl font-patrick gradient-text">
@@ -579,13 +677,21 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
                     animate={{ opacity: 1, scale: 1 }}
                     className="relative"
                   >
-                    {image.status === 'success' && image.url ? (
+                    {image.status === 'success' && image.dataUrl ? (
                       <div className="aspect-[3/2] rounded-xl overflow-hidden shadow-lg">
+                        {/* IMPORTANT: Use dataUrl directly, no API calls */}
                         <img
-                          src={image.url}
+                          src={image.dataUrl}
                           alt={`Page ${image.page_number}`}
                           className="w-full h-full object-cover"
                         />
+                        {image.timestamp && (
+                          <div className="absolute top-2 right-2 bg-white/90 rounded-lg px-2 py-1">
+                            <p className="text-xs text-gray-600">
+                              {formatTime(Date.now() - image.timestamp)} ago
+                            </p>
+                          </div>
+                        )}
                       </div>
                     ) : image.status === 'error' ? (
                       <div className="aspect-[3/2] rounded-xl bg-red-50 border-2 border-red-200 flex flex-col items-center justify-center p-4">
@@ -614,10 +720,11 @@ export function BatchedImageGenerator({ onComplete }: { onComplete: () => void }
                     if (!generationLockRef.current) {
                       setGeneratedImages(prev => prev.map(img => ({
                         ...img,
-                        url: '',
+                        dataUrl: '',
                         status: 'pending' as const,
                         error: undefined,
-                        elapsed_ms: undefined
+                        elapsed_ms: undefined,
+                        timestamp: undefined
                       })));
                       generateAllSequentially();
                     }

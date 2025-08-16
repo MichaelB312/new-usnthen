@@ -66,8 +66,9 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   const [currentGeneratingPage, setCurrentGeneratingPage] = useState<number | null>(null);
   const [overallProgress, setOverallProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollingIntervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const abortControllerRef = useRef<AbortController | null>(null);
+  const hasShownCompletionToastRef = useRef(false);
   
   // Enhanced style options
   const styles = [
@@ -153,6 +154,72 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   };
 
   /**
+   * Check if all images are completed and trigger next step
+   */
+  const checkCompletion = (images: GeneratedImage[]) => {
+    const totalPages = storyData?.pages.length || 0;
+    const completed = images.filter(img => 
+      img.status === 'success' || img.status === 'error'
+    ).length;
+    
+    const successful = images.filter(img => img.status === 'success');
+    
+    console.log(`Completion check: ${completed}/${totalPages} done, ${successful.length} successful`);
+    
+    // Update overall progress
+    setOverallProgress(completed / totalPages);
+    
+    // Check if all pages are done
+    if (completed === totalPages) {
+      console.log('All pages completed!');
+      setGenerating(false);
+      setCurrentGeneratingPage(null);
+      
+      if (successful.length > 0) {
+        // Save to store - COMPRESS images to avoid localStorage quota
+        const illustrationsForStore = successful.map(img => ({
+          page_number: img.page_number,
+          url: img.dataUrl,
+          style: img.style,
+          shot: img.shot,
+          action_id: img.action_id,
+          prompt: img.prompt,
+          model: 'gpt-image-1'
+        }));
+        
+        console.log('Saving illustrations to store:', illustrationsForStore.length);
+        setIllustrations(illustrationsForStore);
+        
+        if (successful.length === totalPages && !hasShownCompletionToastRef.current) {
+          console.log('All pages successful - triggering onComplete');
+          hasShownCompletionToastRef.current = true;
+          toast.success('All illustrations generated successfully! 🎉', {
+            duration: 5000,
+            id: 'generation-complete' // Unique ID to prevent duplicates
+          });
+          // Trigger completion after a short delay
+          setTimeout(() => {
+            console.log('Calling onComplete callback');
+            onComplete();
+          }, 1500);
+        } else if (successful.length < totalPages && !hasShownCompletionToastRef.current) {
+          hasShownCompletionToastRef.current = true;
+          toast(`Generated ${successful.length} of ${totalPages} images`, {
+            icon: '⚠️',
+            duration: 5000,
+            id: 'generation-partial'
+          });
+        }
+      } else {
+        toast.error('No images were generated successfully', {
+          duration: 5000,
+          id: 'generation-failed'
+        });
+      }
+    }
+  };
+
+  /**
    * Start async generation for a single page
    */
   const startImageGeneration = async (page: any): Promise<string | null> => {
@@ -206,11 +273,15 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               : job
           ));
           
-          setGeneratedImages(prev => prev.map(img => 
-            img.page_number === pageNumber 
-              ? { ...img, status: 'error', error: 'Generation timeout' }
-              : img
-          ));
+          setGeneratedImages(prev => {
+            const updated = prev.map(img => 
+              img.page_number === pageNumber 
+                ? { ...img, status: 'error' as const, error: 'Generation timeout' }
+                : img
+            );
+            checkCompletion(updated);
+            return updated;
+          });
           
           return;
         }
@@ -238,25 +309,29 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           clearInterval(interval);
           pollingIntervalsRef.current.delete(jobId);
           
-          // Update generated images
-          setGeneratedImages(prev => prev.map(img => 
-            img.page_number === pageNumber 
-              ? { 
-                  ...img, 
-                  dataUrl: job.result.dataUrl,
-                  prompt: job.result.prompt,
-                  status: 'success',
-                  elapsed_ms: job.result.elapsed_ms,
-                  model: 'gpt-image-1',
-                  timestamp: Date.now()
-                }
-              : img
-          ));
-          
-          toast.success(`Page ${pageNumber} complete!`, { 
-            duration: 2000,
-            icon: '✅'
+          // Update generated images and check for overall completion
+          setGeneratedImages(prev => {
+            const updated = prev.map(img => 
+              img.page_number === pageNumber 
+                ? { 
+                    ...img, 
+                    dataUrl: job.result.dataUrl,
+                    prompt: job.result.prompt,
+                    status: 'success' as const,
+                    elapsed_ms: job.result.elapsed_ms,
+                    model: 'gpt-image-1',
+                    timestamp: Date.now()
+                  }
+                : img
+            );
+            
+            // Check if all pages are done
+            checkCompletion(updated);
+            return updated;
           });
+          
+          // NO individual page completion toasts
+          console.log(`Page ${pageNumber} complete!`);
         }
         
         // Handle failure
@@ -264,16 +339,21 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           clearInterval(interval);
           pollingIntervalsRef.current.delete(jobId);
           
-          setGeneratedImages(prev => prev.map(img => 
-            img.page_number === pageNumber 
-              ? { 
-                  ...img, 
-                  status: 'error',
-                  error: job.error || 'Generation failed'
-                }
-              : img
-          ));
+          setGeneratedImages(prev => {
+            const updated = prev.map(img => 
+              img.page_number === pageNumber 
+                ? { 
+                    ...img, 
+                    status: 'error' as const,
+                    error: job.error || 'Generation failed'
+                  }
+                : img
+            );
+            checkCompletion(updated);
+            return updated;
+          });
           
+          // Only show error toast for failures
           toast.error(`Page ${pageNumber} failed: ${job.error}`, { 
             duration: 3000,
             icon: '❌'
@@ -300,12 +380,12 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     setGenerating(true);
     setJobs([]);
     setOverallProgress(0);
+    hasShownCompletionToastRef.current = false; // Reset flag
     
     // Create abort controller
     abortControllerRef.current = new AbortController();
     
     const totalPages = storyData.pages.length;
-    const successfulImages: any[] = [];
     
     console.log('🚀 Starting async generation for', totalPages, 'pages');
     toast('Starting image generation...', { icon: '🎨', duration: 5000 });
@@ -318,7 +398,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         // Update UI to show generating
         setGeneratedImages(prev => prev.map(img => 
           img.page_number === pageNumber 
-            ? { ...img, status: 'generating' }
+            ? { ...img, status: 'generating' as const }
             : img
         ));
         
@@ -341,6 +421,12 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           
           return { success: true, pageNumber, jobId };
         } else {
+          // Mark as failed if job couldn't start
+          setGeneratedImages(prev => prev.map(img => 
+            img.page_number === pageNumber 
+              ? { ...img, status: 'error' as const, error: 'Failed to start job' }
+              : img
+          ));
           return { success: false, pageNumber };
         }
       });
@@ -355,55 +441,8 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         throw new Error('Failed to start any jobs');
       }
       
-      // Monitor overall progress
-      const progressInterval = setInterval(() => {
-        const completed = generatedImages.filter(img => 
-          img.status === 'success' || img.status === 'error'
-        ).length;
-        
-        setOverallProgress(completed / totalPages);
-        setCurrentGeneratingPage(
-          generatedImages.find(img => img.status === 'generating')?.page_number || null
-        );
-        
-        // Check if all done
-        if (completed === totalPages) {
-          clearInterval(progressInterval);
-          setGenerating(false);
-          
-          const successful = generatedImages.filter(img => img.status === 'success');
-          
-          if (successful.length > 0) {
-            // Save to store
-            const illustrationsForStore = successful.map(img => ({
-              page_number: img.page_number,
-              url: img.dataUrl,
-              style: img.style,
-              shot: img.shot,
-              action_id: img.action_id,
-              prompt: img.prompt,
-              model: 'gpt-image-1'
-            }));
-            
-            setIllustrations(illustrationsForStore);
-            
-            if (successful.length === totalPages) {
-              toast.success('All illustrations generated successfully! 🎉', {
-                duration: 5000
-              });
-              setTimeout(onComplete, 1500);
-            } else {
-              toast(`Generated ${successful.length} of ${totalPages} images`, {
-                icon: '⚠️',
-                duration: 5000
-              });
-            }
-          }
-        }
-      }, 1000);
-      
-      // Store interval for cleanup
-      setTimeout(() => clearInterval(progressInterval), MAX_POLL_TIME);
+      // Note: Completion will be handled by checkCompletion() function
+      // which is called after each image update in pollJobStatus
       
     } catch (error: any) {
       console.error('Generation failed:', error);
@@ -430,32 +469,19 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   };
 
   /**
-   * Get status icon for a page
+   * Get completed count for progress display
    */
-  const getStatusIcon = (status: GeneratedImage['status']) => {
-    switch (status) {
-      case 'pending':
-        return <div className="w-4 h-4 rounded-full bg-gray-300" />;
-      case 'generating':
-        return <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />;
-      case 'success':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'error':
-        return <XCircle className="w-4 h-4 text-red-500" />;
-    }
+  const getCompletedCount = () => {
+    return generatedImages.filter(img => 
+      img.status === 'success' || img.status === 'error'
+    ).length;
   };
 
   /**
-   * Format elapsed time
+   * Get success count
    */
-  const formatTime = (ms: number) => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    if (minutes > 0) {
-      return `${minutes}m ${remainingSeconds}s`;
-    }
-    return `${seconds}s`;
+  const getSuccessCount = () => {
+    return generatedImages.filter(img => img.status === 'success').length;
   };
 
   return (
@@ -568,11 +594,10 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               <Clock className="h-5 w-5 text-green-600 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-green-900">
-                  Async Processing - No timeout issues!
+                  Creating your magical illustrations
                 </p>
                 <p className="text-xs text-green-700 mt-1">
-                  All pages generate in parallel. Each page takes 1-3 minutes.
-                  You can safely wait or even refresh the page - progress is tracked.
+                  Each illustration is carefully generated with AI. This takes a few minutes.
                 </p>
               </div>
             </div>
@@ -584,97 +609,54 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               className="btn-primary w-full text-xl py-6 flex items-center justify-center gap-3"
             >
               <Wand2 className="h-7 w-7" />
-              Generate All Illustrations (Async)
+              Generate All Illustrations
             </button>
           )}
 
           {generating && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-2xl font-patrick gradient-text">
-                    Generating {storyData?.pages.length} Pages
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    All pages processing in parallel
-                  </p>
-                </div>
-                <button
-                  onClick={cancelGeneration}
-                  className="btn-secondary px-4 py-2"
-                >
-                  Cancel All
-                </button>
+              <div className="text-center">
+                <h3 className="text-2xl font-patrick gradient-text mb-2">
+                  Creating Your Illustrations
+                </h3>
+                <p className="text-gray-600">
+                  {getCompletedCount()} of {storyData?.pages.length} pages complete
+                </p>
               </div>
               
-              {/* Overall Progress Bar */}
-              <div className="relative h-6 bg-gray-200 rounded-full overflow-hidden">
+              {/* Simple Progress Bar */}
+              <div className="relative h-8 bg-gray-200 rounded-full overflow-hidden">
                 <motion.div
-                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-600 to-pink-600"
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-600 to-pink-600 flex items-center justify-center"
                   initial={{ width: '0%' }}
                   animate={{ width: `${overallProgress * 100}%` }}
                   transition={{ duration: 0.5, ease: "easeOut" }}
-                />
-                <span className="absolute inset-0 flex items-center justify-center text-sm font-medium text-white">
-                  {Math.round(overallProgress * 100)}%
-                </span>
+                >
+                  <span className="text-sm font-medium text-white px-2">
+                    {Math.round(overallProgress * 100)}%
+                  </span>
+                </motion.div>
               </div>
               
-              {/* Page Status Grid */}
-              <div className="grid grid-cols-6 gap-2">
-                {generatedImages.map((img) => {
-                  const job = jobs.find(j => j.pageNumber === img.page_number);
-                  return (
-                    <div
-                      key={img.page_number}
-                      className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all ${
-                        img.status === 'generating' 
-                          ? 'bg-yellow-50 border-yellow-400 shadow-lg' 
-                          : img.status === 'success'
-                          ? 'bg-green-50 border-green-400'
-                          : img.status === 'error'
-                          ? 'bg-red-50 border-red-400'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <span className="text-sm font-bold">P{img.page_number}</span>
-                      {getStatusIcon(img.status)}
-                      {job && img.status === 'generating' && (
-                        <span className="text-xs text-gray-600">
-                          {job.progress}%
-                        </span>
-                      )}
-                      {img.elapsed_ms && (
-                        <span className="text-xs text-gray-600">
-                          {(img.elapsed_ms / 1000).toFixed(0)}s
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              
-              {/* Active Jobs Info */}
-              {jobs.filter(j => j.status === 'processing').length > 0 && (
-                <div className="bg-purple-50 rounded-lg p-4">
-                  <p className="text-sm text-purple-700">
-                    <strong>Processing:</strong> {
-                      jobs.filter(j => j.status === 'processing')
-                        .map(j => `Page ${j.pageNumber}`)
-                        .join(', ')
-                    }
-                  </p>
-                </div>
-              )}
+              <button
+                onClick={cancelGeneration}
+                className="btn-secondary w-full"
+              >
+                Cancel Generation
+              </button>
             </div>
           )}
 
           {/* Results Grid */}
           {!generating && generatedImages.some(img => img.status !== 'pending') && (
             <div className="space-y-6">
-              <h3 className="text-2xl font-patrick gradient-text">
-                Generated Illustrations
+              <h3 className="text-2xl font-patrick gradient-text text-center">
+                Your Illustrations Are Ready!
               </h3>
+              
+              <div className="text-center text-gray-600">
+                {getSuccessCount()} of {storyData?.pages.length} illustrations generated successfully
+              </div>
               
               <div className="grid md:grid-cols-3 gap-6">
                 {generatedImages.map((image) => (
@@ -691,30 +673,20 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                           alt={`Page ${image.page_number}`}
                           className="w-full h-full object-cover"
                         />
-                        {image.timestamp && (
-                          <div className="absolute top-2 right-2 bg-white/90 rounded-lg px-2 py-1">
-                            <p className="text-xs text-gray-600">
-                              {formatTime(Date.now() - image.timestamp)} ago
-                            </p>
-                          </div>
-                        )}
                       </div>
                     ) : image.status === 'error' ? (
                       <div className="aspect-[3/2] rounded-xl bg-red-50 border-2 border-red-200 flex flex-col items-center justify-center p-4">
                         <AlertCircle className="h-8 w-8 text-red-500 mb-2" />
                         <p className="text-sm text-red-600 text-center">
-                          Failed: {image.error?.slice(0, 50)}
+                          Failed to generate
                         </p>
                       </div>
                     ) : (
                       <div className="aspect-[3/2] rounded-xl bg-gray-100" />
                     )}
                     
-                    <div className="mt-2">
-                      <p className="font-medium">Page {image.page_number}</p>
-                      <p className="text-xs text-gray-500">
-                        {image.shot} • {image.action_id?.replace(/_/g, ' ')}
-                      </p>
+                    <div className="mt-2 text-center">
+                      <p className="text-sm font-medium">Page {image.page_number}</p>
                     </div>
                   </motion.div>
                 ))}
@@ -732,6 +704,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                       timestamp: undefined
                     })));
                     setJobs([]);
+                    hasShownCompletionToastRef.current = false;
                     generateAllAsync();
                   }}
                   className="btn-secondary flex-1"
@@ -741,8 +714,27 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                 </button>
                 
                 <button
-                  onClick={onComplete}
-                  disabled={generatedImages.filter(img => img.status === 'success').length !== storyData?.pages.length}
+                  onClick={() => {
+                    console.log('Manual continue clicked');
+                    const successful = generatedImages.filter(img => img.status === 'success');
+                    if (successful.length > 0) {
+                      // Save to store
+                      const illustrationsForStore = successful.map(img => ({
+                        page_number: img.page_number,
+                        url: img.dataUrl,
+                        style: img.style,
+                        shot: img.shot,
+                        action_id: img.action_id,
+                        prompt: img.prompt,
+                        model: 'gpt-image-1'
+                      }));
+                      
+                      console.log('Manually saving illustrations:', illustrationsForStore.length);
+                      setIllustrations(illustrationsForStore);
+                      onComplete();
+                    }
+                  }}
+                  disabled={getSuccessCount() === 0}
                   className="btn-primary flex-1"
                 >
                   Continue to Book Preview

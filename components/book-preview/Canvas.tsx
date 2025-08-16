@@ -134,15 +134,62 @@ export function EnhancedCanvas({
   };
   
   // Render element based on type
-  const renderElement = (element: LayoutElement) => {
-    switch (element.type) {
-      case 'image':
-        const img = images[element.id];
-        if (!img) return null;
-        
-        return (
+  // Render element based on type
+const renderElement = (element: LayoutElement) => {
+  switch (element.type) {
+    case 'image':
+      const img = images[element.id];
+      if (!img) return null;
+      
+      // Create clip path for cute shapes
+      const clipId = `clip-${element.id}`;
+      
+      return (
+        <Group key={element.id}>
+          {element.mask && (
+            <KonvaRect
+              x={element.x - element.width / 2}
+              y={element.y - element.height / 2}
+              width={element.width}
+              height={element.height}
+              cornerRadius={[50, 80, 60, 40]} // Organic corners
+              fill="transparent"
+              clipFunc={(ctx: any) => {
+                // Create organic shape clipping
+                ctx.beginPath();
+                const w = element.width;
+                const h = element.height;
+                const x = 0;
+                const y = 0;
+                
+                // Create wavy edges
+                ctx.moveTo(x, y + h * 0.2);
+                ctx.bezierCurveTo(
+                  x + w * 0.1, y,
+                  x + w * 0.3, y + h * 0.1,
+                  x + w * 0.5, y
+                );
+                ctx.bezierCurveTo(
+                  x + w * 0.7, y - h * 0.05,
+                  x + w * 0.9, y + h * 0.1,
+                  x + w, y + h * 0.2
+                );
+                ctx.lineTo(x + w, y + h * 0.8);
+                ctx.bezierCurveTo(
+                  x + w * 0.9, y + h,
+                  x + w * 0.7, y + h * 0.95,
+                  x + w * 0.5, y + h
+                );
+                ctx.bezierCurveTo(
+                  x + w * 0.3, y + h * 1.05,
+                  x + w * 0.1, y + h * 0.9,
+                  x, y + h * 0.8
+                );
+                ctx.closePath();
+              }}
+            />
+          )}
           <KonvaImage
-            key={element.id}
             image={img}
             x={element.x - element.width / 2}
             y={element.y - element.height / 2}
@@ -150,61 +197,51 @@ export function EnhancedCanvas({
             height={element.height}
             rotation={element.rotation}
           />
-        );
-        
-      case 'text':
-        const textGroup = [];
-        
-        // Text background plaque
-        if (element.id === 'text_plaque' || element.style?.background_color) {
-          const padding = element.style?.padding || 20;
-          textGroup.push(
-            <KonvaRect
-              key={`${element.id}_bg`}
-              x={element.x - element.width / 2 - padding}
-              y={element.y - element.height / 2 - padding}
-              width={element.width + padding * 2}
-              height={element.height + padding * 2}
-              fill={element.style?.background_color || 'rgba(255, 255, 255, 0.95)'}
-              cornerRadius={15}
-              rotation={element.rotation}
-              shadowColor="rgba(0,0,0,0.1)"
-              shadowBlur={10}
-              shadowOffsetX={0}
-              shadowOffsetY={5}
-            />
-          );
-        }
-        
-        // Only render text if there's content
-        if (element.content) {
-          textGroup.push(
-            <Text
-              key={`${element.id}_text`}
-              text={element.content || ''}
-              x={element.x - element.width / 2}
-              y={element.y - element.height / 2}
-              width={element.width}
-              height={element.height}
-              fontSize={element.style?.font_size_pt || 42} // Large toddler-friendly font
-              fontFamily={element.style?.font_family || 'Patrick Hand'}
-              fill={element.style?.color || '#2D3748'}
-              align={element.style?.text_align || 'center'}
-              verticalAlign="middle"
-              lineHeight={element.style?.line_height || 1.6}
-              rotation={element.rotation}
-              wrap="word"
-              fontStyle={element.style?.font_weight ? `${element.style.font_weight} ` : ''}
-            />
-          );
-        }
-        
-        return textGroup.length > 0 ? <Group key={element.id}>{textGroup}</Group> : null;
-        
-      default:
-        return null;
-    }
-  };
+        </Group>
+      );
+      
+    case 'text':
+      // Only render text, no background
+      if (!element.content) return null;
+      
+      return (
+        <Text
+          key={element.id}
+          text={element.content}
+          x={element.x - element.width / 2}
+          y={element.y - element.height / 2}
+          width={element.width}
+          height={element.height}
+          fontSize={element.style?.font_size_pt || 72}
+          fontFamily={element.style?.font_family || 'Patrick Hand'}
+          fill={element.style?.color || '#000000'} // Always black
+          align={element.style?.text_align || 'center'}
+          verticalAlign="middle"
+          lineHeight={element.style?.line_height || 1.5}
+          rotation={element.rotation}
+          wrap="word"
+          fontStyle={element.style?.font_weight ? `${element.style.font_weight} ` : '600'}
+        />
+      );
+      
+    case 'shape':
+      // Shape overlay (for decorative purposes)
+      return (
+        <KonvaRect
+          key={element.id}
+          x={element.x - element.width / 2}
+          y={element.y - element.height / 2}
+          width={element.width}
+          height={element.height}
+          fill={element.style?.background_color || 'transparent'}
+          rotation={element.rotation}
+        />
+      );
+      
+    default:
+      return null;
+  }
+};
   
   if (isLoading) {
     return (

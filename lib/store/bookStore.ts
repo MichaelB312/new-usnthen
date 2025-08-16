@@ -1,6 +1,6 @@
-// lib/store/bookStore.ts - Key changes for data URL support
+// lib/store/bookStore.ts - Fixed localStorage quota issue
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 // Complete Page interface with all new fields
 interface Page {
@@ -43,10 +43,10 @@ interface BookStore {
     style?: string;
   } | null;
   
-  // Illustrations - UPDATED to store data URLs
+  // Illustrations - Store URLs separately, not persisted
   illustrations: {
     page_number: number;
-    url: string; // This will now be a data URL (data:image/png;base64,...)
+    url: string; // This will now be a data URL
     style: string;
     seed?: number;
     shot?: string;
@@ -56,7 +56,7 @@ interface BookStore {
   }[];
   illustrationStyle: 'wondrous' | 'crayon' | 'vintage' | 'watercolor' | 'pencil';
   
-  // Layout
+  // Layout - Don't persist large layouts
   layouts: {
     [pageNumber: number]: any;
   };
@@ -70,11 +70,84 @@ interface BookStore {
   setIllustrationStyle: (style: any) => void;
   setPageLayout: (pageNumber: number, layout: any) => void;
   reset: () => void;
+  clearStorage: () => void;
   
   // Persistence
   version: string;
   lockVersion: () => void;
 }
+
+// Custom storage that handles quota errors
+const customStorage = createJSONStorage(() => {
+  return {
+    getItem: (name: string) => {
+      try {
+        const str = localStorage.getItem(name);
+        return str ? JSON.parse(str) : null;
+      } catch (error) {
+        console.error('Failed to get from localStorage:', error);
+        return null;
+      }
+    },
+    setItem: (name: string, value: any) => {
+      try {
+        // Clear old data if we're about to exceed quota
+        const stringified = JSON.stringify(value);
+        const sizeInMB = new Blob([stringified]).size / (1024 * 1024);
+        
+        console.log(`Storage size: ${sizeInMB.toFixed(2)}MB`);
+        
+        // If it's too large, don't save images/layouts
+        if (sizeInMB > 4) {
+          console.warn('Data too large, removing images and layouts from storage');
+          // Remove large data before saving
+          const reduced = {
+            ...value,
+            state: {
+              ...value.state,
+              illustrations: [], // Don't persist illustrations
+              layouts: {}, // Don't persist layouts
+              babyProfile: value.state.babyProfile ? {
+                ...value.state.babyProfile,
+                baby_photo_url: undefined // Don't persist large photo
+              } : null
+            }
+          };
+          localStorage.setItem(name, JSON.stringify(reduced));
+        } else {
+          localStorage.setItem(name, stringified);
+        }
+      } catch (error: any) {
+        if (error.name === 'QuotaExceededError') {
+          console.error('localStorage quota exceeded, clearing old data...');
+          // Try to clear and save minimal data
+          try {
+            const minimal = {
+              ...value,
+              state: {
+                ...value.state,
+                illustrations: [],
+                layouts: {},
+                babyProfile: value.state.babyProfile ? {
+                  ...value.state.babyProfile,
+                  baby_photo_url: undefined
+                } : null
+              }
+            };
+            localStorage.setItem(name, JSON.stringify(minimal));
+          } catch (e) {
+            console.error('Failed to save even minimal data:', e);
+          }
+        } else {
+          console.error('Failed to save to localStorage:', error);
+        }
+      }
+    },
+    removeItem: (name: string) => {
+      localStorage.removeItem(name);
+    }
+  };
+});
 
 export const useBookStore = create<BookStore>()(
   persist(
@@ -93,32 +166,33 @@ export const useBookStore = create<BookStore>()(
       setConversation: (conversation) => set({ conversation }),
       setStory: (story) => set({ storyData: story }),
       
-      // IMPORTANT: When setting illustrations, they now contain data URLs
+      // Don't persist illustrations - they're too large
       setIllustrations: (illustrations) => {
-        // Ensure all URLs are data URLs or proper URLs
-        const validatedIllustrations = illustrations.map(ill => ({
-          ...ill,
-          // If the URL doesn't start with 'data:' or 'http', it might be invalid
-          url: ill.url || ill.dataUrl || '' // Support both url and dataUrl fields
-        }));
-        set({ illustrations: validatedIllustrations });
+        set({ illustrations });
       },
       
       setIllustrationStyle: (style) => set({ illustrationStyle: style }),
-      setPageLayout: (pageNumber, layout) => set((state) => ({
-        layouts: { ...state.layouts, [pageNumber]: layout }
-      })),
+      
+      // Don't persist layouts - they're too large
+      setPageLayout: (pageNumber, layout) => {
+        set((state) => ({
+          layouts: { ...state.layouts, [pageNumber]: layout }
+        }));
+      },
       
       lockVersion: () => {
         const state = get();
         const version = btoa(JSON.stringify({
           profile: state.babyProfile,
           story: state.storyData,
-          illustrations: state.illustrations,
-          layouts: state.layouts,
+          // Don't include illustrations or layouts in version
           timestamp: Date.now()
         }));
         set({ version });
+      },
+      
+      clearStorage: () => {
+        localStorage.removeItem('us-and-then-book');
       },
       
       reset: () => set({
@@ -133,9 +207,19 @@ export const useBookStore = create<BookStore>()(
     }),
     {
       name: 'us-and-then-book',
-      // Add serialization for large data URLs if needed
-      serialize: (state) => JSON.stringify(state),
-      deserialize: (str) => JSON.parse(str),
+      storage: customStorage,
+      // Only persist essential data
+      partialize: (state) => ({
+        bookId: state.bookId,
+        babyProfile: state.babyProfile ? {
+          ...state.babyProfile,
+          baby_photo_url: undefined // Don't persist large photo
+        } : null,
+        conversation: state.conversation,
+        storyData: state.storyData,
+        illustrationStyle: state.illustrationStyle,
+        // Don't persist illustrations or layouts
+      })
     }
   )
 );

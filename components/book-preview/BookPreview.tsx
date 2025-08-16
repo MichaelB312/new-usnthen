@@ -54,33 +54,46 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
   }, []);
   
   const generateLayouts = async () => {
-    if (!storyData || !illustrations.length) return;
-    
-    setGeneratingLayouts(true);
-    
+  if (!storyData || !illustrations || illustrations.length === 0) {
+    console.log('Missing data for layout generation:', { 
+      hasStory: !!storyData, 
+      illustrationCount: illustrations?.length || 0 
+    });
+    return;
+  }
+  
+  setGeneratingLayouts(true);
+  
+  try {
     for (let i = 0; i < storyData.pages.length; i++) {
       const page = storyData.pages[i];
       const illustration = illustrations.find(ill => ill.page_number === page.page_number);
       
-      if (illustration) {
+      if (illustration && illustration.url) {
         // Use enhanced layout engine with new print specs
         const engine = new EnhancedLayoutEngine(bookId || 'default', page.page_number);
         const layout = engine.generateLayout(
           page.layout_template || 'auto',
           page.narration,
-          illustration.url,
+          illustration.url, // Make sure URL exists
           page.shot || page.closest_shot,
           page.action_id,
           page.emotion
         );
         
         setPageLayout(page.page_number, layout);
+      } else {
+        console.warn(`No illustration found for page ${page.page_number}`);
       }
     }
-    
+  } catch (error) {
+    console.error('Error generating layouts:', error);
+    toast.error('Failed to generate some layouts');
+  } finally {
     setGeneratingLayouts(false);
-    toast.success('Layouts generated with enhanced print specifications!');
-  };
+    toast.success('Layouts generated!');
+  }
+};
   
   const handleEditText = (pageNumber: number) => {
     setEditingPage(pageNumber);
@@ -267,149 +280,196 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       </div>
 
       {/* Book Display */}
-      {viewMode === 'single' && (
-        <div className="card-magical">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentPage}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="relative"
-            >
-              {/* Page Info Bar */}
-              <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center gap-4">
-                  <span className="font-medium">
-                    Page {currentPage + 1} of {storyData?.pages.length || 0}
-                  </span>
-                  {storyData?.pages[currentPage] && (
-                    <>
-                      <span className="text-sm text-gray-500">
-                        Shot: {storyData.pages[currentPage].shot || 'medium'}
-                      </span>
-                      <span className="text-sm text-gray-500">
-                        Action: {storyData.pages[currentPage].action_id?.replace(/_/g, ' ')}
-                      </span>
-                      {layouts[currentPage + 1]?.mode && (
-                        <span className="text-sm text-purple-600 font-medium">
-                          Layout: {layouts[currentPage + 1].mode}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-                
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleEditText(currentPage)}
-                    className="btn-secondary text-sm"
-                  >
-                    <Edit2 className="h-4 w-4 mr-2" />
-                    Edit Text
-                  </button>
-                </div>
-              </div>
-              
-              {/* Page Display */}
-              <div className="bg-gray-100 rounded-2xl shadow-2xl overflow-hidden">
-                {layouts[currentPage + 1] ? (
-                  <EnhancedCanvas 
-                    layout={layouts[currentPage + 1]} 
-                    width={900}
-                    height={600}
-                    showGuides={showGuides}
-                    showBleed={showBleed}
-                    showGutter={showGutter}
-                    onExport={(dataUrl) => exportPageAsPNG(dataUrl, currentPage + 1)}
-                  />
-                ) : (
-                  <div className="w-full h-[600px] flex items-center justify-center">
+      {/* Book Display */}
+{viewMode === 'single' && (
+  <div className="card-magical">
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={currentPage}
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -20 }}
+        className="relative"
+      >
+        {/* Book Spread View - Two Pages Side by Side */}
+        <div className="bg-gray-100 rounded-2xl shadow-2xl overflow-hidden p-8">
+          <div className="grid grid-cols-2 gap-4">
+            {/* Left Page */}
+            <div className="bg-white rounded-lg shadow-inner">
+              {currentPage * 2 < (storyData?.pages.length || 0) && layouts[currentPage * 2 + 1] ? (
+                <EnhancedCanvas 
+                  layout={layouts[currentPage * 2 + 1]} 
+                  width={800}
+                  height={600}
+                  showGuides={showGuides}
+                  showBleed={showBleed}
+                  showGutter={showGutter}
+                  onExport={(dataUrl) => exportPageAsPNG(dataUrl, currentPage * 2 + 1)}
+                />
+              ) : (
+                <div className="w-[800px] h-[600px] flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+                  {currentPage * 2 >= (storyData?.pages.length || 0) ? (
+                    <p className="text-gray-400 text-2xl font-patrick">The End</p>
+                  ) : (
                     <div className="text-center">
                       <div className="animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent mx-auto mb-4"></div>
                       <p className="text-gray-500">Generating layout...</p>
                     </div>
-                  </div>
-                )}
-              </div>
-              
-              {/* Text Edit Modal */}
-              {editingPage === currentPage && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-6 p-6 bg-purple-50 rounded-xl"
-                >
-                  <h3 className="font-semibold mb-3">Edit Page Text</h3>
-                  <p className="text-sm text-gray-600 mb-3">
-                    Remember: Maximum 20 words for ages 0-3
-                  </p>
-                  <textarea
-                    value={editedText}
-                    onChange={(e) => setEditedText(e.target.value)}
-                    className="w-full p-4 border-2 border-purple-300 rounded-lg resize-none focus:outline-none focus:border-purple-500"
-                    rows={3}
-                    maxLength={100}
-                  />
-                  <div className="flex items-center justify-between mt-3">
-                    <span className="text-sm text-gray-500">
-                      {editedText.split(' ').length} words
-                    </span>
-                    <div className="flex gap-3">
-                      <button onClick={saveEdit} className="btn-primary">
-                        <Check className="h-4 w-4 mr-2" />
-                        Save Changes
-                      </button>
-                      <button 
-                        onClick={() => setEditingPage(null)}
-                        className="btn-secondary"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
+                  )}
+                </div>
               )}
-            </motion.div>
-          </AnimatePresence>
-          
-          {/* Navigation */}
-          <div className="flex items-center justify-between mt-8">
-            <button
-              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
-              disabled={currentPage === 0}
-              className="btn-secondary flex items-center gap-2"
-            >
-              <ChevronLeft className="h-5 w-5" />
-              Previous
-            </button>
-            
-            {/* Page Dots */}
-            <div className="flex gap-2">
-              {storyData?.pages.map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrentPage(index)}
-                  className={`transition-all ${
-                    currentPage === index
-                      ? 'w-8 h-2 bg-purple-600 rounded-full'
-                      : 'w-2 h-2 bg-gray-300 hover:bg-gray-400 rounded-full'
-                  }`}
-                />
-              ))}
+              <div className="text-center py-2 border-t">
+                <span className="text-sm text-gray-500">Page {currentPage * 2 + 1}</span>
+              </div>
             </div>
             
+            {/* Right Page */}
+            <div className="bg-white rounded-lg shadow-inner">
+              {currentPage * 2 + 1 < (storyData?.pages.length || 0) && layouts[currentPage * 2 + 2] ? (
+                <EnhancedCanvas 
+                  layout={layouts[currentPage * 2 + 2]} 
+                  width={800}
+                  height={600}
+                  showGuides={showGuides}
+                  showBleed={showBleed}
+                  showGutter={showGutter}
+                  onExport={(dataUrl) => exportPageAsPNG(dataUrl, currentPage * 2 + 2)}
+                />
+              ) : (
+                <div className="w-[800px] h-[600px] flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+                  {currentPage * 2 + 1 >= (storyData?.pages.length || 0) ? (
+                    <p className="text-gray-400 text-2xl font-patrick">The End</p>
+                  ) : (
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent mx-auto mb-4"></div>
+                      <p className="text-gray-500">Generating layout...</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="text-center py-2 border-t">
+                <span className="text-sm text-gray-500">Page {currentPage * 2 + 2}</span>
+              </div>
+            </div>
+          </div>
+          
+          {/* Center binding line */}
+          <div className="absolute left-1/2 top-8 bottom-8 w-1 bg-gradient-to-b from-gray-300 via-gray-400 to-gray-300 transform -translate-x-1/2 shadow-inner"></div>
+        </div>
+        
+        {/* Page Info Bar */}
+        <div className="flex items-center justify-between mt-4 p-4 bg-gray-50 rounded-lg">
+          <div className="flex items-center gap-4">
+            <span className="font-medium">
+              Spread {currentPage + 1} of {Math.ceil((storyData?.pages.length || 0) / 2)}
+            </span>
+          </div>
+          
+          <div className="flex gap-2">
             <button
-              onClick={() => setCurrentPage(Math.min((storyData?.pages.length || 1) - 1, currentPage + 1))}
-              disabled={currentPage === (storyData?.pages.length || 1) - 1}
-              className="btn-secondary flex items-center gap-2"
+              onClick={() => {
+                const leftPage = currentPage * 2;
+                if (leftPage < (storyData?.pages.length || 0)) {
+                  handleEditText(leftPage);
+                }
+              }}
+              className="btn-secondary text-sm"
             >
-              Next
-              <ChevronRight className="h-5 w-5" />
+              <Edit2 className="h-4 w-4 mr-2" />
+              Edit Left Page
+            </button>
+            <button
+              onClick={() => {
+                const rightPage = currentPage * 2 + 1;
+                if (rightPage < (storyData?.pages.length || 0)) {
+                  handleEditText(rightPage);
+                }
+              }}
+              className="btn-secondary text-sm"
+            >
+              <Edit2 className="h-4 w-4 mr-2" />
+              Edit Right Page
             </button>
           </div>
         </div>
-      )}
+        
+        {/* Text Edit Modal */}
+        {editingPage !== null && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-6 p-6 bg-purple-50 rounded-xl"
+          >
+            <h3 className="font-semibold mb-3">Edit Page {editingPage + 1} Text</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Remember: Maximum 20 words for ages 0-3
+            </p>
+            <textarea
+              value={editedText}
+              onChange={(e) => setEditedText(e.target.value)}
+              className="w-full p-4 border-2 border-purple-300 rounded-lg resize-none focus:outline-none focus:border-purple-500"
+              rows={3}
+              maxLength={100}
+            />
+            <div className="flex items-center justify-between mt-3">
+              <span className="text-sm text-gray-500">
+                {editedText.split(' ').length} words
+              </span>
+              <div className="flex gap-3">
+                <button onClick={saveEdit} className="btn-primary">
+                  <Check className="h-4 w-4 mr-2" />
+                  Save Changes
+                </button>
+                <button 
+                  onClick={() => setEditingPage(null)}
+                  className="btn-secondary"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </motion.div>
+    </AnimatePresence>
+    
+    {/* Navigation */}
+    <div className="flex items-center justify-between mt-8">
+      <button
+        onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+        disabled={currentPage === 0}
+        className="btn-secondary flex items-center gap-2"
+      >
+        <ChevronLeft className="h-5 w-5" />
+        Previous Spread
+      </button>
+      
+      {/* Page Dots */}
+      <div className="flex gap-2">
+        {Array.from({ length: Math.ceil((storyData?.pages.length || 0) / 2) }, (_, index) => (
+          <button
+            key={index}
+            onClick={() => setCurrentPage(index)}
+            className={`transition-all ${
+              currentPage === index
+                ? 'w-8 h-2 bg-purple-600 rounded-full'
+                : 'w-2 h-2 bg-gray-300 hover:bg-gray-400 rounded-full'
+            }`}
+          />
+        ))}
+      </div>
+      
+      <button
+        onClick={() => setCurrentPage(Math.min(Math.ceil((storyData?.pages.length || 0) / 2) - 1, currentPage + 1))}
+        disabled={currentPage >= Math.ceil((storyData?.pages.length || 0) / 2) - 1}
+        className="btn-secondary flex items-center gap-2"
+      >
+        Next Spread
+        <ChevronRight className="h-5 w-5" />
+      </button>
+    </div>
+  </div>
+)}
 
       {/* Spread View */}
       {viewMode === 'spread' && (

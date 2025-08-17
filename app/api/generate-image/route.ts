@@ -1,6 +1,6 @@
 // app/api/generate-image/route.ts
 /**
- * Enhanced image generation with specific visual focus
+ * Enhanced image generation with camera-first prompting
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,43 +24,133 @@ const openai = new OpenAI({
 // Cache for processed plates
 const plateCache = new Map<string, string>();
 
-// Also update the interface to include new fields:
-interface EnhancedGenerateImageRequest {
+interface GenerateImageRequest {
   bookId: string;
   pageNumber: number;
   babyPhotoUrl?: string;
   pageData: {
     narration: string;
-    shot?: string; // Legacy field
-    camera_angle?: string; // New: specific camera angle
-    camera_angle_description?: string; // New: camera description
+    camera_angle?: string;
+    camera_angle_description?: string;
     action_id: string;
     action_label?: string;
     visual_focus?: string;
     visual_action?: string;
     detail_prompt?: string;
     sensory_details?: string;
-    pose_description?: string; // New: pose for this shot
+    pose_description?: string;
   };
   style: 'wondrous' | 'crayon' | 'vintage';
   size?: 'preview' | 'print';
 }
 
-const STYLE_DESCRIPTIONS = {
-  wondrous: 'Soft watercolor illustration, dreamy and magical, pastel colors, gentle brush strokes',
-  crayon: 'Crayon drawing style, hand-drawn texture, waxy appearance, childlike charm',
-  vintage: 'Vintage children\'s book illustration, muted colors, nostalgic feel, mid-century aesthetic'
+// Camera angle descriptions for prompts - MUST BE FIRST IN PROMPT
+const CAMERA_PROMPT_STARTERS = {
+  // Ultra close shots
+  extreme_closeup: 'extreme close-up',
+  closeup: 'close-up',
+  macro: 'macro shot',
+  detail_shot: 'detail shot',
+  medium_closeup: 'medium close-up',
+  
+  // Standard shots
+  medium: 'medium shot',
+  medium_wide: 'medium wide shot',
+  wide: 'wide shot',
+  
+  // POV shots
+  pov_baby: 'POV shot from baby perspective looking at own',
+  pov_parent: 'POV shot from parent perspective looking down',
+  pov_toy: 'POV from toy perspective',
+  
+  // Dynamic angles
+  birds_eye: "bird's-eye view",
+  low_angle: 'low angle shot',
+  high_angle: 'high angle shot',
+  worms_eye: "worm's eye view",
+  over_shoulder: 'over-the-shoulder shot',
+  dutch_angle: 'dutch angle tilted shot',
+  profile: 'profile shot from side',
+  three_quarter: 'three-quarter angle'
 } as const;
 
-const VISUAL_FOCUS_PROMPTS = {
-  hands: 'extreme close-up on baby hands, detailed fingers, skin texture visible',
-  feet: 'close-up on baby feet, toes clearly visible, foot details prominent',
-  face: 'close-up on baby face, clear facial expression, eyes and smile prominent',
-  eyes: 'extreme close-up on eyes, sparkling with emotion, detailed iris',
-  full_body: 'full body shot showing entire baby in scene',
-  object_interaction: 'focus on baby interacting with specific object',
-  environmental: 'baby within environmental context, surroundings visible'
+const STYLE_DESCRIPTIONS = {
+  wondrous: 'Wondrous Illustration Style (magical, airy watercolor)',
+  crayon: 'Crayon Style (hand-drawn texture, waxy appearance)',
+  vintage: 'Vintage Style (muted colors, mid-century aesthetic)'
 } as const;
+
+/**
+ * Build prompt with camera angle FIRST (like the working examples)
+ */
+function buildCameraFirstPrompt(
+  page: GenerateImageRequest['pageData'],
+  style: keyof typeof STYLE_DESCRIPTIONS
+): string {
+  const parts: string[] = [];
+  
+  // 1. CAMERA ANGLE FIRST (most important!)
+  const cameraAngle = page.camera_angle || 'medium';
+  const cameraStart = CAMERA_PROMPT_STARTERS[cameraAngle as keyof typeof CAMERA_PROMPT_STARTERS] || 'medium shot';
+  parts.push(cameraStart);
+  
+  // 2. Add specific visual focus based on camera type
+  if (cameraAngle === 'extreme_closeup' || cameraAngle === 'macro') {
+    // For close shots, be very specific about what we're zooming on
+    if (page.visual_focus === 'hands') {
+      parts.push('of tiny hands');
+    } else if (page.visual_focus === 'feet') {
+      parts.push('of baby feet');
+    } else if (page.visual_focus === 'face') {
+      parts.push('of baby face');
+    }
+    
+    // Add the specific action
+    if (page.visual_action) {
+      if (page.visual_action.includes('sand_falling')) {
+        parts.push('scooping sand and letting it fall in a soft sparkling arc');
+      } else if (page.visual_action.includes('grabbing')) {
+        parts.push('grabbing and exploring texture');
+      } else {
+        parts.push(page.visual_action.replace(/_/g, ' '));
+      }
+    }
+  } else if (cameraAngle === 'pov_baby') {
+    // POV shots need specific description
+    if (page.visual_focus === 'feet') {
+      parts.push('feet in sand');
+    } else if (page.visual_focus === 'hands') {
+      parts.push('hands playing');
+    }
+  } else if (cameraAngle === 'birds_eye') {
+    // Bird's eye needs scene description
+    parts.push('baby on beach blanket');
+    if (page.visual_action) {
+      parts.push(page.visual_action.replace(/_/g, ' '));
+    }
+  } else {
+    // For other shots, add the action
+    if (page.visual_action) {
+      parts.push('baby ' + page.visual_action.replace(/_/g, ' '));
+    }
+  }
+  
+  // 3. Add environment/context if it's a wider shot
+  if (['wide', 'birds_eye', 'medium'].includes(cameraAngle)) {
+    if (page.sensory_details) {
+      parts.push(page.sensory_details);
+    } else {
+      parts.push('simple clean background');
+    }
+  }
+  
+  // 4. Always end with style and format
+  parts.push('picture-book ages 0-3');
+  parts.push(STYLE_DESCRIPTIONS[style]);
+  
+  // Join with commas for clean prompt
+  return parts.join(', ');
+}
 
 /**
  * Process baby photo to RGBA PNG
@@ -89,7 +179,6 @@ async function getOrCreatePlate(bookId: string, babyPhotoUrl?: string): Promise<
     const base64Data = babyPhotoUrl.replace(/^data:image\/\w+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
     
-    // Resize to reasonable size for processing (max 1024px)
     const pngBuffer = await sharp(buffer)
       .rotate()
       .resize(1024, 1024, { 
@@ -113,126 +202,19 @@ async function getOrCreatePlate(bookId: string, babyPhotoUrl?: string): Promise<
 }
 
 /**
- * Build enhanced prompt using camera angles and visual details
- */
-function buildEnhancedPrompt(
-  page: EnhancedGenerateImageRequest['pageData'],
-  style: keyof typeof STYLE_DESCRIPTIONS,
-  babyName?: string
-): string {
-  const parts: string[] = [];
-  
-  // CAMERA ANGLE FIRST - This is most important for composition
-  if (page.camera_angle) {
-    // Add specific camera angle instructions
-    const cameraInstructions = {
-      'extreme_closeup': 'EXTREME CLOSE-UP SHOT, fill entire frame with detail, no background visible',
-      'closeup': 'CLOSE-UP SHOT, focus on specific area, minimal background',
-      'medium': 'MEDIUM SHOT, character and immediate surroundings visible',
-      'wide': 'WIDE SHOT, full scene with environment, character small in frame',
-      'birds_eye': 'BIRD\'S EYE VIEW, looking straight down from directly above',
-      'low_angle': 'LOW ANGLE SHOT, camera at ground level looking up',
-      'pov_baby': 'POV SHOT from baby\'s perspective, first-person view of own body parts or surroundings',
-      'pov_parent': 'POV SHOT from parent\'s perspective looking down at baby',
-      'over_shoulder': 'OVER-THE-SHOULDER SHOT, seeing what baby sees',
-      'macro': 'MACRO PHOTOGRAPHY, extreme magnification showing texture details',
-      'dutch_angle': 'DUTCH ANGLE, tilted camera for dynamic playful feeling',
-      'profile': 'PROFILE SHOT, perfect side view of subject'
-    };
-    
-    const cameraInstruction = cameraInstructions[page.camera_angle as keyof typeof cameraInstructions];
-    if (cameraInstruction) {
-      parts.push(cameraInstruction);
-    }
-  }
-  
-  // If we have a detailed prompt from story generation, add it
-  if (page.detail_prompt) {
-    parts.push(page.detail_prompt);
-  } else {
-    // Fallback to building from components
-    
-    // Camera angle description if available
-    if (page.camera_angle_description) {
-      parts.push(page.camera_angle_description);
-    }
-    
-    // Visual focus if specified
-    if (page.visual_focus) {
-      const focusDescriptions = {
-        'hands': 'focus on baby hands, detailed fingers',
-        'feet': 'focus on baby feet, toes clearly visible',
-        'face': 'focus on baby face, clear expression',
-        'eyes': 'focus on eyes, detailed and expressive',
-        'full_body': 'show entire baby in scene',
-        'object_interaction': 'show baby interacting with object',
-        'environmental': 'baby within environment context'
-      };
-      const focusDesc = focusDescriptions[page.visual_focus as keyof typeof focusDescriptions];
-      if (focusDesc) parts.push(focusDesc);
-    }
-    
-    // Visual action
-    if (page.visual_action) {
-      parts.push(page.visual_action.replace(/_/g, ' '));
-    }
-    
-    // Action label or ID
-    if (page.action_label) {
-      parts.push(page.action_label);
-    } else if (page.action_id) {
-      parts.push(page.action_id.replace(/_/g, ' '));
-    }
-  }
-  
-  // Pose description if available
-  if (page.pose_description) {
-    parts.push(`pose: ${page.pose_description}`);
-  }
-  
-  // Add sensory details if available
-  if (page.sensory_details) {
-    parts.push(page.sensory_details);
-  }
-  
-  // Always add style and format specifications
-  parts.push('children\'s book illustration');
-  parts.push(STYLE_DESCRIPTIONS[style]);
-  parts.push('consistent baby character');
-  parts.push('professional quality');
-  
-  // Special instructions for certain camera angles
-  if (page.camera_angle === 'pov_baby') {
-    parts.push('first-person perspective');
-    parts.push('looking at own body parts');
-  } else if (page.camera_angle === 'macro') {
-    parts.push('extreme detail visible');
-    parts.push('texture clearly shown');
-  } else if (page.camera_angle === 'birds_eye') {
-    parts.push('top-down perspective');
-    parts.push('symmetrical composition');
-  }
-  
-  // Join all parts
-  const prompt = parts.join(', ');
-  
-  console.log(`Enhanced prompt for ${page.camera_angle} angle:`, prompt);
-  return prompt;
-}
-
-/**
- * Main POST handler with enhanced visual focus
+ * Main POST handler with camera-first prompting
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   
   try {
-    const body: EnhancedGenerateImageRequest = await request.json();
+    const body: GenerateImageRequest = await request.json();
     const { bookId, pageNumber, babyPhotoUrl, pageData, style, size = 'preview' } = body;
     
     console.log(`Generating page ${pageNumber} for book ${bookId}`);
-    console.log(`Visual focus: ${pageData.visual_focus}, Action: ${pageData.visual_action}`);
-    console.log(`Size mode: ${size}, Style: ${style}, Shot: ${pageData.shot}`);
+    console.log(`Camera angle: ${pageData.camera_angle}`);
+    console.log(`Visual focus: ${pageData.visual_focus}`);
+    console.log(`Action: ${pageData.visual_action}`);
     
     // Get processed plate
     const platePath = await getOrCreatePlate(bookId, babyPhotoUrl);
@@ -245,31 +227,21 @@ export async function POST(request: NextRequest) {
       { type: 'image/png' }
     );
     
-    // Build enhanced prompt
-    const pagePrompt = buildEnhancedPrompt(pageData, style);
-    console.log(`Full prompt: ${pagePrompt}`);
+    // Build camera-first prompt (like the working examples)
+    const prompt = buildCameraFirstPrompt(pageData, style);
+    console.log(`Camera-first prompt: ${prompt}`);
     
-    // Call GPT-IMAGE-1 with enhanced parameters
+    // Call GPT-IMAGE-1 with the right parameters
     let response;
     try {
-      const params: any = {
+      response = await openai.images.edit({
         model: 'gpt-image-1',
         image: imageFile,
-        prompt: pagePrompt,
+        prompt: prompt,
         n: 1,
-        size: '1024x1024', // Always generate at 1024 for speed
-        quality: 'high',
-        background: 'transparent',
-        output_format: 'png',
-        input_fidelity: 'high' // Keep baby's features consistent
-      };
-      
-      // Add extra parameters for specific visual focus
-      if (pageData.visual_focus === 'hands' || pageData.visual_focus === 'feet') {
-        params.detail = 'high'; // Request higher detail for close-ups
-      }
-      
-      response = await openai.images.edit(params);
+        size: '1024x1024',
+        response_format: 'b64_json'
+      });
     } catch (error: any) {
       console.error('OpenAI error:', error);
       throw new Error(error.message || 'Image generation failed');
@@ -291,13 +263,11 @@ export async function POST(request: NextRequest) {
     const sharp = await import('sharp').then(m => m.default);
     const imageBuffer = Buffer.from(imageBase64, 'base64');
     
-    // For preview: keep at 1024, convert to optimized PNG or WebP
     let finalBuffer: Buffer;
     let mimeType: string;
     
     if (size === 'print') {
-      // Only upscale if specifically requested for print
-      // Most baby books are 7×7" = 2100×2100px at 300 DPI
+      // Upscale for print
       finalBuffer = await sharp(imageBuffer)
         .resize(2100, 2100, {
           fit: 'contain',
@@ -306,25 +276,23 @@ export async function POST(request: NextRequest) {
         .png({ quality: 95 })
         .toBuffer();
       mimeType = 'image/png';
-      console.log(`Upscaled to print size: ${finalBuffer.length / 1024}KB`);
     } else {
-      // For preview: optimize at 1024
+      // Optimize for preview
       finalBuffer = await sharp(imageBuffer)
         .png({ 
           quality: 85,
           compressionLevel: 9,
-          palette: true // Use palette for smaller size
+          palette: true
         })
         .toBuffer();
       mimeType = 'image/png';
-      console.log(`Optimized preview: ${finalBuffer.length / 1024}KB`);
     }
     
     // Create data URL
     const dataUrl = `data:${mimeType};base64,${finalBuffer.toString('base64')}`;
     
     const elapsedMs = Date.now() - startTime;
-    console.log(`Page ${pageNumber} completed in ${elapsedMs}ms`);
+    console.log(`Page ${pageNumber} completed in ${elapsedMs}ms with camera: ${pageData.camera_angle}`);
     
     return NextResponse.json({ 
       success: true,
@@ -332,9 +300,9 @@ export async function POST(request: NextRequest) {
       dataUrl,
       size: size === 'print' ? '2100x2100' : '1024x1024',
       sizeKB: Math.round(finalBuffer.length / 1024),
-      prompt: pagePrompt,
+      prompt: prompt,
       style,
-      shot: pageData.shot,
+      camera_angle: pageData.camera_angle,
       action_id: pageData.action_id,
       visual_focus: pageData.visual_focus,
       visual_action: pageData.visual_action,

@@ -227,7 +227,10 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
  */
 const startImageGeneration = async (page: any): Promise<string | null> => {
   try {
-    console.log(`Starting generation for page ${page.page_number} with camera: ${page.camera_angle}`);
+    console.log(`Starting generation for page ${page.page_number}`);
+    console.log(`  Camera: ${page.camera_angle || page.shot}`);
+    console.log(`  Focus: ${page.visual_focus}`);
+    console.log(`  Action: ${page.visual_action || page.action_id}`);
     
     const response = await fetch('/api/generate-image-async', {
       method: 'POST',
@@ -237,20 +240,18 @@ const startImageGeneration = async (page: any): Promise<string | null> => {
         pageNumber: page.page_number,
         babyPhotoUrl: photoPreview,
         pageData: {
-          narration: page.narration,
-          // Include both old and new camera fields for compatibility
-          shot: page.shot || page.closest_shot || 'medium',
-          camera_angle: page.camera_angle, // NEW: specific camera angle
-          camera_angle_description: page.camera_angle_description, // NEW: camera description
-          action_id: page.action_id || '',
-          action_label: page.action_label,
-          // Enhanced visual fields
-          visual_focus: page.visual_focus,
-          visual_action: page.visual_action,
-          detail_prompt: page.detail_prompt,
-          sensory_details: page.sensory_details,
-          pose_description: page.pose_description // NEW: pose description
-        },
+  narration: page.narration,
+  camera_angle: page.camera_angle,
+  camera_angle_description: page.camera_angle_description,
+  shot: page.shot || page.closest_shot || 'medium',
+  action_id: page.action_id || '',
+  action_label: page.action_label,
+  visual_focus: page.visual_focus,
+  visual_action: page.visual_action,
+  detail_prompt: page.detail_prompt,
+  sensory_details: page.sensory_details,
+  pose_description: page.pose_description
+},
         style: illustrationStyle
       })
     });
@@ -258,11 +259,7 @@ const startImageGeneration = async (page: any): Promise<string | null> => {
     const data = await response.json();
     
     if (data.success && data.jobId) {
-      console.log(`Started job for page ${page.page_number}:`);
-      console.log(`  Camera: ${page.camera_angle}`);
-      console.log(`  Focus: ${page.visual_focus}`);
-      console.log(`  Action: ${page.visual_action}`);
-      console.log(`  Pose: ${page.pose_description}`);
+      console.log(`Job started for page ${page.page_number} with camera: ${page.camera_angle}`);
       return data.jobId;
     } else {
       throw new Error(data.error || 'Failed to start job');

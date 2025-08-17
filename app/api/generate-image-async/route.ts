@@ -298,9 +298,9 @@ async function getOrCreatePlate(bookId: string, babyPhotoUrl?: string): Promise<
 }
 
 const STYLE_TAGS = {
-  wondrous: 'Wondrous watercolor style, soft and dreamy',
-  crayon: 'Crayon drawing style, hand-drawn texture',
-  vintage: 'Vintage illustration style, muted colors'
+  wondrous: 'Wondrous Illustration Style (magical, airy watercolor)',
+  crayon: 'Crayon Style (hand-drawn texture, waxy appearance)',
+  vintage: 'Vintage Illustration Style (muted colors, nostalgic)'
 } as const;
 
 const SHOT_DESCRIPTIONS = {
@@ -315,23 +315,69 @@ function buildPrompt(
   page: any,
   style: keyof typeof STYLE_TAGS
 ): string {
-  const shotType = page.shot || 'medium';
-  const shotLine = SHOT_DESCRIPTIONS[shotType as keyof typeof SHOT_DESCRIPTIONS] || 'medium shot';
+  const parts: string[] = [];
   
-  const sceneLine = page.narration
-    .replace(/\s*…?and then—\s*$/i, '')
-    .replace(/[.!?]+$/, '')
-    .trim()
-    .toLowerCase();
+  // 1. CAMERA ANGLE FIRST (critical for variety!)
+  const cameraAngle = page.camera_angle || page.shot || 'medium';
+  const CAMERA_STARTERS: Record<string, string> = {
+    extreme_closeup: 'extreme close-up',
+    closeup: 'close-up',
+    macro: 'macro shot',
+    medium: 'medium shot', 
+    wide: 'wide shot',
+    birds_eye: "bird's-eye view",
+    low_angle: 'low angle shot',
+    pov_baby: 'POV shot from baby perspective',
+    pov_parent: 'POV from parent looking down',
+    over_shoulder: 'over-the-shoulder shot',
+    profile: 'profile shot from side',
+    dutch_angle: 'dutch angle tilted'
+  };
   
-  return [
-    shotLine,
-    sceneLine,
-    page.action_label || page.action_id?.replace(/_/g, ' '),
-    'children\'s book illustration',
-    STYLE_TAGS[style],
-    'consistent character',
-    'simple background',
-    'bright colors'
-  ].join(', ');
+  parts.push(CAMERA_STARTERS[cameraAngle] || 'medium shot');
+  
+  // 2. Add specific detail based on camera type
+  if (cameraAngle === 'extreme_closeup' || cameraAngle === 'macro') {
+    if (page.visual_focus === 'hands') {
+      parts.push('of baby\'s small hand');
+    } else if (page.visual_focus === 'feet') {
+      parts.push('of tiny feet');
+    }
+    
+    if (page.visual_action?.includes('sand_falling')) {
+      parts.push('scooping sand and letting it fall in a soft sparkling arc');
+    } else if (page.visual_action) {
+      parts.push(page.visual_action.replace(/_/g, ' '));
+    }
+  } else if (cameraAngle === 'pov_baby') {
+    if (page.visual_focus === 'feet') {
+      parts.push('looking down at own feet in sand');
+    } else if (page.visual_focus === 'hands') {
+      parts.push('looking at own hands');
+    }
+  } else if (cameraAngle === 'birds_eye') {
+    parts.push('baby on beach blanket');
+    if (page.visual_action) {
+      parts.push(page.visual_action.replace(/_/g, ' '));
+    }
+    parts.push('simple toys nearby');
+  } else {
+    // For other angles, add the action
+    if (page.visual_action) {
+      parts.push(page.visual_action.replace(/_/g, ' '));
+    } else if (page.action_label) {
+      parts.push(page.action_label);
+    }
+  }
+  
+  // 3. Add clean composition note
+  if (['wide', 'birds_eye'].includes(cameraAngle)) {
+    parts.push('clean composition');
+  }
+  
+  // 4. Always end with age and style
+  parts.push('picture-book ages 0-3');
+  parts.push(STYLE_TAGS[style]);
+  
+  return parts.join(', ');
 }

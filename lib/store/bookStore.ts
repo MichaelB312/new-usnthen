@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 // Complete Page interface with all new fields
-interface Page {
+export interface Page {
   page_number: number;
   scene_type: string;
   narration: string;
@@ -11,15 +11,27 @@ interface Page {
   illustration_url?: string;
   layout_template: string;
   resolved_layout?: any;
-  // New fields for camera angles and actions
-  shot?: string;
+  
+  // Camera and shot fields
+  shot?: string; // Legacy field for backward compatibility
   shot_custom?: string;
   closest_shot?: string;
+  camera_angle?: string; // NEW: specific camera angle (pov_baby, macro, birds_eye, etc.)
+  camera_angle_description?: string; // NEW: detailed camera description
+  
+  // Action and emotion fields
   action_id?: string;
   action_label?: string;
   emotion?: string;
   emotion_custom?: string;
   page_turn_cue?: boolean;
+  
+  // Enhanced visual fields for better image generation
+  visual_focus?: string;     // hands, feet, face, eyes, full_body, etc.
+  visual_action?: string;    // grasping_sand, rubbing_feet, etc.
+  detail_prompt?: string;    // Detailed description for image generation
+  sensory_details?: string;  // Texture, temperature, sound details
+  pose_description?: string; // NEW: specific pose description for this shot
 }
 
 interface BookStore {
@@ -41,6 +53,8 @@ interface BookStore {
     metadata?: any;
     refrain?: string;
     style?: string;
+    extracted_moments?: string[]; // Key visual moments from memory
+    camera_sequence?: string[]; // NEW: ordered list of camera angles used
   } | null;
   
   // Illustrations - Store URLs separately, not persisted

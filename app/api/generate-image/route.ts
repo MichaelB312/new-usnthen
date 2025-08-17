@@ -1,6 +1,6 @@
 // app/api/generate-image/route.ts
 /**
- * Optimized image generation - 1024×1024 for preview, upscale only on export
+ * Enhanced image generation with specific visual focus
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,52 +24,43 @@ const openai = new OpenAI({
 // Cache for processed plates
 const plateCache = new Map<string, string>();
 
-interface GenerateImageRequest {
+// Also update the interface to include new fields:
+interface EnhancedGenerateImageRequest {
   bookId: string;
   pageNumber: number;
   babyPhotoUrl?: string;
   pageData: {
     narration: string;
-    shot: string;
+    shot?: string; // Legacy field
+    camera_angle?: string; // New: specific camera angle
+    camera_angle_description?: string; // New: camera description
     action_id: string;
     action_label?: string;
+    visual_focus?: string;
+    visual_action?: string;
+    detail_prompt?: string;
+    sensory_details?: string;
+    pose_description?: string; // New: pose for this shot
   };
   style: 'wondrous' | 'crayon' | 'vintage';
-  size?: 'preview' | 'print'; // Optional size mode
+  size?: 'preview' | 'print';
 }
 
-const STYLE_TAGS = {
-  wondrous: 'Wondrous watercolor style, soft and dreamy',
-  crayon: 'Crayon drawing style, hand-drawn texture',
-  vintage: 'Vintage illustration style, muted colors'
+const STYLE_DESCRIPTIONS = {
+  wondrous: 'Soft watercolor illustration, dreamy and magical, pastel colors, gentle brush strokes',
+  crayon: 'Crayon drawing style, hand-drawn texture, waxy appearance, childlike charm',
+  vintage: 'Vintage children\'s book illustration, muted colors, nostalgic feel, mid-century aesthetic'
 } as const;
 
-const SHOT_DESCRIPTIONS = {
-  wide: 'wide shot showing full environment',
-  medium: 'medium shot showing character and surroundings',
-  closeup: 'close-up shot focusing on face',
-  birdseye: "bird's-eye view from above",
-  low: 'low angle shot looking up'
+const VISUAL_FOCUS_PROMPTS = {
+  hands: 'extreme close-up on baby hands, detailed fingers, skin texture visible',
+  feet: 'close-up on baby feet, toes clearly visible, foot details prominent',
+  face: 'close-up on baby face, clear facial expression, eyes and smile prominent',
+  eyes: 'extreme close-up on eyes, sparkling with emotion, detailed iris',
+  full_body: 'full body shot showing entire baby in scene',
+  object_interaction: 'focus on baby interacting with specific object',
+  environmental: 'baby within environmental context, surroundings visible'
 } as const;
-
-/**
- * GET handler - returns 405 Method Not Allowed
- */
-export async function GET() {
-  return NextResponse.json(
-    { 
-      error: 'Method Not Allowed',
-      message: 'This endpoint only accepts POST requests'
-    },
-    { 
-      status: 405,
-      headers: { 
-        'Allow': 'POST, DELETE',
-        'Content-Type': 'application/json'
-      }
-    }
-  );
-}
 
 /**
  * Process baby photo to RGBA PNG
@@ -122,44 +113,125 @@ async function getOrCreatePlate(bookId: string, babyPhotoUrl?: string): Promise<
 }
 
 /**
- * Build prompt for GPT-IMAGE-1
+ * Build enhanced prompt using camera angles and visual details
  */
-function buildPrompt(
-  page: GenerateImageRequest['pageData'],
-  style: keyof typeof STYLE_TAGS
+function buildEnhancedPrompt(
+  page: EnhancedGenerateImageRequest['pageData'],
+  style: keyof typeof STYLE_DESCRIPTIONS,
+  babyName?: string
 ): string {
-  const shotType = page.shot || 'medium';
-  const shotLine = SHOT_DESCRIPTIONS[shotType as keyof typeof SHOT_DESCRIPTIONS] || 'medium shot';
+  const parts: string[] = [];
   
-  const sceneLine = page.narration
-    .replace(/\s*…?and then—\s*$/i, '')
-    .replace(/[.!?]+$/, '')
-    .trim()
-    .toLowerCase();
+  // CAMERA ANGLE FIRST - This is most important for composition
+  if (page.camera_angle) {
+    // Add specific camera angle instructions
+    const cameraInstructions = {
+      'extreme_closeup': 'EXTREME CLOSE-UP SHOT, fill entire frame with detail, no background visible',
+      'closeup': 'CLOSE-UP SHOT, focus on specific area, minimal background',
+      'medium': 'MEDIUM SHOT, character and immediate surroundings visible',
+      'wide': 'WIDE SHOT, full scene with environment, character small in frame',
+      'birds_eye': 'BIRD\'S EYE VIEW, looking straight down from directly above',
+      'low_angle': 'LOW ANGLE SHOT, camera at ground level looking up',
+      'pov_baby': 'POV SHOT from baby\'s perspective, first-person view of own body parts or surroundings',
+      'pov_parent': 'POV SHOT from parent\'s perspective looking down at baby',
+      'over_shoulder': 'OVER-THE-SHOULDER SHOT, seeing what baby sees',
+      'macro': 'MACRO PHOTOGRAPHY, extreme magnification showing texture details',
+      'dutch_angle': 'DUTCH ANGLE, tilted camera for dynamic playful feeling',
+      'profile': 'PROFILE SHOT, perfect side view of subject'
+    };
+    
+    const cameraInstruction = cameraInstructions[page.camera_angle as keyof typeof cameraInstructions];
+    if (cameraInstruction) {
+      parts.push(cameraInstruction);
+    }
+  }
   
-  return [
-    shotLine,
-    sceneLine,
-    page.action_label || page.action_id.replace(/_/g, ' '),
-    'children\'s book illustration',
-    STYLE_TAGS[style],
-    'consistent character',
-    'simple background',
-    'bright colors'
-  ].join(', ');
+  // If we have a detailed prompt from story generation, add it
+  if (page.detail_prompt) {
+    parts.push(page.detail_prompt);
+  } else {
+    // Fallback to building from components
+    
+    // Camera angle description if available
+    if (page.camera_angle_description) {
+      parts.push(page.camera_angle_description);
+    }
+    
+    // Visual focus if specified
+    if (page.visual_focus) {
+      const focusDescriptions = {
+        'hands': 'focus on baby hands, detailed fingers',
+        'feet': 'focus on baby feet, toes clearly visible',
+        'face': 'focus on baby face, clear expression',
+        'eyes': 'focus on eyes, detailed and expressive',
+        'full_body': 'show entire baby in scene',
+        'object_interaction': 'show baby interacting with object',
+        'environmental': 'baby within environment context'
+      };
+      const focusDesc = focusDescriptions[page.visual_focus as keyof typeof focusDescriptions];
+      if (focusDesc) parts.push(focusDesc);
+    }
+    
+    // Visual action
+    if (page.visual_action) {
+      parts.push(page.visual_action.replace(/_/g, ' '));
+    }
+    
+    // Action label or ID
+    if (page.action_label) {
+      parts.push(page.action_label);
+    } else if (page.action_id) {
+      parts.push(page.action_id.replace(/_/g, ' '));
+    }
+  }
+  
+  // Pose description if available
+  if (page.pose_description) {
+    parts.push(`pose: ${page.pose_description}`);
+  }
+  
+  // Add sensory details if available
+  if (page.sensory_details) {
+    parts.push(page.sensory_details);
+  }
+  
+  // Always add style and format specifications
+  parts.push('children\'s book illustration');
+  parts.push(STYLE_DESCRIPTIONS[style]);
+  parts.push('consistent baby character');
+  parts.push('professional quality');
+  
+  // Special instructions for certain camera angles
+  if (page.camera_angle === 'pov_baby') {
+    parts.push('first-person perspective');
+    parts.push('looking at own body parts');
+  } else if (page.camera_angle === 'macro') {
+    parts.push('extreme detail visible');
+    parts.push('texture clearly shown');
+  } else if (page.camera_angle === 'birds_eye') {
+    parts.push('top-down perspective');
+    parts.push('symmetrical composition');
+  }
+  
+  // Join all parts
+  const prompt = parts.join(', ');
+  
+  console.log(`Enhanced prompt for ${page.camera_angle} angle:`, prompt);
+  return prompt;
 }
 
 /**
- * Main POST handler
+ * Main POST handler with enhanced visual focus
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   
   try {
-    const body: GenerateImageRequest = await request.json();
+    const body: EnhancedGenerateImageRequest = await request.json();
     const { bookId, pageNumber, babyPhotoUrl, pageData, style, size = 'preview' } = body;
     
     console.log(`Generating page ${pageNumber} for book ${bookId}`);
+    console.log(`Visual focus: ${pageData.visual_focus}, Action: ${pageData.visual_action}`);
     console.log(`Size mode: ${size}, Style: ${style}, Shot: ${pageData.shot}`);
     
     // Get processed plate
@@ -173,11 +245,11 @@ export async function POST(request: NextRequest) {
       { type: 'image/png' }
     );
     
-    // Build prompt
-    const pagePrompt = buildPrompt(pageData, style);
-    console.log(`Prompt: ${pagePrompt.substring(0, 100)}...`);
+    // Build enhanced prompt
+    const pagePrompt = buildEnhancedPrompt(pageData, style);
+    console.log(`Full prompt: ${pagePrompt}`);
     
-    // Call GPT-IMAGE-1
+    // Call GPT-IMAGE-1 with enhanced parameters
     let response;
     try {
       const params: any = {
@@ -188,8 +260,14 @@ export async function POST(request: NextRequest) {
         size: '1024x1024', // Always generate at 1024 for speed
         quality: 'high',
         background: 'transparent',
-        output_format: 'png'
+        output_format: 'png',
+        input_fidelity: 'high' // Keep baby's features consistent
       };
+      
+      // Add extra parameters for specific visual focus
+      if (pageData.visual_focus === 'hands' || pageData.visual_focus === 'feet') {
+        params.detail = 'high'; // Request higher detail for close-ups
+      }
       
       response = await openai.images.edit(params);
     } catch (error: any) {
@@ -242,7 +320,7 @@ export async function POST(request: NextRequest) {
       console.log(`Optimized preview: ${finalBuffer.length / 1024}KB`);
     }
     
-    // Create data URL (much smaller now!)
+    // Create data URL
     const dataUrl = `data:${mimeType};base64,${finalBuffer.toString('base64')}`;
     
     const elapsedMs = Date.now() - startTime;
@@ -251,13 +329,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true,
       page_number: pageNumber,
-      dataUrl, // Smaller data URL
+      dataUrl,
       size: size === 'print' ? '2100x2100' : '1024x1024',
       sizeKB: Math.round(finalBuffer.length / 1024),
       prompt: pagePrompt,
       style,
       shot: pageData.shot,
       action_id: pageData.action_id,
+      visual_focus: pageData.visual_focus,
+      visual_action: pageData.visual_action,
       elapsed_ms: elapsedMs,
       model: 'gpt-image-1'
     }, {
@@ -279,6 +359,25 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * GET handler - returns 405 Method Not Allowed
+ */
+export async function GET() {
+  return NextResponse.json(
+    { 
+      error: 'Method Not Allowed',
+      message: 'This endpoint only accepts POST requests'
+    },
+    { 
+      status: 405,
+      headers: { 
+        'Allow': 'POST, DELETE',
+        'Content-Type': 'application/json'
+      }
+    }
+  );
 }
 
 /**

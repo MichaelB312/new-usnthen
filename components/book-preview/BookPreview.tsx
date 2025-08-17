@@ -54,46 +54,46 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
   }, []);
   
   const generateLayouts = async () => {
-  if (!storyData || !illustrations || illustrations.length === 0) {
-    console.log('Missing data for layout generation:', { 
-      hasStory: !!storyData, 
-      illustrationCount: illustrations?.length || 0 
-    });
-    return;
-  }
-  
-  setGeneratingLayouts(true);
-  
-  try {
-    for (let i = 0; i < storyData.pages.length; i++) {
-      const page = storyData.pages[i];
-      const illustration = illustrations.find(ill => ill.page_number === page.page_number);
-      
-      if (illustration && illustration.url) {
-        // Use enhanced layout engine with new print specs
-        const engine = new EnhancedLayoutEngine(bookId || 'default', page.page_number);
-        const layout = engine.generateLayout(
-          page.layout_template || 'auto',
-          page.narration,
-          illustration.url, // Make sure URL exists
-          page.shot || page.closest_shot,
-          page.action_id,
-          page.emotion
-        );
-        
-        setPageLayout(page.page_number, layout);
-      } else {
-        console.warn(`No illustration found for page ${page.page_number}`);
-      }
+    if (!storyData || !illustrations || illustrations.length === 0) {
+      console.log('Missing data for layout generation:', { 
+        hasStory: !!storyData, 
+        illustrationCount: illustrations?.length || 0 
+      });
+      return;
     }
-  } catch (error) {
-    console.error('Error generating layouts:', error);
-    toast.error('Failed to generate some layouts');
-  } finally {
-    setGeneratingLayouts(false);
-    toast.success('Layouts generated!');
-  }
-};
+    
+    setGeneratingLayouts(true);
+    
+    try {
+      for (let i = 0; i < storyData.pages.length; i++) {
+        const page = storyData.pages[i];
+        const illustration = illustrations.find(ill => ill.page_number === page.page_number);
+        
+        if (illustration && illustration.url) {
+          // Use enhanced layout engine with new print specs
+          const engine = new EnhancedLayoutEngine(bookId || 'default', page.page_number);
+          const layout = engine.generateLayout(
+            page.layout_template || 'auto',
+            page.narration,
+            illustration.url, // Make sure URL exists
+            page.shot || page.closest_shot,
+            page.action_id,
+            page.emotion
+          );
+          
+          setPageLayout(page.page_number, layout);
+        } else {
+          console.warn(`No illustration found for page ${page.page_number}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error generating layouts:', error);
+      toast.error('Failed to generate some layouts');
+    } finally {
+      setGeneratingLayouts(false);
+      toast.success('Layouts generated!');
+    }
+  };
   
   const handleEditText = (pageNumber: number) => {
     setEditingPage(pageNumber);
@@ -185,9 +185,8 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       // Generate PDF
       const pdfBytes = await pdfDoc.save();
       
-      // Download - convert to Uint8Array to avoid type issues
-      const uint8Array = new Uint8Array(pdfBytes);
-      const blob = new Blob([uint8Array], { type: 'application/pdf' });
+      // FIX: Use slice() to create proper ArrayBuffer view
+      const blob = new Blob([pdfBytes.slice()], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -280,7 +279,7 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       </div>
 
       {/* Book Display */}
-      {/* Book Display */}
+     {/* Book Display */}
 {viewMode === 'single' && (
   <div className="card-magical">
     <AnimatePresence mode="wait">
@@ -540,51 +539,58 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       )}
 
       {/* Grid View */}
-      {viewMode === 'grid' && (
-        <div className="card-magical">
-          <div className="grid md:grid-cols-3 gap-6">
-            {storyData?.pages.map((page, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.05 }}
-                className="cursor-pointer group"
-                onClick={() => {
-                  setCurrentPage(index);
-                  setViewMode('single');
-                }}
-              >
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden transform transition-transform group-hover:scale-105">
-                  {layouts[page.page_number] ? (
-                    <EnhancedCanvas 
-                      layout={layouts[page.page_number]} 
-                      width={300}
-                      height={200}
-                      showGuides={false}
-                      showBleed={false}
-                      showGutter={false}
-                    />
-                  ) : (
-                    <div className="w-full h-[200px] bg-gradient-to-br from-purple-100 to-pink-100" />
-                  )}
-                </div>
-                <div className="mt-2 text-center">
-                  <p className="font-medium">Page {page.page_number}</p>
-                  <p className="text-xs text-gray-500">
-                    {page.shot} • {page.action_id?.replace(/_/g, ' ')}
-                  </p>
-                  {layouts[page.page_number]?.mode && (
-                    <p className="text-xs text-purple-600 font-medium">
-                      Layout: {layouts[page.page_number].mode}
-                    </p>
-                  )}
-                </div>
-              </motion.div>
-            ))}
+      {/* Grid View */}
+{viewMode === 'grid' && (
+  <div className="card-magical">
+    <div className="grid md:grid-cols-3 gap-6">
+      {storyData?.pages.map((page, index) => (
+        <motion.div
+          key={index}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: index * 0.05 }}
+          className="cursor-pointer group"
+          onClick={() => {
+            setCurrentPage(index);
+            setViewMode('single');
+          }}
+        >
+          <div className="bg-white rounded-lg shadow-lg overflow-hidden transform transition-transform group-hover:scale-105">
+            {layouts[page.page_number] ? (
+              <EnhancedCanvas 
+                layout={layouts[page.page_number]} 
+                width={300}
+                height={200}
+                showGuides={false}
+                showBleed={false}
+                showGutter={false}
+              />
+            ) : (
+              <div className="w-full h-[200px] bg-gradient-to-br from-purple-100 to-pink-100" />
+            )}
           </div>
-        </div>
-      )}
+          <div className="mt-2 text-center">
+            <p className="font-medium">Page {page.page_number}</p>
+            <p className="text-xs text-gray-500">
+              {page.shot} • {page.action_id?.replace(/_/g, ' ')}
+            </p>
+            {/* Use optional chaining to safely access visual_focus */}
+            {(page as any).visual_focus && (
+              <p className="text-xs text-purple-600 font-medium">
+                Focus: {(page as any).visual_focus.replace(/_/g, ' ')}
+              </p>
+            )}
+            {layouts[page.page_number]?.mode && (
+              <p className="text-xs text-purple-600 font-medium">
+                Layout: {layouts[page.page_number].mode}
+              </p>
+            )}
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  </div>
+)}
 
       {/* Export Actions */}
       <div className="card-magical">

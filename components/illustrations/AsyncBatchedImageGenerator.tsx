@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Wand2, 
   Camera, 
@@ -14,10 +14,15 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Loader2
+  Loader2,
+  Home,
+  Star,
+  Heart,
+  Palette
 } from 'lucide-react';
 import { useBookStore } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 
 interface ImageJob {
   jobId: string;
@@ -46,8 +51,10 @@ interface GeneratedImage {
 // Polling interval in milliseconds
 const POLL_INTERVAL = 2000; // 2 seconds
 const MAX_POLL_TIME = 300000; // 5 minutes max per image
+const PROGRESS_DURATION = 180000; // 180 seconds (3 minutes) for the progress bar
 
 export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => void }) {
+  const router = useRouter();
   const { 
     babyProfile, 
     storyData, 
@@ -65,10 +72,13 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [currentGeneratingPage, setCurrentGeneratingPage] = useState<number | null>(null);
   const [overallProgress, setOverallProgress] = useState(0);
+  const [visualProgress, setVisualProgress] = useState(0); // For the visual progress bar only
+  const [showLongerMessage, setShowLongerMessage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const abortControllerRef = useRef<AbortController | null>(null);
   const hasShownCompletionToastRef = useRef(false);
+  const visualProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // Enhanced style options
   const styles = [
@@ -115,8 +125,40 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     return () => {
       pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
       pollingIntervalsRef.current.clear();
+      if (visualProgressIntervalRef.current) {
+        clearInterval(visualProgressIntervalRef.current);
+      }
     };
   }, []);
+
+  // Visual progress timer effect (only for display)
+  useEffect(() => {
+    if (generating && !visualProgressIntervalRef.current) {
+      const startTime = Date.now();
+      visualProgressIntervalRef.current = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min((elapsed / PROGRESS_DURATION) * 100, 99);
+        setVisualProgress(progress);
+        
+        // Show longer message after 180 seconds
+        if (elapsed > PROGRESS_DURATION && !showLongerMessage) {
+          setShowLongerMessage(true);
+        }
+      }, 500);
+    } else if (!generating && visualProgressIntervalRef.current) {
+      clearInterval(visualProgressIntervalRef.current);
+      visualProgressIntervalRef.current = null;
+      setVisualProgress(0);
+      setShowLongerMessage(false);
+    }
+    
+    return () => {
+      if (visualProgressIntervalRef.current) {
+        clearInterval(visualProgressIntervalRef.current);
+        visualProgressIntervalRef.current = null;
+      }
+    };
+  }, [generating, showLongerMessage]);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -172,103 +214,135 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     // Check if all pages are done
     if (completed === totalPages) {
       console.log('All pages completed!');
-      setGenerating(false);
-      setCurrentGeneratingPage(null);
       
-      if (successful.length > 0) {
-        // Save to store - COMPRESS images to avoid localStorage quota
-        const illustrationsForStore = successful.map(img => ({
-          page_number: img.page_number,
-          url: img.dataUrl,
-          style: img.style,
-          shot: img.shot,
-          action_id: img.action_id,
-          prompt: img.prompt,
-          model: 'gpt-image-1'
-        }));
+      // Complete the visual progress animation
+      setVisualProgress(100);
+      
+      setTimeout(() => {
+        setGenerating(false);
+        setCurrentGeneratingPage(null);
         
-        console.log('Saving illustrations to store:', illustrationsForStore.length);
-        setIllustrations(illustrationsForStore);
-        
-        if (successful.length === totalPages && !hasShownCompletionToastRef.current) {
-          console.log('All pages successful - triggering onComplete');
-          hasShownCompletionToastRef.current = true;
-          toast.success('All illustrations generated successfully! 🎉', {
+        if (successful.length > 0) {
+          // Save to store - COMPRESS images to avoid localStorage quota
+          const illustrationsForStore = successful.map(img => ({
+            page_number: img.page_number,
+            url: img.dataUrl,
+            style: img.style,
+            shot: img.shot,
+            action_id: img.action_id,
+            prompt: img.prompt,
+            model: 'gpt-image-1'
+          }));
+          
+          console.log('Saving illustrations to store:', illustrationsForStore.length);
+          setIllustrations(illustrationsForStore);
+          
+          if (successful.length === totalPages && !hasShownCompletionToastRef.current) {
+            console.log('All pages successful - triggering onComplete');
+            hasShownCompletionToastRef.current = true;
+            toast.success('All illustrations generated successfully! 🎉', {
+              duration: 5000,
+              id: 'generation-complete' // Unique ID to prevent duplicates
+            });
+            // Trigger completion after a short delay
+            setTimeout(() => {
+              console.log('Calling onComplete callback');
+              onComplete();
+            }, 1500);
+          } else if (successful.length < totalPages && !hasShownCompletionToastRef.current) {
+            hasShownCompletionToastRef.current = true;
+            toast(`Generated ${successful.length} of ${totalPages} images`, {
+              icon: '⚠️',
+              duration: 5000,
+              id: 'generation-partial'
+            });
+          }
+        } else {
+          toast.error('No images were generated successfully', {
             duration: 5000,
-            id: 'generation-complete' // Unique ID to prevent duplicates
-          });
-          // Trigger completion after a short delay
-          setTimeout(() => {
-            console.log('Calling onComplete callback');
-            onComplete();
-          }, 1500);
-        } else if (successful.length < totalPages && !hasShownCompletionToastRef.current) {
-          hasShownCompletionToastRef.current = true;
-          toast(`Generated ${successful.length} of ${totalPages} images`, {
-            icon: '⚠️',
-            duration: 5000,
-            id: 'generation-partial'
+            id: 'generation-failed'
           });
         }
-      } else {
-        toast.error('No images were generated successfully', {
-          duration: 5000,
-          id: 'generation-failed'
-        });
-      }
+      }, 1000);
     }
   };
 
   /**
-   * Start async generation for a single page
+   * Start async generation for a single page with camera angles and enhanced visual details
    */
-  /**
- * Start async generation for a single page with camera angles and enhanced visual details
- */
-const startImageGeneration = async (page: any): Promise<string | null> => {
-  try {
-    console.log(`Starting generation for page ${page.page_number}`);
-    console.log(`  Camera: ${page.camera_angle || page.shot}`);
-    console.log(`  Focus: ${page.visual_focus}`);
-    console.log(`  Action: ${page.visual_action || page.action_id}`);
-    
-    const response = await fetch('/api/generate-image-async', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bookId,
-        pageNumber: page.page_number,
-        babyPhotoUrl: photoPreview,
-        pageData: {
-  narration: page.narration,
-  camera_angle: page.camera_angle,
-  camera_angle_description: page.camera_angle_description,
-  shot: page.shot || page.closest_shot || 'medium',
-  action_id: page.action_id || '',
-  action_label: page.action_label,
-  visual_focus: page.visual_focus,
-  visual_action: page.visual_action,
-  detail_prompt: page.detail_prompt,
-  sensory_details: page.sensory_details,
-  pose_description: page.pose_description
-},
-        style: illustrationStyle
-      })
-    });
-    
-    const data = await response.json();
-    
-    if (data.success && data.jobId) {
-      console.log(`Job started for page ${page.page_number} with camera: ${page.camera_angle}`);
-      return data.jobId;
-    } else {
-      throw new Error(data.error || 'Failed to start job');
+  const startImageGeneration = async (page: any): Promise<string | null> => {
+    try {
+      console.log(`Starting generation for page ${page.page_number}`);
+      console.log(`  Camera: ${page.camera_angle || page.shot}`);
+      console.log(`  Focus: ${page.visual_focus}`);
+      console.log(`  Action: ${page.visual_action || page.action_id}`);
+      
+      // Add timeout handling for the fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 50000); // 50 second timeout for initial request
+      
+      try {
+        const response = await fetch('/api/generate-image-async', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            bookId,
+            pageNumber: page.page_number,
+            babyPhotoUrl: photoPreview,
+            pageData: {
+              narration: page.narration,
+              camera_angle: page.camera_angle,
+              camera_angle_description: page.camera_angle_description,
+              shot: page.shot || page.closest_shot || 'medium',
+              action_id: page.action_id || '',
+              action_label: page.action_label,
+              visual_focus: page.visual_focus,
+              visual_action: page.visual_action,
+              detail_prompt: page.detail_prompt,
+              sensory_details: page.sensory_details,
+              pose_description: page.pose_description
+            },
+            style: illustrationStyle
+          })
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // Check if response is ok and has content
+        if (!response.ok) {
+          console.error(`HTTP error! status: ${response.status}`);
+          return null;
+        }
+        
+        const text = await response.text();
+        if (!text) {
+          console.error('Empty response from server');
+          return null;
+        }
+        
+        const data = JSON.parse(text);
+        
+        if (data.success && data.jobId) {
+          console.log(`Job started for page ${page.page_number} with camera: ${page.camera_angle}`);
+          return data.jobId;
+        } else {
+          throw new Error(data.error || 'Failed to start job');
+        }
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.error(`Request timeout for page ${page.page_number}`);
+        } else {
+          console.error(`Failed to start job for page ${page.page_number}:`, error);
+        }
+        return null;
+      }
+    } catch (error: any) {
+      console.error(`Failed to start job for page ${page.page_number}:`, error);
+      return null;
     }
-  } catch (error: any) {
-    console.error(`Failed to start job for page ${page.page_number}:`, error);
-    return null;
-  }
-};
+  };
 
   /**
    * Poll for job status
@@ -396,6 +470,8 @@ const startImageGeneration = async (page: any): Promise<string | null> => {
     setGenerating(true);
     setJobs([]);
     setOverallProgress(0);
+    setVisualProgress(0);
+    setShowLongerMessage(false);
     hasShownCompletionToastRef.current = false; // Reset flag
     
     // Create abort controller
@@ -500,6 +576,163 @@ const startImageGeneration = async (page: any): Promise<string | null> => {
     return generatedImages.filter(img => img.status === 'success').length;
   };
 
+  // If generating, show ONLY the cute animation
+  if (generating) {
+    return (
+      <AnimatePresence>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="min-h-screen flex items-center justify-center p-6"
+        >
+          {/* Home button in top left */}
+          <button
+            onClick={() => router.push('/')}
+            className="absolute top-6 left-6 btn-ghost flex items-center gap-2"
+          >
+            <Home className="h-5 w-5" />
+            Home
+          </button>
+
+          <motion.div
+            initial={{ scale: 0.9 }}
+            animate={{ scale: 1 }}
+            className="card-magical text-center py-20 px-16 max-w-2xl w-full"
+          >
+            {/* Animated Icons */}
+            <div className="relative h-32 mb-8">
+              <motion.div
+                animate={{ 
+                  rotate: 360,
+                  scale: [1, 1.1, 1]
+                }}
+                transition={{ 
+                  rotate: { duration: 3, repeat: Infinity, ease: "linear" },
+                  scale: { duration: 2, repeat: Infinity }
+                }}
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+              >
+                <Palette className="h-24 w-24 text-purple-600" />
+              </motion.div>
+              
+              {/* Floating decorative elements */}
+              <motion.div
+                animate={{ 
+                  x: [-20, 20, -20],
+                  y: [-10, 10, -10],
+                  rotate: [0, 180, 360]
+                }}
+                transition={{ duration: 4, repeat: Infinity }}
+                className="absolute left-1/4 top-1/4"
+              >
+                <Sparkles className="h-8 w-8 text-pink-400" />
+              </motion.div>
+              
+              <motion.div
+                animate={{ 
+                  x: [20, -20, 20],
+                  y: [10, -10, 10],
+                  rotate: [360, 180, 0]
+                }}
+                transition={{ duration: 3.5, repeat: Infinity }}
+                className="absolute right-1/4 top-1/4"
+              >
+                <Star className="h-6 w-6 text-yellow-400 fill-yellow-400" />
+              </motion.div>
+              
+              <motion.div
+                animate={{ 
+                  scale: [1, 1.3, 1],
+                  rotate: [-10, 10, -10]
+                }}
+                transition={{ duration: 2.5, repeat: Infinity }}
+                className="absolute left-1/3 bottom-0"
+              >
+                <Heart className="h-7 w-7 text-red-400 fill-red-400" />
+              </motion.div>
+              
+              <motion.div
+                animate={{ 
+                  y: [-5, 5, -5],
+                  x: [-3, 3, -3]
+                }}
+                transition={{ duration: 3, repeat: Infinity }}
+                className="absolute right-1/3 top-0"
+              >
+                <Brush className="h-8 w-8 text-orange-400" />
+              </motion.div>
+            </div>
+
+            <h2 className="text-4xl font-patrick mb-4 gradient-text">
+              Painting Your Illustrations...
+            </h2>
+            
+            <p className="text-xl text-gray-600 mb-8">
+              Our AI artist is creating beautiful {illustrationStyle} illustrations for {babyProfile?.baby_name}
+            </p>
+
+            {/* Cute Progress Bar */}
+            <div className="relative h-12 bg-gradient-to-r from-purple-100 to-pink-100 rounded-full overflow-hidden mb-4 shadow-inner">
+              <motion.div
+                className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-600 to-pink-600 flex items-center justify-end pr-3"
+                initial={{ width: '0%' }}
+                animate={{ width: `${visualProgress}%` }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+              >
+                {visualProgress > 10 && (
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  >
+                    <Sparkles className="h-6 w-6 text-white" />
+                  </motion.div>
+                )}
+              </motion.div>
+              
+              {/* Percentage text - changes color based on progress */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className={`text-lg font-bold transition-colors duration-300 ${
+                  visualProgress > 50 ? 'text-white' : 'text-purple-800'
+                }`}>
+                  {Math.round(visualProgress)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Status message */}
+            {!showLongerMessage ? (
+              <p className="text-sm text-gray-500">
+                {getCompletedCount() > 0 
+                  ? `Completed ${getCompletedCount()} of ${storyData?.pages.length} pages`
+                  : `Creating your magical illustrations...`
+                }
+              </p>
+            ) : (
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-sm text-purple-600 font-medium"
+              >
+                ✨ It's taking a little longer, but your magical book is almost ready!<br/>
+                Please don't close the screen...
+              </motion.p>
+            )}
+
+            {/* Cancel button */}
+            <button
+              onClick={cancelGeneration}
+              className="btn-secondary mt-8"
+            >
+              Cancel Generation
+            </button>
+          </motion.div>
+        </motion.div>
+      </AnimatePresence>
+    );
+  }
+
+  // Normal interface when not generating
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Step 1: Upload Baby Photo */}
@@ -604,21 +837,6 @@ const startImageGeneration = async (page: any): Promise<string | null> => {
           animate={{ opacity: 1 }}
           className="card-magical"
         >
-          {/* Important Notice */}
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-            <div className="flex items-start gap-3">
-              <Clock className="h-5 w-5 text-green-600 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-green-900">
-                  Creating your magical illustrations
-                </p>
-                <p className="text-xs text-green-700 mt-1">
-                  Each illustration is carefully generated with AI. This takes a few minutes.
-                </p>
-              </div>
-            </div>
-          </div>
-
           {!generating && generatedImages.every(img => img.status === 'pending') && (
             <button
               onClick={generateAllAsync}
@@ -629,41 +847,7 @@ const startImageGeneration = async (page: any): Promise<string | null> => {
             </button>
           )}
 
-          {generating && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <h3 className="text-2xl font-patrick gradient-text mb-2">
-                  Creating Your Illustrations
-                </h3>
-                <p className="text-gray-600">
-                  {getCompletedCount()} of {storyData?.pages.length} pages complete
-                </p>
-              </div>
-              
-              {/* Simple Progress Bar */}
-              <div className="relative h-8 bg-gray-200 rounded-full overflow-hidden">
-                <motion.div
-                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-600 to-pink-600 flex items-center justify-center"
-                  initial={{ width: '0%' }}
-                  animate={{ width: `${overallProgress * 100}%` }}
-                  transition={{ duration: 0.5, ease: "easeOut" }}
-                >
-                  <span className="text-sm font-medium text-white px-2">
-                    {Math.round(overallProgress * 100)}%
-                  </span>
-                </motion.div>
-              </div>
-              
-              <button
-                onClick={cancelGeneration}
-                className="btn-secondary w-full"
-              >
-                Cancel Generation
-              </button>
-            </div>
-          )}
-
-          {/* Results Grid */}
+          {/* Results Grid - Only shown after generation completes */}
           {!generating && generatedImages.some(img => img.status !== 'pending') && (
             <div className="space-y-6">
               <h3 className="text-2xl font-patrick gradient-text text-center">

@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       startedAt: Date.now()
     });
     
-    // Start async processing
+    // Start async processing without waiting
     processImageGeneration(jobId, body).catch(error => {
       console.error(`Job ${jobId} failed:`, error);
       const job = jobs.get(jobId);
@@ -73,18 +73,23 @@ export async function POST(request: NextRequest) {
       }
     });
     
-    // Return immediately with job ID
+    // Return immediately with job ID - don't wait for processing
     return NextResponse.json({
       success: true,
       jobId,
       message: 'Image generation started'
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      }
     });
     
   } catch (error: any) {
     console.error('Failed to start job:', error);
+    // Always return valid JSON
     return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
+      { success: false, error: error.message || 'Failed to start job' },
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }
@@ -158,8 +163,8 @@ async function processImageGeneration(jobId: string, params: any) {
       { type: 'image/png' }
     );
     
-    // Build prompt
-    const prompt = buildPrompt(pageData, style);
+    // Build prompt - with safer wording for feet content
+    const prompt = buildSaferPrompt(pageData, style);
     console.log(`[Job ${jobId}] Prompt: ${prompt.substring(0, 100)}...`);
     
     job.progress = 40;
@@ -311,7 +316,10 @@ const SHOT_DESCRIPTIONS = {
   low: 'low angle shot looking up'
 } as const;
 
-function buildPrompt(
+/**
+ * Build a safer prompt that avoids OpenAI safety flags
+ */
+function buildSaferPrompt(
   page: any,
   style: keyof typeof STYLE_TAGS
 ): string {
@@ -336,18 +344,27 @@ function buildPrompt(
   
   parts.push(CAMERA_STARTERS[cameraAngle] || 'medium shot');
   
-  // 2. Add specific detail based on camera type
+  // 2. Add specific detail based on camera type - with SAFER wording
   if (cameraAngle === 'extreme_closeup' || cameraAngle === 'macro') {
     if (page.visual_focus === 'hands') {
       parts.push('of baby\'s small hand');
     } else if (page.visual_focus === 'feet') {
-      parts.push('of tiny feet');
+      // SAFER WORDING to avoid safety flags
+      parts.push('of tiny baby feet playing');
     }
     
-    if (page.visual_action?.includes('sand_falling')) {
-      parts.push('scooping sand and letting it fall in a soft sparkling arc');
-    } else if (page.visual_action) {
-      parts.push(page.visual_action.replace(/_/g, ' '));
+    // Sanitize potentially problematic actions
+    if (page.visual_action) {
+      if (page.visual_action.includes('rubbing')) {
+        // Avoid "rubbing" which can trigger safety
+        parts.push('playing in sand');
+      } else if (page.visual_action.includes('sand_falling')) {
+        parts.push('scooping sand and letting it fall in a soft sparkling arc');
+      } else if (page.visual_action.includes('touching')) {
+        parts.push('exploring textures');
+      } else {
+        parts.push(page.visual_action.replace(/_/g, ' '));
+      }
     }
   } else if (cameraAngle === 'pov_baby') {
     if (page.visual_focus === 'feet') {
@@ -357,14 +374,20 @@ function buildPrompt(
     }
   } else if (cameraAngle === 'birds_eye') {
     parts.push('baby on beach blanket');
-    if (page.visual_action) {
+    if (page.visual_action && !page.visual_action.includes('rubbing')) {
       parts.push(page.visual_action.replace(/_/g, ' '));
+    } else {
+      parts.push('playing happily');
     }
     parts.push('simple toys nearby');
   } else {
-    // For other angles, add the action
+    // For other angles, add the action with safety checks
     if (page.visual_action) {
-      parts.push(page.visual_action.replace(/_/g, ' '));
+      if (page.visual_action.includes('rubbing')) {
+        parts.push('playing in sand');
+      } else {
+        parts.push(page.visual_action.replace(/_/g, ' '));
+      }
     } else if (page.action_label) {
       parts.push(page.action_label);
     }
@@ -380,4 +403,11 @@ function buildPrompt(
   parts.push(STYLE_TAGS[style]);
   
   return parts.join(', ');
+}
+
+function buildPrompt(
+  page: any,
+  style: keyof typeof STYLE_TAGS
+): string {
+  return buildSaferPrompt(page, style);
 }

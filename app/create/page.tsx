@@ -20,7 +20,7 @@ const steps = [
   { id: 2, name: 'Memory Chat', icon: MessageCircle },
   { id: 3, name: 'Story Review', icon: BookOpen },
   { id: 4, name: 'Illustrations', icon: Image },
-  { id: 5, name: 'Preview & Edit', icon: Eye },
+  { id: 5, name: 'Book Layout', icon: Eye },
   { id: 6, name: 'Order', icon: CreditCard }
 ];
 
@@ -110,11 +110,12 @@ export default function CreateBookPage() {
   };
 
   const handleIllustrationsComplete = () => {
+    // Skip step 5 (Book Preview) and go directly to Book Layout
     setCurrentStep(5);
     toast.success('Beautiful illustrations created!');
   };
 
-  const handlePreviewComplete = () => {
+  const handleLayoutComplete = () => {
     setCurrentStep(6);
     setShowConfetti(true);
     setTimeout(() => setShowConfetti(false), 5000);
@@ -246,7 +247,7 @@ export default function CreateBookPage() {
               )}
               
               {currentStep === 5 && (
-                <BookPreview onComplete={handlePreviewComplete} />
+                <BookPreview onComplete={handleLayoutComplete} />
               )}
               
               {currentStep === 6 && (

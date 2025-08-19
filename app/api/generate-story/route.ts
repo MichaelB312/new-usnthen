@@ -55,7 +55,7 @@ const CAMERA_ANGLES = {
   medium: 'Medium shot showing baby and immediate surroundings.',
   medium_wide: 'Medium wide shot showing more environment.',
   wide: 'Wide shot showing full scene and environment.',
-  full: 'Full shot (head-to-toe) showing the entire body.',
+  full: 'Full shot (head-to-toe) showing the entire body.', // added
 
   // Dynamic angles
   over_shoulder: 'Over-the-shoulder seeing what the subject sees.',
@@ -68,7 +68,7 @@ const CAMERA_ANGLES = {
   worms_eye: "Worm's-eye view from ground looking up.",
 
   // Environment-specific
-  underwater: 'Underwater or waterline shot for aquatic scenes.'
+  underwater: 'Underwater or waterline shot for aquatic scenes.' // added
 } as const;
 
 // Get page count based on age
@@ -98,7 +98,7 @@ const ACTION_TYPE_TO_CAMERA_MAP: Record<string, string[]> = {
   walking: ['low_angle', 'profile', 'medium', 'wide'],
   crawling: ['low_angle', 'worms_eye', 'dutch_angle', 'profile'],
   sitting: ['wide', 'medium_wide', 'birds_eye', 'three_quarter'],
-  standing: ['low_angle', 'worms_eye', 'full', 'profile'],
+  standing: ['low_angle', 'worms_eye', 'full', 'profile'], // uses full
   jumping: ['low_angle', 'worms_eye', 'profile', 'dutch_angle'],
   dancing: ['dutch_angle', 'medium', 'low_angle', 'wide'],
   running: ['profile', 'low_angle', 'dutch_angle', 'wide'],
@@ -148,7 +148,7 @@ const ACTION_TYPE_TO_CAMERA_MAP: Record<string, string[]> = {
   splashing: ['low_angle', 'medium', 'dutch_angle', 'wide'],
   pouring: ['closeup', 'macro', 'over_shoulder'],
   floating: ['birds_eye', 'high_angle', 'medium'],
-  swimming: ['wide', 'medium_wide', 'underwater', 'profile'],
+  swimming: ['wide', 'medium_wide', 'underwater', 'profile'], // uses underwater
 
   // Default for any unmatched action
   default: ['medium', 'wide', 'closeup', 'three_quarter']
@@ -159,6 +159,7 @@ function extractActionTypesFromMemory(text: string): string[] {
   const actionTypes: string[] = [];
   const lowerText = text.toLowerCase();
 
+  // Check for various action types in the text
   const actionVerbs = [
     // Fine motor
     'grab', 'touch', 'hold', 'pick', 'drop', 'throw', 'reach', 'point',
@@ -178,6 +179,7 @@ function extractActionTypesFromMemory(text: string): string[] {
     'splash', 'pour', 'float', 'swim'
   ];
 
+  // Find which action types are mentioned
   actionVerbs.forEach(verb => {
     const variations = [
       verb,
@@ -187,17 +189,20 @@ function extractActionTypesFromMemory(text: string): string[] {
       verb + verb.slice(-1) + 'ing',
       verb.slice(0, -1) + 'ing'
     ];
+
     for (const variation of variations) {
       if (lowerText.includes(variation)) {
-        actionTypes.push(verb + 'ing');
+        actionTypes.push(verb + 'ing'); // standardize to -ing form
         break;
       }
     }
   });
 
+  // If no specific actions found, add generic ones
   if (actionTypes.length === 0) {
     actionTypes.push('playing', 'exploring', 'discovering', 'looking', 'touching');
   }
+
   return [...new Set(actionTypes)];
 }
 
@@ -250,10 +255,10 @@ function calculateAgeInMonths(birthdate: string): number {
 
 // Get appropriate word count based on age - MUST MEET MINIMUMS!
 function getWordLimitForAge(ageInMonths: number): { min: number; max: number } {
-  if (ageInMonths < 3) return { min: 1, max: 3 };
+  if (ageInMonths < 3) return { min: 0, max: 3 };
   if (ageInMonths < 6) return { min: 2, max: 5 };
-  if (ageInMonths < 9) return { min: 4, max: 6 };
-  if (ageInMonths < 12) return { min: 5, max: 8 };
+  if (ageInMonths < 9) return { min: 4, max: 8 };
+  if (ageInMonths < 12) return { min: 5, max: 10 };
   if (ageInMonths < 15) return { min: 6, max: 12 };
   if (ageInMonths < 18) return { min: 7, max: 14 };
   if (ageInMonths < 24) return { min: 8, max: 16 };
@@ -294,6 +299,8 @@ function validateAndFixStory(
       ? candidate
       : (validAngles.find(x => !used.has(x)) || 'medium');
   };
+
+  const wordCount = (s: string) => s ? s.trim().split(/\s+/).filter(Boolean).length : 0;
 
   const clampToWordRange = (text: string, min: number, max: number, pad = 'Feels so good!') => {
     let tokens = (text || '').trim().split(/\s+/).filter(Boolean);
@@ -371,33 +378,6 @@ function validateAndFixStory(
   return story;
 }
 
-// Helper: robustly extract text from Responses API results
-function getTextFromResponse(resp: any): string {
-  // New SDKs expose an aggregated string
-  if (resp && typeof resp.output_text === 'string') return resp.output_text;
-
-  // Fallback: assemble from output array
-  if (resp && Array.isArray(resp.output)) {
-    const parts: string[] = [];
-    for (const item of resp.output) {
-      const content = item?.content || item?.message?.content;
-      if (Array.isArray(content)) {
-        for (const c of content) {
-          if (typeof c.text === 'string') parts.push(c.text);
-          else if (typeof c?.content === 'string') parts.push(c.content);
-        }
-      }
-    }
-    if (parts.length) return parts.join('');
-  }
-
-  // Last resort: chat-like shape
-  const maybe = resp?.choices?.[0]?.message?.content;
-  if (typeof maybe === 'string') return maybe;
-
-  return '';
-}
-
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const { babyProfile, conversation } = body;
@@ -446,8 +426,21 @@ EXTRACT AND USE THESE SPECIFIC ELEMENTS:
 - If they mention watching → show baby observing
 - Use the EXACT location/objects mentioned
 
+Example of GOOD text for ${ageInMonths} months old:
+- "Yara's tiny feet touch warm sand today." (7 words) ✓
+- "Soft sand falls through little fingers slowly." (7 words) ✓
+- "Wiggle wiggle go the happy toes! Feels so good!" (9 words) ✓
+
+Example of BAD text:
+- "Touch touch." (2 words) ✗ TOO SHORT
+- "Look!" (1 word) ✗ TOO SHORT
+- "The baby is experiencing a new texture." ✗ TOO ABSTRACT
+
 Your refrain options (pick ONE to repeat):
-- Or create your own 3-4 word refrain, either or not with [Baby's name]
+- "Feels so good!" (3 words - can be added to other text)
+- "What a feeling!" (3 words)
+- "[Baby's name] loves this!" (3 words)
+- Or create your own 3-4 word refrain
 
 Create a ${pageCount}-page story with this EXACT JSON structure:
 {
@@ -464,26 +457,21 @@ Create a ${pageCount}-page story with this EXACT JSON structure:
   ]
 }`;
 
-    // ✅ Use the Responses API with GPT-5 & the new params
-    const completion = await openai.responses.create({
-      model: 'gpt-5',
-      // you can pass a single string, or a multi-turn array; we use a developer+user pair
-      input: [
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
         {
-          role: 'developer',
+          role: 'system',
           content: `You write rhythmic baby books for ${ageInMonths}-month-olds with EXACTLY ${wordLimits.min}-${wordLimits.max} words per page. Always use specific details from the memory. Include a repeating refrain. Never write text shorter than ${wordLimits.min} words.`
         },
         { role: 'user', content: storyPrompt }
       ],
-      // New GPT-5 params:
-      text: { format: { type: 'json_object' }, verbosity: 'high' },
-      reasoning: { effort: 'medium' },
-      temperature: 1
-      // (optional) max_output_tokens: 3000,
-    } as any);
+      response_format: { type: 'json_object' },
+      temperature: 0.7,
+      max_tokens: 3000
+    });
 
-    const rawText = getTextFromResponse(completion);
-    const storyData: StoryResponse = JSON.parse(rawText || '{}');
+    const storyData: StoryResponse = JSON.parse(completion.choices[0].message.content || '{}');
 
     // Validate and fix the story to ensure it meets all requirements
     const validatedStory = validateAndFixStory(
@@ -542,7 +530,6 @@ Create a ${pageCount}-page story with this EXACT JSON structure:
     const mockStory = generateMockStory(ageInMonths);
 
     // If we have the actual memory, enhance the mock story with it
-    const memoryAnchor = conversation.find((c: any) => c.question === 'memory_anchor')?.answer || '';
     if (memoryAnchor && memoryAnchor.toLowerCase().includes('beach')) {
       mockStory.title = `${babyProfile?.baby_name || 'Baby'}'s Beach Adventure`;
       if (mockStory.pages[0]) {
@@ -637,6 +624,8 @@ function extractRefrain(pages: StoryPage[]): string {
  */
 function generateMockStory(ageInMonths: number): any {
   const pageCount = getPageCountForAge(ageInMonths);
+  const wordLimits = getWordLimitForAge(ageInMonths);
+
   const allAngles = Object.keys(CAMERA_ANGLES);
   const selectedAngles = allAngles.slice(0, pageCount);
 
@@ -690,7 +679,7 @@ function generateMockStory(ageInMonths: number): any {
       "Baby's curious hands reach out to touch and feel every single thing around here.",
       'Soft between the toes, rough on the hands, so many different feelings to explore.',
       "Watch how it moves when baby does this! It's like magic happening right now.",
-      "Everyone is laughing and smiling together. This is the best day we've ever had!",
+      'Everyone is laughing and smiling together. This is the best day we\'ve ever had!',
       'Try it again, a different way this time. Each time brings new surprises here.'
     ]
   } as const;

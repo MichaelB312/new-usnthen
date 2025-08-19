@@ -209,7 +209,7 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       <div className="card-magical">
         <div className="flex items-center justify-between">
           <h2 className="text-3xl font-patrick gradient-text">
-            Preview Your Book
+            Your Book Layout
           </h2>
           
           <div className="flex items-center gap-4">

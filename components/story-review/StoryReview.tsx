@@ -58,7 +58,7 @@ export function StoryReview({ onContinue, onRegenerate }: StoryReviewProps) {
         </p>
       </div>
 
-      {/* Story Title */}
+{/* Story Title */}
       <div className="card-magical">
         <h3 className="text-2xl font-patrick text-center mb-6 gradient-text">
           "{storyData?.title}"
@@ -66,6 +66,11 @@ export function StoryReview({ onContinue, onRegenerate }: StoryReviewProps) {
         <p className="text-center text-gray-600">
           A magical story for {babyProfile?.baby_name}
         </p>
+        {storyData?.refrain && (
+          <p className="text-center text-purple-600 font-medium mt-3">
+            Refrain: "{storyData.refrain}"
+          </p>
+        )}
       </div>
 
       {/* Story Pages */}

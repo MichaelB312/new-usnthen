@@ -119,13 +119,11 @@ export function EnhancedBookPreview({ onComplete }: { onComplete: () => void }) 
       if (illustration) {
         const page = updatedPages[editingPage];
         const layout = engine.generateLayout(
-          page.layout_template || 'auto',
-          editedText,
-          illustration.url,
-          page.shot || page.closest_shot,
-          page.action_id,
-          page.emotion
-        );
+            page.layout_template || 'auto',
+            page.narration,
+            illustration.url, // Make sure URL exists
+            page.shot || page.closest_shot || page.camera_angle
+          );
         setPageLayout(editingPage + 1, layout);
       }
       

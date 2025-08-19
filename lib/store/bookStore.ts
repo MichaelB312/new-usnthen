@@ -18,6 +18,7 @@ export interface Page {
   closest_shot?: string;
   camera_angle?: string; // NEW: specific camera angle (pov_baby, macro, birds_eye, etc.)
   camera_angle_description?: string; // NEW: detailed camera description
+  camera_prompt?: string; // NEW: direct prompt for image generation
   
   // Action and emotion fields
   action_id?: string;

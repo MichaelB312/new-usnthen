@@ -141,54 +141,8 @@ const renderElement = (element: LayoutElement) => {
       const img = images[element.id];
       if (!img) return null;
       
-      // Create clip path for cute shapes
-      const clipId = `clip-${element.id}`;
-      
       return (
         <Group key={element.id}>
-          {element.mask && (
-            <KonvaRect
-              x={element.x - element.width / 2}
-              y={element.y - element.height / 2}
-              width={element.width}
-              height={element.height}
-              cornerRadius={[50, 80, 60, 40]} // Organic corners
-              fill="transparent"
-              clipFunc={(ctx: any) => {
-                // Create organic shape clipping
-                ctx.beginPath();
-                const w = element.width;
-                const h = element.height;
-                const x = 0;
-                const y = 0;
-                
-                // Create wavy edges
-                ctx.moveTo(x, y + h * 0.2);
-                ctx.bezierCurveTo(
-                  x + w * 0.1, y,
-                  x + w * 0.3, y + h * 0.1,
-                  x + w * 0.5, y
-                );
-                ctx.bezierCurveTo(
-                  x + w * 0.7, y - h * 0.05,
-                  x + w * 0.9, y + h * 0.1,
-                  x + w, y + h * 0.2
-                );
-                ctx.lineTo(x + w, y + h * 0.8);
-                ctx.bezierCurveTo(
-                  x + w * 0.9, y + h,
-                  x + w * 0.7, y + h * 0.95,
-                  x + w * 0.5, y + h
-                );
-                ctx.bezierCurveTo(
-                  x + w * 0.3, y + h * 1.05,
-                  x + w * 0.1, y + h * 0.9,
-                  x, y + h * 0.8
-                );
-                ctx.closePath();
-              }}
-            />
-          )}
           <KonvaImage
             image={img}
             x={element.x - element.width / 2}
@@ -221,20 +175,6 @@ const renderElement = (element: LayoutElement) => {
           rotation={element.rotation}
           wrap="word"
           fontStyle={element.style?.font_weight ? `${element.style.font_weight} ` : '600'}
-        />
-      );
-      
-    case 'shape':
-      // Shape overlay (for decorative purposes)
-      return (
-        <KonvaRect
-          key={element.id}
-          x={element.x - element.width / 2}
-          y={element.y - element.height / 2}
-          width={element.width}
-          height={element.height}
-          fill={element.style?.background_color || 'transparent'}
-          rotation={element.rotation}
         />
       );
       

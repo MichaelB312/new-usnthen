@@ -1,8 +1,29 @@
+/**
+ * Fetch image from OpenAI URL with retry logic
+ */
 // app/api/generate-image-async/route.ts
 /**
- * Style-Anchored Image Generation
- * Page 1: Transform uploaded photo into target style (becomes anchor)
- * Pages 2+: Use page 1 as style reference, only change camera/action
+ * Style-Anchored Image Generation with GPT-IMAGE-1
+ * 
+ * FLOW:
+ * 1. Page 1: Upload Photo → GPT transforms to chosen style → Store as anchor
+ * 2. Pages 2+: Send Page 1 image to GPT → Modify only camera/action → Consistent style
+ * 
+ * CRITICAL: 
+ * - Page 1 MUST complete before Pages 2+ can start
+ * - Every page after 1 uses the SAME Page 1 image as input to GPT
+ * - This ensures perfect style and character consistency
+ * 
+ * NOTE ON RESPONSE FORMAT:
+ * - OpenAI docs say gpt-image-1 always returns base64
+ * - But the SDK actually returns URLs that we need to fetch
+ * - We handle both cases for compatibility
+ * 
+ * API CALLS:
+ * - Page 1: openai.images.edit(uploaded_photo) → styled_anchor
+ * - Page 2: openai.images.edit(styled_anchor) → new_camera_angle
+ * - Page 3: openai.images.edit(styled_anchor) → different_action
+ * - etc...
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -173,30 +194,39 @@ async function processImageGeneration(jobId: string, params: any) {
       console.log(`[Job ${jobId}] Created style anchor for book ${bookId}`);
       
     } else {
-      // PAGES 2+: Use style anchor, only change camera/action
-      const anchorB64 = styleAnchors.get(bookId);
+      // PAGES 2+: Must use style anchor from Page 1
+      const maxAttempts = 15; // Wait up to 30 seconds for anchor
+      let anchorB64: string | undefined;
+      
+      // Wait for anchor to be available
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        anchorB64 = styleAnchors.get(bookId);
+        if (anchorB64) {
+          console.log(`[Job ${jobId}] Found anchor after ${attempt} attempts`);
+          break;
+        }
+        
+        if (attempt === 0) {
+          console.log(`[Job ${jobId}] Waiting for Page 1 anchor to be available...`);
+        }
+        
+        // Wait 2 seconds before checking again
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       if (!anchorB64) {
-        // Fallback: create from photo if anchor missing
-        console.warn(`[Job ${jobId}] No anchor found, creating new one`);
-        const anchor = await createStyleAnchor({
-          uploadedPhotoB64: babyPhotoUrl.replace(/^data:image\/\w+;base64,/, ''),
-          style,
-          setting: extractSetting(pageData),
-          action: 'exploring',
-          camera: 'wide'
-        });
-        styleAnchors.set(bookId, anchor);
-        imageBase64 = anchor;
-      } else {
-        imageBase64 = await generateFromAnchor({
-          styleAnchorB64: anchorB64,
-          setting: extractSetting(pageData),
-          action: pageData.visual_action || pageData.action_label,
-          camera: pageData.camera_angle,
-          cameraPrompt: pageData.camera_prompt
-        });
+        throw new Error('Style anchor from Page 1 not available. Cannot generate subsequent pages without anchor.');
       }
+      
+      // Generate using the Page 1 anchor as base image
+      console.log(`[Job ${jobId}] Using Page 1 anchor for consistency`);
+      imageBase64 = await generateFromAnchor({
+        styleAnchorB64: anchorB64, // This is the Page 1 image being sent to GPT
+        setting: extractSetting(pageData),
+        action: pageData.visual_action || pageData.action_label,
+        camera: pageData.camera_angle,
+        cameraPrompt: pageData.camera_prompt
+      });
     }
     
     job.progress = 90;
@@ -270,42 +300,51 @@ async function createStyleAnchor({
   const imageBuffer = Buffer.from(uploadedPhotoB64, 'base64');
   const imageFile = await toFile(imageBuffer, 'photo.png', { type: 'image/png' });
   
+  // Send the Page 1 anchor image to OpenAI for modification
+  // The image parameter contains the Page 1 styled image
+  // The prompt tells GPT to keep the style/character but change camera/action
+  
+  // Call OpenAI with minimal parameters first
   const response = await openai.images.edit({
     model: 'gpt-image-1',
-    image: imageFile,
-    prompt,
+    image: imageFile,  // <-- This is the Page 1 anchor image being sent to GPT
+    prompt,            // <-- Instructions to modify camera angle and action only
     n: 1,
     size: '1024x1024'
-    // Removed response_format - it's not supported
+    // Removed parameters that might be causing issues
   });
   
   if (!response.data || !response.data[0]) {
     throw new Error('No image data in response');
   }
   
-  // The response will have a URL, fetch it and convert to base64
-  const imageUrl = response.data[0].url;
-  if (!imageUrl) {
-    throw new Error('No image URL in response');
+  const imageData = response.data[0];
+  
+  // The OpenAI SDK might return URLs even for gpt-image-1
+  // despite what the API docs say
+  if ('url' in imageData && imageData.url) {
+    console.log('Got URL response (SDK behavior), fetching image...');
+    const imageBuffer = await fetchImageWithRetry(imageData.url);
+    const base64 = imageBuffer.toString('base64');
+    console.log(`Page generated successfully from URL (${Math.round(base64.length / 1024)}KB)`);
+    return base64;
   }
   
-  try {
-    const imageResponse = await fetch(imageUrl);
-    if (!imageResponse.ok) {
-      throw new Error(`Failed to fetch image: ${imageResponse.status}`);
-    }
-    const arrayBuffer = await imageResponse.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-    
-    return base64;
-  } catch (fetchError) {
-    console.error('Error fetching generated image:', fetchError);
-    throw new Error('Failed to download generated image');
+  // Check for base64 response (what the docs say should happen)
+  if ('b64_json' in imageData && imageData.b64_json) {
+    console.log(`Page generated successfully from base64 (${Math.round(imageData.b64_json.length / 1024)}KB)`);
+    return imageData.b64_json;
   }
+  
+  // If we get here, log the entire response for debugging
+  console.error('Unexpected response structure:', JSON.stringify(imageData));
+  throw new Error('Could not find image data in response. Check logs for response structure.');
 }
 
 /**
  * Generate new page from style anchor (Pages 2+)
+ * Takes the Page 1 image as input and modifies it with new camera angle/action
+ * This ensures style and character consistency across all pages
  */
 async function generateFromAnchor({
   styleAnchorB64,
@@ -314,7 +353,7 @@ async function generateFromAnchor({
   camera,
   cameraPrompt
 }: {
-  styleAnchorB64: string;
+  styleAnchorB64: string; // This is the Page 1 image in base64
   setting: string;
   action: string;
   camera: string;
@@ -324,51 +363,79 @@ async function generateFromAnchor({
   const cameraDescription = cameraPrompt || getCameraPrompt(camera);
   
   const prompt = [
-    'Create new scene with SAME art style and SAME child as reference.',
-    'Keep identical character features and outfit.',
+    'Create new scene with SAME art style and SAME child as reference image.',
+    'Keep identical character features, clothing, and art style.',
+    'Only change the camera angle and action.',
     `Setting: ${setting}.`,
-    `Action: ${action}.`,
-    `Camera: ${cameraDescription}.`,
+    `New action: ${action}.`,
+    `New camera angle: ${cameraDescription}.`,
+    'Maintain exact style consistency with reference.',
     'No text in image.'
   ].join(' ');
   
   console.log('Generating from anchor with prompt:', prompt);
   
+  // Convert the Page 1 anchor image to a file for OpenAI
   const imageBuffer = Buffer.from(styleAnchorB64, 'base64');
   const imageFile = await toFile(imageBuffer, 'anchor.png', { type: 'image/png' });
   
-  const response = await openai.images.edit({
-    model: 'gpt-image-1',
-    image: imageFile,
-    prompt,
-    n: 1,
-    size: '1024x1024'
-    // Removed response_format - it's not supported
-  });
+  // Try with response_format first for direct base64
+  let response;
+  try {
+    response = await openai.images.edit({
+      model: 'gpt-image-1',
+      image: imageFile,
+      prompt,
+      n: 1,
+      size: '1024x1024',
+      response_format: 'b64_json'
+    });
+  } catch (error: any) {
+    console.log('b64_json format not supported, trying with URL format');
+    // Fallback to URL format
+    response = await openai.images.edit({
+      model: 'gpt-image-1',
+      image: imageFile,
+      prompt,
+      n: 1,
+      size: '1024x1024'
+    });
+  }
   
   if (!response.data || !response.data[0]) {
     throw new Error('No image data in response');
   }
   
-  // The response will have a URL, fetch it and convert to base64
-  const imageUrl = response.data[0].url;
-  if (!imageUrl) {
-    throw new Error('No image URL in response');
+  // Handle both response formats
+  let base64: string;
+  
+  if ('b64_json' in response.data[0]) {
+    // Direct base64 response
+    base64 = response.data[0].b64_json!;
+  } else if ('url' in response.data[0]) {
+    // URL response - fetch and convert
+    const imageUrl = response.data[0].url;
+    if (!imageUrl) {
+      throw new Error('No image URL in response');
+    }
+    
+    try {
+      console.log('Fetching image from URL:', imageUrl.substring(0, 100) + '...');
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to fetch image: ${imageResponse.status}`);
+      }
+      const arrayBuffer = await imageResponse.arrayBuffer();
+      base64 = Buffer.from(arrayBuffer).toString('base64');
+    } catch (fetchError) {
+      console.error('Error fetching generated image:', fetchError);
+      throw new Error('Failed to download generated image');
+    }
+  } else {
+    throw new Error('Unknown response format from OpenAI');
   }
   
-  try {
-    const imageResponse = await fetch(imageUrl);
-    if (!imageResponse.ok) {
-      throw new Error(`Failed to fetch image: ${imageResponse.status}`);
-    }
-    const arrayBuffer = await imageResponse.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-    
-    return base64;
-  } catch (fetchError) {
-    console.error('Error fetching generated image:', fetchError);
-    throw new Error('Failed to download generated image');
-  }
+  return base64;
 }
 
 /**
@@ -404,6 +471,60 @@ function extractSetting(pageData: any): string {
   
   // Default based on common baby book settings
   return 'bright, cheerful outdoor environment with soft natural light';
+}
+
+/**
+ * Fetch image from OpenAI URL with retry logic
+ */
+async function fetchImageWithRetry(url: string, maxRetries = 3): Promise<Buffer> {
+  if (!url || !url.startsWith('http')) {
+    throw new Error(`Invalid URL provided: ${url}`);
+  }
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Fetching image from URL (attempt ${attempt}/${maxRetries})...`);
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Next.js Server',
+          'Accept': 'image/*'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get('content-type');
+      if (contentType && !contentType.startsWith('image/')) {
+        throw new Error(`Invalid content type: ${contentType}`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      
+      // Verify we got actual image data
+      if (buffer.length < 100) {
+        throw new Error(`Image too small: ${buffer.length} bytes`);
+      }
+      
+      console.log(`Successfully fetched image: ${Math.round(buffer.length / 1024)}KB`);
+      return buffer;
+      
+    } catch (error: any) {
+      console.error(`Attempt ${attempt}/${maxRetries} failed:`, error.message);
+      
+      if (attempt === maxRetries) {
+        throw new Error(`Failed to fetch image after ${maxRetries} attempts: ${error.message}`);
+      }
+      
+      // Wait a bit before retrying (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+  
+  throw new Error('Failed to fetch image');
 }
 
 /**

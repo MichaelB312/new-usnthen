@@ -34,6 +34,7 @@ interface GeneratedImage {
 
 const POLL_INTERVAL = 2000;
 const MAX_POLL_TIME = 300000;
+const PAGE1_WAIT_TIME = 30000; // 30 seconds to wait for page 1
 
 export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => void }) {
   const router = useRouter();
@@ -53,6 +54,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [visualProgress, setVisualProgress] = useState(0);
   const [currentPhase, setCurrentPhase] = useState<'upload' | 'style' | 'generate' | 'complete'>('upload');
+  const [page1Completed, setPage1Completed] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
@@ -181,7 +183,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           pageData: {
             narration: page.narration,
             camera_angle: page.camera_angle,
-            camera_prompt: page.camera_prompt, // Now passing camera_prompt
+            camera_prompt: page.camera_prompt,
             visual_action: page.visual_action || page.action_description,
             action_label: page.action_label,
             sensory_details: page.sensory_details
@@ -203,82 +205,94 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     }
   };
 
-  const pollJobStatus = (jobId: string, pageNumber: number) => {
-    const startTime = Date.now();
-    
-    const interval = setInterval(async () => {
-      try {
-        if (Date.now() - startTime > MAX_POLL_TIME) {
-          clearInterval(interval);
-          pollingIntervalsRef.current.delete(jobId);
-          
-          setGeneratedImages(prev => prev.map(img => 
-            img.page_number === pageNumber 
-              ? { ...img, status: 'error' as const, error: 'Timeout' }
-              : img
-          ));
-          return;
-        }
-        
-        const response = await fetch(`/api/generate-image-async?jobId=${jobId}`);
-        const data = await response.json();
-        
-        if (!data.success) return;
-        
-        const { job } = data;
-        
-        setJobs(prev => prev.map(j => 
-          j.jobId === jobId 
-            ? { ...j, status: job.status, progress: job.progress || 0 }
-            : j
-        ));
-        
-        if (job.status === 'completed' && job.result) {
-          clearInterval(interval);
-          pollingIntervalsRef.current.delete(jobId);
-          
-          setGeneratedImages(prev => {
-            const updated = prev.map(img => 
-              img.page_number === pageNumber 
-                ? { 
-                    ...img, 
-                    dataUrl: job.result.dataUrl,
-                    status: 'success' as const,
-                    elapsed_ms: job.result.elapsed_ms
-                  }
-                : img
-            );
+  const pollJobStatus = (jobId: string, pageNumber: number): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      
+      const interval = setInterval(async () => {
+        try {
+          if (Date.now() - startTime > MAX_POLL_TIME) {
+            clearInterval(interval);
+            pollingIntervalsRef.current.delete(jobId);
             
-            checkCompletion(updated);
-            return updated;
-          });
-          
-          // Special toast for page 1 (style anchor created)
-          if (pageNumber === 1) {
-            toast.success('Style anchor created! Using it for all pages...', { 
-              icon: '🎨',
-              duration: 3000 
-            });
+            setGeneratedImages(prev => prev.map(img => 
+              img.page_number === pageNumber 
+                ? { ...img, status: 'error' as const, error: 'Timeout' }
+                : img
+            ));
+            resolve(false);
+            return;
           }
-        }
-        
-        if (job.status === 'failed') {
-          clearInterval(interval);
-          pollingIntervalsRef.current.delete(jobId);
           
-          setGeneratedImages(prev => prev.map(img => 
-            img.page_number === pageNumber 
-              ? { ...img, status: 'error' as const, error: job.error }
-              : img
+          const response = await fetch(`/api/generate-image-async?jobId=${jobId}`);
+          const data = await response.json();
+          
+          if (!data.success) return;
+          
+          const { job } = data;
+          
+          setJobs(prev => prev.map(j => 
+            j.jobId === jobId 
+              ? { ...j, status: job.status, progress: job.progress || 0 }
+              : j
           ));
+          
+          if (job.status === 'completed' && job.result) {
+            clearInterval(interval);
+            pollingIntervalsRef.current.delete(jobId);
+            
+            setGeneratedImages(prev => {
+              const updated = prev.map(img => 
+                img.page_number === pageNumber 
+                  ? { 
+                      ...img, 
+                      dataUrl: job.result.dataUrl,
+                      status: 'success' as const,
+                      elapsed_ms: job.result.elapsed_ms
+                    }
+                  : img
+              );
+              
+              // Don't call checkCompletion here for page 1
+              if (pageNumber !== 1) {
+                checkCompletion(updated);
+              }
+              
+              return updated;
+            });
+            
+            // Special handling for page 1
+            if (pageNumber === 1) {
+              toast.success('Style anchor created! Using it for all pages...', { 
+                icon: '🎨',
+                duration: 3000 
+              });
+              setPage1Completed(true);
+            }
+            
+            resolve(true);
+          }
+          
+          if (job.status === 'failed') {
+            clearInterval(interval);
+            pollingIntervalsRef.current.delete(jobId);
+            
+            setGeneratedImages(prev => prev.map(img => 
+              img.page_number === pageNumber 
+                ? { ...img, status: 'error' as const, error: job.error }
+                : img
+            ));
+            
+            resolve(false);
+          }
+          
+        } catch (error) {
+          console.error(`Polling error for job ${jobId}:`, error);
         }
-        
-      } catch (error) {
-        console.error(`Polling error for job ${jobId}:`, error);
-      }
-    }, POLL_INTERVAL);
-    
-    pollingIntervalsRef.current.set(jobId, interval);
+      }, POLL_INTERVAL);
+      
+      pollingIntervalsRef.current.set(jobId, interval);
+    });
   };
 
   const checkCompletion = (images: GeneratedImage[]) => {
@@ -327,17 +341,17 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     setCurrentPhase('generate');
     setJobs([]);
     setVisualProgress(0);
+    setPage1Completed(false);
     
     const totalPages = storyData.pages.length;
     
     toast('Creating your style-consistent illustrations...', { icon: '🎨', duration: 5000 });
     
     try {
-      // IMPORTANT: Generate pages sequentially for style anchoring
-      // Page 1 must complete before others can start
-      
-      // Start with page 1 (creates style anchor)
+      // CRITICAL: Generate Page 1 FIRST and WAIT for it to complete
       const page1 = storyData.pages[0];
+      console.log('Starting Page 1 generation (style anchor)...');
+      
       setGeneratedImages(prev => prev.map(img => 
         img.page_number === 1 
           ? { ...img, status: 'generating' as const }
@@ -355,39 +369,56 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           startTime: Date.now()
         };
         setJobs([job1]);
-        pollJobStatus(page1JobId, 1);
         
-        // Wait a bit for page 1 to establish style anchor
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // Wait for Page 1 to complete
+        console.log('Waiting for Page 1 to complete...');
+        const page1Success = await pollJobStatus(page1JobId, 1);
         
-        // Now start remaining pages (they'll use the anchor)
-        const remainingJobs = await Promise.all(
-          storyData.pages.slice(1).map(async (page) => {
-            setGeneratedImages(prev => prev.map(img => 
-              img.page_number === page.page_number 
-                ? { ...img, status: 'generating' as const }
-                : img
-            ));
+        if (!page1Success) {
+          toast.error('Failed to create style anchor (Page 1). Cannot continue.');
+          setGenerating(false);
+          return;
+        }
+        
+        console.log('Page 1 completed! Starting remaining pages...');
+        
+        // Small delay to ensure anchor is stored
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Now generate remaining pages in parallel
+        const remainingJobPromises = storyData.pages.slice(1).map(async (page) => {
+          setGeneratedImages(prev => prev.map(img => 
+            img.page_number === page.page_number 
+              ? { ...img, status: 'generating' as const }
+              : img
+          ));
+          
+          const jobId = await startImageGeneration(page);
+          
+          if (jobId) {
+            const job: ImageJob = {
+              jobId,
+              pageNumber: page.page_number,
+              status: 'pending',
+              progress: 0,
+              startTime: Date.now()
+            };
             
-            const jobId = await startImageGeneration(page);
+            setJobs(prev => [...prev, job]);
             
-            if (jobId) {
-              const job: ImageJob = {
-                jobId,
-                pageNumber: page.page_number,
-                status: 'pending',
-                progress: 0,
-                startTime: Date.now()
-              };
-              
-              pollJobStatus(jobId, page.page_number);
-              return job;
-            }
-            return null;
-          })
-        );
+            // Don't await here - let them run in parallel
+            pollJobStatus(jobId, page.page_number);
+            return job;
+          }
+          return null;
+        });
         
-        setJobs(prev => [...prev, ...remainingJobs.filter(j => j !== null) as ImageJob[]]);
+        // Wait for all jobs to be started
+        const remainingJobs = await Promise.all(remainingJobPromises);
+        console.log(`Started ${remainingJobs.filter(j => j !== null).length} remaining page generations`);
+        
+      } else {
+        throw new Error('Failed to start Page 1 generation');
       }
       
     } catch (error: any) {
@@ -450,7 +481,9 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             <p className="text-xl text-gray-600 mb-8">
               {getCompletedCount() === 0 
                 ? 'Creating style anchor from your photo...'
-                : `Generating page ${getCompletedCount() + 1} of ${storyData?.pages.length}`
+                : page1Completed 
+                  ? `Generating page ${getCompletedCount() + 1} of ${storyData?.pages.length}`
+                  : 'Waiting for style anchor to complete...'
               }
             </p>
 

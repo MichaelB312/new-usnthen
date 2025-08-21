@@ -5,11 +5,13 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Wand2, Camera, Sparkles, Brush, Book, RefreshCw, 
-  AlertCircle, Clock, Loader2, Home, Star, Heart, Palette
+  AlertCircle, Clock, Loader2, Home, Star, Heart, Palette,
+  Users, Plus, Check
 } from 'lucide-react';
-import { useBookStore } from '@/lib/store/bookStore';
+import { useBookStore, PersonId, selectImageReferences } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
+import { CastManager } from '@/components/cast-management/CastManager';
 
 interface ImageJob {
   jobId: string;
@@ -27,6 +29,7 @@ interface GeneratedImage {
   style: string;
   camera_angle: string;
   action: string;
+  characters_on_page?: PersonId[];
   status: 'pending' | 'generating' | 'success' | 'error';
   error?: string;
   elapsed_ms?: number;
@@ -34,7 +37,6 @@ interface GeneratedImage {
 
 const POLL_INTERVAL = 2000;
 const MAX_POLL_TIME = 300000;
-const PAGE1_WAIT_TIME = 30000; // 30 seconds to wait for page 1
 
 export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => void }) {
   const router = useRouter();
@@ -42,25 +44,25 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     babyProfile, 
     storyData, 
     bookId,
+    cast, // This is now Partial<Record<PersonId, CastMember>>
+    uploadedPhotos,
     setIllustrations,
     illustrationStyle,
-    setIllustrationStyle 
+    setIllustrationStyle,
+    setStyleAnchor
   } = useBookStore();
   
-  const [photoPreview, setPhotoPreview] = useState<string>(babyProfile?.baby_photo_url || '');
-  const [uploading, setUploading] = useState(false);
+  const [phase, setPhase] = useState<'cast' | 'style' | 'generate' | 'complete'>('cast');
   const [generating, setGenerating] = useState(false);
   const [jobs, setJobs] = useState<ImageJob[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [visualProgress, setVisualProgress] = useState(0);
-  const [currentPhase, setCurrentPhase] = useState<'upload' | 'style' | 'generate' | 'complete'>('upload');
   const [page1Completed, setPage1Completed] = useState(false);
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const visualProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Simplified style options
+  // Style options
   const styles = [
     { 
       id: 'wondrous', 
@@ -85,7 +87,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     }
   ];
 
-  // Initialize when story data is available
+  // Initialize images from story data
   useEffect(() => {
     if (storyData?.pages) {
       const initialImages: GeneratedImage[] = storyData.pages.map(page => ({
@@ -94,16 +96,12 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         style: illustrationStyle,
         camera_angle: page.camera_angle || 'wide',
         action: page.visual_action || page.action_label || '',
+        characters_on_page: page.characters_on_page,
         status: 'pending'
       }));
       setGeneratedImages(initialImages);
-      
-      // Set phase based on what's completed
-      if (photoPreview) {
-        setCurrentPhase('style');
-      }
     }
-  }, [storyData, illustrationStyle, photoPreview]);
+  }, [storyData, illustrationStyle]);
   
   // Cleanup on unmount
   useEffect(() => {
@@ -119,7 +117,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   useEffect(() => {
     if (generating && !visualProgressIntervalRef.current) {
       const totalPages = storyData?.pages.length || 0;
-      const msPerPage = 15000; // 15 seconds per page estimate
+      const msPerPage = 15000;
       const totalMs = totalPages * msPerPage;
       
       const startTime = Date.now();
@@ -134,44 +132,66 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     }
   }, [generating, storyData]);
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleCastComplete = () => {
+    // Validate that all story characters have photos
+    const storyCharacters = new Set<PersonId>();
     
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('Photo must be less than 10MB');
+    // Get characters from pages
+    storyData?.pages.forEach(page => {
+      page.characters_on_page?.forEach(char => storyCharacters.add(char));
+    });
+    
+    // Also check cast_members if available
+    if (storyData?.cast_members) {
+      storyData.cast_members.forEach(char => storyCharacters.add(char));
+    }
+    
+    const missingPhotos = Array.from(storyCharacters).filter(
+      charId => !uploadedPhotos.some(p => p.people.includes(charId))
+    );
+    
+    if (missingPhotos.length > 0) {
+      toast.error(`Missing photos for: ${missingPhotos.join(', ')}`);
       return;
     }
     
-    setUploading(true);
-    
-    try {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        setPhotoPreview(base64);
-        
-        useBookStore.setState((state) => ({
-          babyProfile: {
-            ...state.babyProfile!,
-            baby_photo_url: base64
-          }
-        }));
-        
-        setCurrentPhase('style');
-        toast.success('Photo uploaded! Now choose a style.');
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      toast.error('Failed to upload photo');
-    } finally {
-      setUploading(false);
-    }
+    setPhase('style');
+    toast.success('Cast setup complete! Now choose your art style.');
   };
 
   const startImageGeneration = async (page: any): Promise<string | null> => {
     try {
-      console.log(`Starting generation for page ${page.page_number} (${page.camera_angle})`);
+      console.log(`Starting generation for page ${page.page_number}`);
+      console.log(`Characters on page: ${page.characters_on_page?.join(', ')}`);
+      
+      // Get appropriate reference images for this page
+      const styleAnchor = useBookStore.getState().styleAnchorUrl;
+      let references: string[] = [];
+      
+      if (page.page_number === 1) {
+        // For page 1, just use the main baby photo
+        const babyPhoto = uploadedPhotos.find(p => p.people.includes('baby'));
+        if (babyPhoto) {
+          references = [babyPhoto.fileUrl];
+        } else if (babyProfile?.baby_photo_url) {
+          references = [babyProfile.baby_photo_url];
+        }
+      } else if (styleAnchor) {
+        // For other pages, use the selection algorithm
+        references = selectImageReferences(
+          page,
+          cast,
+          uploadedPhotos,
+          styleAnchor
+        );
+      }
+      
+      // Ensure we have at least one reference image
+      if (references.length === 0) {
+        console.error(`No reference images available for page ${page.page_number}`);
+        toast.error(`No reference images for page ${page.page_number}`);
+        return null;
+      }
       
       const response = await fetch('/api/generate-image-async', {
         method: 'POST',
@@ -179,18 +199,41 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         body: JSON.stringify({
           bookId,
           pageNumber: page.page_number,
-          babyPhotoUrl: photoPreview,
+          babyPhotoUrl: references[0] || babyProfile?.baby_photo_url,
           pageData: {
+            ...page,
             narration: page.narration,
             camera_angle: page.camera_angle,
             camera_prompt: page.camera_prompt,
             visual_action: page.visual_action || page.action_description,
             action_label: page.action_label,
-            sensory_details: page.sensory_details
+            sensory_details: page.sensory_details,
+            characters_on_page: page.characters_on_page,
+            background_extras: page.background_extras
           },
-          style: illustrationStyle
+          style: illustrationStyle,
+          cast,
+          uploadedPhotos,
+          identityAnchors: {} // Will be populated as we generate
         })
       });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`API error for page ${page.page_number}:`, errorText);
+        
+        // Try to parse as JSON, otherwise use text
+        let errorMessage = `Failed to start generation for page ${page.page_number}`;
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If not JSON, use the text directly
+          if (errorText) errorMessage = errorText;
+        }
+        
+        throw new Error(errorMessage);
+      }
       
       const data = await response.json();
       
@@ -201,6 +244,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
       throw new Error(data.error || 'Failed to start job');
     } catch (error: any) {
       console.error(`Failed to start job for page ${page.page_number}:`, error);
+      toast.error(`Page ${page.page_number}: ${error.message}`);
       return null;
     }
   };
@@ -241,6 +285,16 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             clearInterval(interval);
             pollingIntervalsRef.current.delete(jobId);
             
+            // Store style anchor if this is page 1
+            if (pageNumber === 1) {
+              setStyleAnchor(job.result.dataUrl);
+              setPage1Completed(true);
+              toast.success('Style anchor created! Using it for all pages...', { 
+                icon: '🎨',
+                duration: 3000 
+              });
+            }
+            
             setGeneratedImages(prev => {
               const updated = prev.map(img => 
                 img.page_number === pageNumber 
@@ -248,27 +302,18 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                       ...img, 
                       dataUrl: job.result.dataUrl,
                       status: 'success' as const,
-                      elapsed_ms: job.result.elapsed_ms
+                      elapsed_ms: job.result.elapsed_ms,
+                      characters_on_page: job.result.characters_on_page
                     }
                   : img
               );
               
-              // Don't call checkCompletion here for page 1
               if (pageNumber !== 1) {
                 checkCompletion(updated);
               }
               
               return updated;
             });
-            
-            // Special handling for page 1
-            if (pageNumber === 1) {
-              toast.success('Style anchor created! Using it for all pages...', { 
-                icon: '🎨',
-                duration: 3000 
-              });
-              setPage1Completed(true);
-            }
             
             resolve(true);
           }
@@ -308,7 +353,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
       
       setTimeout(() => {
         setGenerating(false);
-        setCurrentPhase('complete');
+        setPhase('complete');
         
         if (successful.length > 0) {
           const illustrationsForStore = successful.map(img => ({
@@ -323,7 +368,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           setIllustrations(illustrationsForStore);
           
           if (successful.length === totalPages) {
-            toast.success('All illustrations generated! 🎉', { duration: 5000 });
+            toast.success('All illustrations generated with consistent characters! 🎉', { duration: 5000 });
             setTimeout(() => onComplete(), 1500);
           }
         }
@@ -332,23 +377,33 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   };
 
   const generateAllAsync = async () => {
-    if (!photoPreview || !storyData?.pages) {
-      toast.error('Missing required data');
+    if (!storyData?.pages) {
+      toast.error('Missing story data');
+      return;
+    }
+    
+    // Validate cast photos
+    const hasRequiredPhotos = storyData.pages.every(page => 
+      page.characters_on_page?.every(charId => 
+        uploadedPhotos.some(p => p.people.includes(charId))
+      ) ?? true
+    );
+    
+    if (!hasRequiredPhotos) {
+      toast.error('Missing character photos. Please upload photos for all characters.');
       return;
     }
     
     setGenerating(true);
-    setCurrentPhase('generate');
+    setPhase('generate');
     setJobs([]);
     setVisualProgress(0);
     setPage1Completed(false);
     
-    const totalPages = storyData.pages.length;
-    
-    toast('Creating your style-consistent illustrations...', { icon: '🎨', duration: 5000 });
+    toast('Creating character-consistent illustrations...', { icon: '🎨', duration: 5000 });
     
     try {
-      // CRITICAL: Generate Page 1 FIRST and WAIT for it to complete
+      // Generate Page 1 first (style anchor)
       const page1 = storyData.pages[0];
       console.log('Starting Page 1 generation (style anchor)...');
       
@@ -370,22 +425,19 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         };
         setJobs([job1]);
         
-        // Wait for Page 1 to complete
-        console.log('Waiting for Page 1 to complete...');
+        // Wait for Page 1
         const page1Success = await pollJobStatus(page1JobId, 1);
         
         if (!page1Success) {
-          toast.error('Failed to create style anchor (Page 1). Cannot continue.');
+          toast.error('Failed to create style anchor. Cannot continue.');
           setGenerating(false);
           return;
         }
         
-        console.log('Page 1 completed! Starting remaining pages...');
-        
-        // Small delay to ensure anchor is stored
+        // Small delay for anchor storage
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Now generate remaining pages in parallel
+        // Generate remaining pages
         const remainingJobPromises = storyData.pages.slice(1).map(async (page) => {
           setGeneratedImages(prev => prev.map(img => 
             img.page_number === page.page_number 
@@ -405,17 +457,13 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             };
             
             setJobs(prev => [...prev, job]);
-            
-            // Don't await here - let them run in parallel
             pollJobStatus(jobId, page.page_number);
             return job;
           }
           return null;
         });
         
-        // Wait for all jobs to be started
-        const remainingJobs = await Promise.all(remainingJobPromises);
-        console.log(`Started ${remainingJobs.filter(j => j !== null).length} remaining page generations`);
+        await Promise.all(remainingJobPromises);
         
       } else {
         throw new Error('Failed to start Page 1 generation');
@@ -428,7 +476,6 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     }
   };
 
-  // Helper functions
   const getCompletedCount = () => {
     return generatedImages.filter(img => 
       img.status === 'success' || img.status === 'error'
@@ -442,7 +489,11 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     toast('Generation cancelled', { icon: '🛑' });
   };
 
-  // Render based on current phase
+  // Render based on phase
+  if (phase === 'cast') {
+    return <CastManager onComplete={handleCastComplete} />;
+  }
+  
   if (generating) {
     return (
       <AnimatePresence>
@@ -470,20 +521,20 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                 }}
                 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
               >
-                <Palette className="h-24 w-24 text-purple-600" />
+                <Users className="h-24 w-24 text-purple-600" />
               </motion.div>
             </div>
 
             <h2 className="text-4xl font-patrick mb-4 gradient-text">
-              Creating Your Illustrations...
+              Creating Character-Consistent Illustrations...
             </h2>
             
             <p className="text-xl text-gray-600 mb-8">
               {getCompletedCount() === 0 
-                ? 'Creating style anchor from your photo...'
+                ? 'Creating style anchor with character references...'
                 : page1Completed 
-                  ? `Generating page ${getCompletedCount() + 1} of ${storyData?.pages.length}`
-                  : 'Waiting for style anchor to complete...'
+                  ? `Generating page ${getCompletedCount() + 1} of ${storyData?.pages.length} with consistent characters`
+                  : 'Processing character references...'
               }
             </p>
 
@@ -504,57 +555,13 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     );
   }
 
-  // Normal interface
-  return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      {/* Step 1: Upload Photo */}
-      <motion.div className="card-magical">
-        <h2 className="text-3xl font-patrick gradient-text mb-6">
-          Step 1: Upload {babyProfile?.baby_name}'s Photo
-        </h2>
-        
-        {!photoPreview ? (
-          <label className="block cursor-pointer">
-            <motion.div 
-              whileHover={{ scale: 1.02 }}
-              className="border-3 border-dashed border-purple-300 rounded-2xl p-12 hover:border-purple-500"
-            >
-              <Camera className="h-20 w-20 text-purple-400 mx-auto mb-4" />
-              <p className="text-xl font-medium text-center">Click to Upload Photo</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handlePhotoUpload}
-                className="hidden"
-              />
-            </motion.div>
-          </label>
-        ) : (
-          <div className="text-center">
-            <img 
-              src={photoPreview} 
-              alt="Baby"
-              className="w-48 h-48 rounded-2xl mx-auto mb-4 object-cover shadow-xl"
-            />
-            <button 
-              onClick={() => {
-                setPhotoPreview('');
-                setCurrentPhase('upload');
-              }}
-              className="btn-secondary"
-            >
-              Change Photo
-            </button>
-          </div>
-        )}
-      </motion.div>
-
-      {/* Step 2: Choose Style */}
-      {photoPreview && currentPhase === 'style' && (
+  // Style selection phase
+  if (phase === 'style') {
+    return (
+      <div className="max-w-6xl mx-auto space-y-8">
         <motion.div className="card-magical">
           <h2 className="text-3xl font-patrick gradient-text mb-6">
-            Step 2: Choose Art Style
+            Choose Your Art Style
           </h2>
           
           <div className="grid md:grid-cols-3 gap-6">
@@ -584,53 +591,63 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             className="btn-primary w-full text-xl py-6 mt-8"
           >
             <Wand2 className="h-7 w-7 mr-3" />
-            Generate All Illustrations
+            Generate Character-Consistent Illustrations
           </button>
         </motion.div>
-      )}
+      </div>
+    );
+  }
 
-      {/* Results */}
-      {currentPhase === 'complete' && generatedImages.some(img => img.status !== 'pending') && (
-        <motion.div className="card-magical">
-          <h3 className="text-2xl font-patrick gradient-text text-center mb-6">
-            Your Illustrations Are Ready!
-          </h3>
-          
-          <div className="grid md:grid-cols-3 gap-6">
-            {generatedImages.map((image) => (
-              <motion.div key={image.page_number} className="relative">
-                {image.status === 'success' && image.dataUrl ? (
+  // Results phase
+  if (phase === 'complete' && generatedImages.some(img => img.status !== 'pending')) {
+    return (
+      <motion.div className="card-magical">
+        <h3 className="text-2xl font-patrick gradient-text text-center mb-6">
+          Your Character-Consistent Illustrations!
+        </h3>
+        
+        <div className="grid md:grid-cols-3 gap-6">
+          {generatedImages.map((image) => (
+            <motion.div key={image.page_number} className="relative">
+              {image.status === 'success' && image.dataUrl ? (
+                <div>
                   <img
                     src={image.dataUrl}
                     alt={`Page ${image.page_number}`}
                     className="w-full aspect-square rounded-xl object-cover shadow-lg"
                   />
-                ) : image.status === 'error' ? (
-                  <div className="aspect-square rounded-xl bg-red-50 flex items-center justify-center">
-                    <AlertCircle className="h-8 w-8 text-red-500" />
+                  <div className="mt-2 text-center">
+                    <p className="text-sm font-medium">Page {image.page_number}</p>
+                    <p className="text-xs text-gray-500">{image.camera_angle}</p>
+                    {image.characters_on_page && (
+                      <p className="text-xs text-purple-600">
+                        Characters: {image.characters_on_page.join(', ')}
+                      </p>
+                    )}
                   </div>
-                ) : null}
-                
-                <div className="mt-2 text-center">
-                  <p className="text-sm font-medium">Page {image.page_number}</p>
-                  <p className="text-xs text-gray-500">{image.camera_angle}</p>
                 </div>
-              </motion.div>
-            ))}
-          </div>
+              ) : image.status === 'error' ? (
+                <div className="aspect-square rounded-xl bg-red-50 flex items-center justify-center">
+                  <AlertCircle className="h-8 w-8 text-red-500" />
+                </div>
+              ) : null}
+            </motion.div>
+          ))}
+        </div>
+        
+        <div className="flex gap-4 mt-8">
+          <button onClick={() => window.location.reload()} className="btn-secondary flex-1">
+            <RefreshCw className="h-5 w-5 mr-2" />
+            Regenerate All
+          </button>
           
-          <div className="flex gap-4 mt-8">
-            <button onClick={() => window.location.reload()} className="btn-secondary flex-1">
-              <RefreshCw className="h-5 w-5 mr-2" />
-              Regenerate All
-            </button>
-            
-            <button onClick={onComplete} className="btn-primary flex-1">
-              Continue to Book Preview
-            </button>
-          </div>
-        </motion.div>
-      )}
-    </div>
-  );
+          <button onClick={onComplete} className="btn-primary flex-1">
+            Continue to Book Preview
+          </button>
+        </div>
+      </motion.div>
+    );
+  }
+
+  return null;
 }

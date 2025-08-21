@@ -1,37 +1,17 @@
-/**
- * Fetch image from OpenAI URL with retry logic
- */
 // app/api/generate-image-async/route.ts
 /**
- * Style-Anchored Image Generation with GPT-IMAGE-1
+ * Enhanced Image Generation with Multi-Reference Character Support
  * 
  * FLOW:
- * 1. Page 1: Upload Photo → GPT transforms to chosen style → Store as anchor
- * 2. Pages 2+: Send Page 1 image to GPT → Modify only camera/action → Consistent style
- * 
- * CRITICAL: 
- * - Page 1 MUST complete before Pages 2+ can start
- * - Every page after 1 uses the SAME Page 1 image as input to GPT
- * - This ensures perfect style and character consistency
- * 
- * NOTE ON RESPONSE FORMAT:
- * - OpenAI docs say gpt-image-1 always returns base64
- * - But the SDK actually returns URLs that we need to fetch
- * - We handle both cases for compatibility
- * 
- * API CALLS:
- * - Page 1: openai.images.edit(uploaded_photo) → styled_anchor
- * - Page 2: openai.images.edit(styled_anchor) → new_camera_angle
- * - Page 3: openai.images.edit(styled_anchor) → different_action
- * - etc...
+ * 1. Page 1: Creates style anchor with first character reference
+ * 2. Pages 2+: Uses style anchor + character-specific identity anchors
+ * 3. Explicit mapping tells model which reference is which character
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { PersonId, CastMember, UploadedPhoto, selectImageReferences } from '@/lib/store/bookStore';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,7 +23,7 @@ const openai = new OpenAI({
   maxRetries: 2,
 });
 
-// In-memory job storage
+// Job storage
 const jobs = new Map<string, {
   id: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
@@ -54,10 +34,13 @@ const jobs = new Map<string, {
   completedAt?: number;
 }>();
 
-// Style anchor storage (in production, use Redis/DB)
+// Style anchor storage
 const styleAnchors = new Map<string, string>();
 
-// Clean up old jobs periodically
+// Character identity anchors storage
+const identityAnchors = new Map<string, Map<PersonId, string>>(); // bookId -> personId -> anchorUrl
+
+// Cleanup interval
 setInterval(() => {
   const oneHourAgo = Date.now() - 60 * 60 * 1000;
   for (const [id, job] of jobs.entries()) {
@@ -68,29 +51,152 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 /**
- * Camera angle to concise prompt mapping
+ * Build character-aware prompt with explicit reference mapping
  */
-function getCameraPrompt(angle: string): string {
-  const cameraMap: Record<string, string> = {
-    extreme_closeup: "extreme close-up on tiny details, 85mm macro",
-    macro: "macro texture shot, shallow depth",
-    pov_baby: "POV from baby height looking at own hands/feet, 28mm",
-    wide: "wide environmental shot, 28mm",
-    birds_eye: "top-down bird's-eye view, 28mm",
-    worms_eye: "extreme low angle looking up, 28mm",
-    profile: "strict profile from side, 50mm",
-    over_shoulder: "over-the-shoulder framing, 50mm"
+function buildCharacterAwarePrompt(
+  pageData: any,
+  style: string,
+  referenceMapping: { index: number; type: 'style' | 'identity' | 'group'; character?: PersonId; description: string }[]
+): string {
+  const styleMap: Record<string, string> = {
+    wondrous: 'soft watercolor illustration, pastel colors, dreamy atmosphere',
+    crayon: 'crayon drawing style, waxy texture, bold colors, hand-drawn feel',
+    vintage: 'vintage children\'s book illustration, muted colors, nostalgic'
   };
-  return cameraMap[angle] || "medium shot, 35mm";
+  
+  // Build reference mapping description
+  const refDescription = referenceMapping.map(ref => {
+    if (ref.type === 'style') {
+      return `image[${ref.index}] = STYLE ANCHOR (lock palette, line, texture)`;
+    } else if (ref.type === 'identity') {
+      return `image[${ref.index}] = ${ref.character} identity anchor`;
+    } else if (ref.type === 'group') {
+      return `image[${ref.index}] = Group composition reference`;
+    }
+    return '';
+  }).join('\n');
+  
+  // Build character list
+  const charactersPresent = pageData.characters_on_page?.join(', ') || 'baby';
+  const backgroundExtras = pageData.background_extras?.length 
+    ? `Optional background extras: ${pageData.background_extras.join(', ')}. Keep them low prominence, background only.`
+    : 'No background extras.';
+  
+  const prompt = [
+    `REFERENCE MAPPING:`,
+    refDescription,
+    '',
+    'STYLE: Match image[0] exactly (palette, line weight, texture).',
+    '',
+    'IDENTITIES:',
+    ...referenceMapping
+      .filter(ref => ref.type === 'identity')
+      .map(ref => `- ${ref.character} = image[${ref.index}] (preserve exact face, hair, skin tone, eye color, outfit)`),
+    '',
+    `SCENE (Page ${pageData.page_number}):`,
+    `- Characters present: ${charactersPresent}. Do NOT introduce anyone not listed.`,
+    `- ${backgroundExtras}`,
+    `- Action: ${pageData.visual_action || pageData.action_description || 'interacting'}`,
+    `- Camera: ${pageData.camera_prompt || pageData.camera_angle || 'medium shot'}`,
+    `- Setting: ${pageData.sensory_details || 'bright, cheerful environment'}`,
+    '',
+    'RULES:',
+    '- Composition: single frame, no text on canvas',
+    '- Keep consistent outfits per identity anchors',
+    '- Baby/toddler must be smaller than adults',
+    '- Natural lighting, picture book for ages 0-3',
+    '- No text or labels in the image',
+    '',
+    referenceMapping.some(ref => ref.type === 'group') 
+      ? 'If provided, use the group photo reference for relative scale and spacing, but keep art style locked to image[0].'
+      : ''
+  ].filter(line => line !== undefined).join('\n');
+  
+  console.log('Generated character-aware prompt:', prompt);
+  return prompt;
 }
 
 /**
- * POST - Start image generation job
+ * Convert base64 images to files for OpenAI
+ */
+async function prepareImageFiles(imageUrls: string[]): Promise<any[]> {
+  const files = [];
+  const MAX_SIZE = 50 * 1024 * 1024; // 50MB max per image for gpt-image-1
+  const MAX_IMAGES = 16; // Maximum 16 images for gpt-image-1
+  
+  // Filter out invalid URLs
+  const validUrls = imageUrls.filter(url => url && url.length > 0);
+  
+  if (validUrls.length === 0) {
+    throw new Error('No valid image URLs provided');
+  }
+  
+  if (validUrls.length > MAX_IMAGES) {
+    console.warn(`Attempting to send ${validUrls.length} images, but gpt-image-1 only supports up to ${MAX_IMAGES}`);
+    throw new Error(`Too many reference images: ${validUrls.length} (max ${MAX_IMAGES})`);
+  }
+  
+  for (let i = 0; i < validUrls.length; i++) {
+    const url = validUrls[i];
+    let buffer: Buffer;
+    
+    try {
+      if (url.startsWith('data:')) {
+        // Base64 image
+        const base64 = url.replace(/^data:image\/\w+;base64,/, '');
+        buffer = Buffer.from(base64, 'base64');
+      } else if (url.startsWith('http')) {
+        // Fetch from URL
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        buffer = Buffer.from(arrayBuffer);
+      } else {
+        // Assume it's already base64
+        buffer = Buffer.from(url, 'base64');
+      }
+      
+      // Check size
+      if (buffer.length > MAX_SIZE) {
+        console.warn(`Image ${i} is ${(buffer.length / 1024 / 1024).toFixed(2)}MB, which exceeds the 50MB limit`);
+        throw new Error(`Image ${i} exceeds 50MB size limit`);
+      }
+      
+      const file = await toFile(buffer, `ref_${i}.png`, { type: 'image/png' });
+      files.push(file);
+    } catch (error) {
+      console.error(`Failed to prepare image ${i}:`, error);
+      throw new Error(`Failed to prepare image ${i}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+  
+  console.log(`Prepared ${files.length} image files for OpenAI`);
+  return files;
+}
+
+/**
+ * POST - Start image generation job with character management
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { bookId, pageNumber, babyPhotoUrl, pageData, style } = body;
+    const { 
+      bookId, 
+      pageNumber, 
+      babyPhotoUrl,
+      pageData, 
+      style,
+      cast,           // New: cast member data
+      uploadedPhotos, // New: all uploaded photos with character tags
+      identityAnchors: providedAnchors // New: pre-generated identity anchors
+    } = body;
+    
+    // Validate required fields
+    if (!bookId || !pageNumber || !pageData) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required fields: bookId, pageNumber, or pageData' },
+        { status: 400 }
+      );
+    }
     
     // Create job ID
     const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
@@ -104,7 +210,7 @@ export async function POST(request: NextRequest) {
     });
     
     // Start async processing
-    processImageGeneration(jobId, body).catch(error => {
+    processImageGenerationWithCharacters(jobId, body).catch(error => {
       console.error(`Job ${jobId} failed:`, error);
       const job = jobs.get(jobId);
       if (job) {
@@ -161,9 +267,9 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Process image generation asynchronously
+ * Process image generation with character management
  */
-async function processImageGeneration(jobId: string, params: any) {
+async function processImageGenerationWithCharacters(jobId: string, params: any) {
   const job = jobs.get(jobId);
   if (!job) return;
   
@@ -171,62 +277,252 @@ async function processImageGeneration(jobId: string, params: any) {
     job.status = 'processing';
     job.progress = 10;
     
-    const { bookId, pageNumber, babyPhotoUrl, pageData, style } = params;
+    const { 
+      bookId, 
+      pageNumber, 
+      babyPhotoUrl,
+      pageData, 
+      style,
+      cast = {} as Partial<Record<PersonId, CastMember>>, // Updated type
+      uploadedPhotos = [],
+      identityAnchors: providedAnchors = {}
+    } = params;
     
-    console.log(`[Job ${jobId}] Page ${pageNumber}, Camera: ${pageData.camera_angle}`);
-    console.log(`[Job ${jobId}] Camera Prompt: ${pageData.camera_prompt}`);
+    console.log(`[Job ${jobId}] Page ${pageNumber}, Characters: ${pageData.characters_on_page?.join(', ')}`);
+    console.log(`[Job ${jobId}] Received ${uploadedPhotos?.length || 0} uploaded photos`);
+    console.log(`[Job ${jobId}] Cast members: ${Object.keys(cast || {}).join(', ')}`);
     
     let imageBase64: string;
+    let referenceMapping: any[] = [];
     
     if (pageNumber === 1) {
-      // PAGE 1: Create style anchor from uploaded photo
-      imageBase64 = await createStyleAnchor({
-        uploadedPhotoB64: babyPhotoUrl.replace(/^data:image\/\w+;base64,/, ''),
-        style,
-        setting: extractSetting(pageData),
-        action: pageData.visual_action || pageData.action_label,
-        camera: pageData.camera_angle,
-        cameraPrompt: pageData.camera_prompt
-      });
+      // PAGE 1: Create style anchor with initial character
       
-      // Store as anchor for this book
+      // Prepare references for Page 1
+      const references: string[] = [];
+      
+      // Use baby photo as base if available
+      if (babyPhotoUrl) {
+        references.push(babyPhotoUrl);
+        referenceMapping.push({ 
+          index: 0, 
+          type: 'identity', 
+          character: 'baby',
+          description: 'Baby photo for style creation'
+        });
+      } else {
+        throw new Error('No baby photo provided for Page 1 generation');
+      }
+      
+      // Add any other character photos for Page 1
+      for (const character of pageData.characters_on_page || ['baby']) {
+        if (character !== 'baby') {
+          const photo = uploadedPhotos.find((p: UploadedPhoto) => 
+            p.people.includes(character as PersonId)
+          );
+          if (photo) {
+            references.push(photo.fileUrl);
+            referenceMapping.push({
+              index: references.length - 1,
+              type: 'identity',
+              character,
+              description: `${character} reference`
+            });
+          }
+        }
+      }
+      
+      // Generate Page 1 with character references
+      const prompt = buildCharacterAwarePrompt(pageData, style, [
+        { index: 0, type: 'style', description: 'Creating initial style' },
+        ...referenceMapping.slice(1)
+      ]);
+      
+      console.log(`[Job ${jobId}] Preparing ${references.length} reference images for Page 1`);
+      const imageFiles = await prepareImageFiles(references);
+      
+      // Call OpenAI with all reference images
+      let response;
+      try {
+        response = await openai.images.edit({
+          model: 'gpt-image-1',
+          image: imageFiles.length === 1 ? imageFiles[0] : imageFiles, // Single image or array
+          prompt,
+          n: 1,
+          size: '1024x1024',
+          response_format: 'b64_json'
+        });
+      } catch (apiError: any) {
+        console.error(`[Job ${jobId}] OpenAI API error (Page 1):`, apiError);
+        
+        // Log more details about the error
+        if (apiError.response) {
+          console.error(`[Job ${jobId}] Response status:`, apiError.response.status);
+          console.error(`[Job ${jobId}] Response data:`, apiError.response.data);
+        }
+        if (apiError.error) {
+          console.error(`[Job ${jobId}] Error details:`, apiError.error);
+        }
+        
+        // Extract meaningful error message
+        let errorMessage = 'OpenAI API error';
+        if (apiError.response?.data?.error?.message) {
+          errorMessage = apiError.response.data.error.message;
+        } else if (apiError.message) {
+          errorMessage = apiError.message;
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      // Handle response
+      imageBase64 = await handleOpenAIResponse(response);
+      
+      // Store as style anchor
       styleAnchors.set(bookId, imageBase64);
+      
+      // Also store any identity anchors if this is a solo shot
+      if (pageData.characters_on_page?.length === 1) {
+        const charId = pageData.characters_on_page[0] as PersonId;
+        if (!identityAnchors.has(bookId)) {
+          identityAnchors.set(bookId, new Map());
+        }
+        identityAnchors.get(bookId)!.set(charId, imageBase64);
+      }
+      
       console.log(`[Job ${jobId}] Created style anchor for book ${bookId}`);
       
     } else {
-      // PAGES 2+: Must use style anchor from Page 1
-      const maxAttempts = 15; // Wait up to 30 seconds for anchor
-      let anchorB64: string | undefined;
+      // PAGES 2+: Use style anchor + character identity anchors
       
-      // Wait for anchor to be available
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        anchorB64 = styleAnchors.get(bookId);
-        if (anchorB64) {
-          console.log(`[Job ${jobId}] Found anchor after ${attempt} attempts`);
-          break;
-        }
-        
-        if (attempt === 0) {
-          console.log(`[Job ${jobId}] Waiting for Page 1 anchor to be available...`);
-        }
-        
-        // Wait 2 seconds before checking again
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      // Wait for style anchor
+      const styleAnchor = await waitForStyleAnchor(bookId);
+      if (!styleAnchor) {
+        throw new Error('Style anchor from Page 1 not available');
       }
       
-      if (!anchorB64) {
-        throw new Error('Style anchor from Page 1 not available. Cannot generate subsequent pages without anchor.');
+      // Build reference array (filter out any undefined/empty values)
+      const references: string[] = [];
+      referenceMapping = [];
+      
+      // Always start with style anchor
+      if (styleAnchor) {
+        references.push(styleAnchor);
+        referenceMapping.push({ 
+          index: 0, 
+          type: 'style',
+          description: 'Style anchor from Page 1'
+        });
+      } else {
+        throw new Error('Style anchor not available for page 2+ generation');
       }
       
-      // Generate using the Page 1 anchor as base image
-      console.log(`[Job ${jobId}] Using Page 1 anchor for consistency`);
-      imageBase64 = await generateFromAnchor({
-        styleAnchorB64: anchorB64, // This is the Page 1 image being sent to GPT
-        setting: extractSetting(pageData),
-        action: pageData.visual_action || pageData.action_label,
-        camera: pageData.camera_angle,
-        cameraPrompt: pageData.camera_prompt
-      });
+      // Add identity anchors for each character
+      const bookAnchors = identityAnchors.get(bookId) || new Map();
+      
+      for (const character of pageData.characters_on_page || []) {
+        const charId = character as PersonId;
+        
+        // Check for pre-generated identity anchor
+        let anchor = providedAnchors[charId] || bookAnchors.get(charId);
+        
+        // Fallback to uploaded photo
+        if (!anchor) {
+          const photo = uploadedPhotos.find((p: UploadedPhoto) => 
+            p.people.includes(charId) && p.is_identity_anchor
+          );
+          if (photo) {
+            anchor = photo.fileUrl;
+          }
+        }
+        
+        // Last resort: any photo with this character
+        if (!anchor) {
+          const photo = uploadedPhotos.find((p: UploadedPhoto) => 
+            p.people.includes(charId)
+          );
+          if (photo) {
+            anchor = photo.fileUrl;
+          }
+        }
+        
+        if (anchor) {
+          references.push(anchor);
+          referenceMapping.push({
+            index: references.length - 1,
+            type: 'identity',
+            character: charId,
+            description: `${charId} identity anchor`
+          });
+        }
+      }
+      
+      // Look for exact-match group photo
+      const wantedSet = [...(pageData.characters_on_page || [])].sort().join('|');
+      const groupPhoto = uploadedPhotos.find((p: UploadedPhoto) => 
+        p.is_group_photo && 
+        [...p.people].sort().join('|') === wantedSet
+      );
+      
+      if (groupPhoto) {
+        references.push(groupPhoto.fileUrl);
+        referenceMapping.push({
+          index: references.length - 1,
+          type: 'group',
+          description: 'Group composition reference'
+        });
+      }
+      
+      // Build prompt with explicit mapping
+      const prompt = buildCharacterAwarePrompt(pageData, style, referenceMapping);
+      
+      // Prepare ALL reference images as files
+      console.log(`[Job ${jobId}] Preparing ${references.length} reference images for Page ${pageNumber}`);
+      const imageFiles = await prepareImageFiles(references);
+      
+      // Call OpenAI with ALL reference images
+      let response;
+      try {
+        response = await openai.images.edit({
+          model: 'gpt-image-1',
+          image: imageFiles.length === 1 ? imageFiles[0] : imageFiles, // Pass single or array
+          prompt,
+          n: 1,
+          size: '1024x1024',
+          response_format: 'b64_json'
+        });
+      } catch (apiError: any) {
+        console.error(`[Job ${jobId}] OpenAI API error (Page 2+):`, apiError);
+        
+        // Log more details about the error
+        if (apiError.response) {
+          console.error(`[Job ${jobId}] Response status:`, apiError.response.status);
+          console.error(`[Job ${jobId}] Response data:`, apiError.response.data);
+        }
+        if (apiError.error) {
+          console.error(`[Job ${jobId}] Error details:`, apiError.error);
+        }
+        
+        // Extract meaningful error message
+        let errorMessage = 'OpenAI API error';
+        if (apiError.response?.data?.error?.message) {
+          errorMessage = apiError.response.data.error.message;
+        } else if (apiError.message) {
+          errorMessage = apiError.message;
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      imageBase64 = await handleOpenAIResponse(response);
+      
+      // If this page has a single character, store as potential identity anchor
+      if (pageData.characters_on_page?.length === 1) {
+        const charId = pageData.characters_on_page[0] as PersonId;
+        if (!bookAnchors.has(charId)) {
+          bookAnchors.set(charId, imageBase64);
+        }
+      }
     }
     
     job.progress = 90;
@@ -242,12 +538,12 @@ async function processImageGeneration(jobId: string, params: any) {
       dataUrl,
       sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
       style,
-      camera_angle: pageData.camera_angle,
-      action: pageData.visual_action,
+      characters_on_page: pageData.characters_on_page,
+      reference_count: referenceMapping.length,
       elapsed_ms: Date.now() - job.startedAt
     };
     
-    console.log(`[Job ${jobId}] Completed in ${job.result.elapsed_ms}ms`);
+    console.log(`[Job ${jobId}] Completed with ${referenceMapping.length} references`);
     
   } catch (error: any) {
     console.error(`[Job ${jobId}] Failed:`, error);
@@ -258,290 +554,63 @@ async function processImageGeneration(jobId: string, params: any) {
 }
 
 /**
- * Create style anchor from uploaded photo (Page 1)
+ * Handle OpenAI response format variations
  */
-async function createStyleAnchor({
-  uploadedPhotoB64,
-  style,
-  setting,
-  action,
-  camera,
-  cameraPrompt
-}: {
-  uploadedPhotoB64: string;
-  style: string;
-  setting: string;
-  action: string;
-  camera: string;
-  cameraPrompt?: string;
-}): Promise<string> {
-  const styleMap: Record<string, string> = {
-    wondrous: 'soft watercolor illustration, pastel colors, dreamy atmosphere',
-    crayon: 'crayon drawing style, waxy texture, bold colors, hand-drawn feel',
-    vintage: 'vintage children\'s book illustration, muted colors, nostalgic'
-  };
-  
-  // Use the camera_prompt if provided, otherwise fall back to getCameraPrompt
-  const cameraDescription = cameraPrompt || getCameraPrompt(camera);
-  
-  const prompt = [
-    `Transform into ${styleMap[style] || style}.`,
-    `Keep exact child identity and features.`,
-    `Setting: ${setting}.`,
-    `Action: ${action}.`,
-    `Camera: ${cameraDescription}.`,
-    'Picture book for ages 0-3.',
-    'No text in image.'
-  ].join(' ');
-  
-  console.log('Creating style anchor with prompt:', prompt);
-  
-  // Convert base64 to Buffer
-  const imageBuffer = Buffer.from(uploadedPhotoB64, 'base64');
-  const imageFile = await toFile(imageBuffer, 'photo.png', { type: 'image/png' });
-  
-  // Send the Page 1 anchor image to OpenAI for modification
-  // The image parameter contains the Page 1 styled image
-  // The prompt tells GPT to keep the style/character but change camera/action
-  
-  // Call OpenAI with minimal parameters first
-  const response = await openai.images.edit({
-    model: 'gpt-image-1',
-    image: imageFile,  // <-- This is the Page 1 anchor image being sent to GPT
-    prompt,            // <-- Instructions to modify camera angle and action only
-    n: 1,
-    size: '1024x1024'
-    // Removed parameters that might be causing issues
-  });
-  
+async function handleOpenAIResponse(response: any): Promise<string> {
   if (!response.data || !response.data[0]) {
     throw new Error('No image data in response');
   }
   
   const imageData = response.data[0];
   
-  // The OpenAI SDK might return URLs even for gpt-image-1
-  // despite what the API docs say
+  // Handle URL response
   if ('url' in imageData && imageData.url) {
-    console.log('Got URL response (SDK behavior), fetching image...');
-    const imageBuffer = await fetchImageWithRetry(imageData.url);
-    const base64 = imageBuffer.toString('base64');
-    console.log(`Page generated successfully from URL (${Math.round(base64.length / 1024)}KB)`);
-    return base64;
+    console.log('Got URL response, fetching image...');
+    const imgResponse = await fetch(imageData.url);
+    if (!imgResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imgResponse.status}`);
+    }
+    const arrayBuffer = await imgResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
   }
   
-  // Check for base64 response (what the docs say should happen)
+  // Handle base64 response
   if ('b64_json' in imageData && imageData.b64_json) {
-    console.log(`Page generated successfully from base64 (${Math.round(imageData.b64_json.length / 1024)}KB)`);
+    console.log('Got base64 response directly');
     return imageData.b64_json;
   }
   
-  // If we get here, log the entire response for debugging
-  console.error('Unexpected response structure:', JSON.stringify(imageData));
-  throw new Error('Could not find image data in response. Check logs for response structure.');
+  throw new Error('Unknown response format from OpenAI');
 }
 
 /**
- * Generate new page from style anchor (Pages 2+)
- * Takes the Page 1 image as input and modifies it with new camera angle/action
- * This ensures style and character consistency across all pages
+ * Wait for style anchor to be available
  */
-async function generateFromAnchor({
-  styleAnchorB64,
-  setting,
-  action,
-  camera,
-  cameraPrompt
-}: {
-  styleAnchorB64: string; // This is the Page 1 image in base64
-  setting: string;
-  action: string;
-  camera: string;
-  cameraPrompt?: string;
-}): Promise<string> {
-  // Use the camera_prompt if provided, otherwise fall back to getCameraPrompt
-  const cameraDescription = cameraPrompt || getCameraPrompt(camera);
-  
-  const prompt = [
-    'Create new scene with SAME art style and SAME child as reference image.',
-    'Keep identical character features, clothing, and art style.',
-    'Only change the camera angle and action.',
-    `Setting: ${setting}.`,
-    `New action: ${action}.`,
-    `New camera angle: ${cameraDescription}.`,
-    'Maintain exact style consistency with reference.',
-    'No text in image.'
-  ].join(' ');
-  
-  console.log('Generating from anchor with prompt:', prompt);
-  
-  // Convert the Page 1 anchor image to a file for OpenAI
-  const imageBuffer = Buffer.from(styleAnchorB64, 'base64');
-  const imageFile = await toFile(imageBuffer, 'anchor.png', { type: 'image/png' });
-  
-  // Try with response_format first for direct base64
-  let response;
-  try {
-    response = await openai.images.edit({
-      model: 'gpt-image-1',
-      image: imageFile,
-      prompt,
-      n: 1,
-      size: '1024x1024',
-      response_format: 'b64_json'
-    });
-  } catch (error: any) {
-    console.log('b64_json format not supported, trying with URL format');
-    // Fallback to URL format
-    response = await openai.images.edit({
-      model: 'gpt-image-1',
-      image: imageFile,
-      prompt,
-      n: 1,
-      size: '1024x1024'
-    });
-  }
-  
-  if (!response.data || !response.data[0]) {
-    throw new Error('No image data in response');
-  }
-  
-  // Handle both response formats
-  let base64: string;
-  
-  if ('b64_json' in response.data[0]) {
-    // Direct base64 response
-    base64 = response.data[0].b64_json!;
-  } else if ('url' in response.data[0]) {
-    // URL response - fetch and convert
-    const imageUrl = response.data[0].url;
-    if (!imageUrl) {
-      throw new Error('No image URL in response');
+async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<string | null> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const anchor = styleAnchors.get(bookId);
+    if (anchor) {
+      return anchor;
     }
     
-    try {
-      console.log('Fetching image from URL:', imageUrl.substring(0, 100) + '...');
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-        throw new Error(`Failed to fetch image: ${imageResponse.status}`);
-      }
-      const arrayBuffer = await imageResponse.arrayBuffer();
-      base64 = Buffer.from(arrayBuffer).toString('base64');
-    } catch (fetchError) {
-      console.error('Error fetching generated image:', fetchError);
-      throw new Error('Failed to download generated image');
+    if (attempt === 0) {
+      console.log(`Waiting for style anchor for book ${bookId}...`);
     }
-  } else {
-    throw new Error('Unknown response format from OpenAI');
+    
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
   
-  return base64;
+  return null;
 }
 
 /**
- * Extract setting from page data
- */
-function extractSetting(pageData: any): string {
-  // Use sensory details or narration to infer setting
-  if (pageData.sensory_details) {
-    return pageData.sensory_details;
-  }
-  
-  const narration = (pageData.narration || '').toLowerCase();
-  
-  // Specific setting detection
-  if (narration.includes('beach') || narration.includes('sand') || narration.includes('wave')) {
-    return 'sunny beach with warm sand and gentle waves';
-  }
-  if (narration.includes('park') || narration.includes('grass') || narration.includes('tree')) {
-    return 'green park with trees and soft grass';
-  }
-  if (narration.includes('home') || narration.includes('room') || narration.includes('inside')) {
-    return 'cozy home interior with warm lighting';
-  }
-  if (narration.includes('garden') || narration.includes('flower')) {
-    return 'beautiful garden with colorful flowers';
-  }
-  if (narration.includes('pool') || narration.includes('water') || narration.includes('splash')) {
-    return 'swimming pool with clear blue water';
-  }
-  if (narration.includes('birthday') || narration.includes('party')) {
-    return 'festive birthday party with decorations';
-  }
-  
-  // Default based on common baby book settings
-  return 'bright, cheerful outdoor environment with soft natural light';
-}
-
-/**
- * Fetch image from OpenAI URL with retry logic
- */
-async function fetchImageWithRetry(url: string, maxRetries = 3): Promise<Buffer> {
-  if (!url || !url.startsWith('http')) {
-    throw new Error(`Invalid URL provided: ${url}`);
-  }
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`Fetching image from URL (attempt ${attempt}/${maxRetries})...`);
-      
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Next.js Server',
-          'Accept': 'image/*'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const contentType = response.headers.get('content-type');
-      if (contentType && !contentType.startsWith('image/')) {
-        throw new Error(`Invalid content type: ${contentType}`);
-      }
-      
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      
-      // Verify we got actual image data
-      if (buffer.length < 100) {
-        throw new Error(`Image too small: ${buffer.length} bytes`);
-      }
-      
-      console.log(`Successfully fetched image: ${Math.round(buffer.length / 1024)}KB`);
-      return buffer;
-      
-    } catch (error: any) {
-      console.error(`Attempt ${attempt}/${maxRetries} failed:`, error.message);
-      
-      if (attempt === maxRetries) {
-        throw new Error(`Failed to fetch image after ${maxRetries} attempts: ${error.message}`);
-      }
-      
-      // Wait a bit before retrying (exponential backoff)
-      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-    }
-  }
-  
-  throw new Error('Failed to fetch image');
-}
-
-/**
- * DELETE - Clean up temporary files
+ * DELETE - Clean up temporary data
  */
 export async function DELETE() {
   try {
-    // Clear style anchors older than 1 hour
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    
-    for (const [bookId, _] of styleAnchors.entries()) {
-      // In production, check timestamp
-      // For now, clear all
-    }
-    
     jobs.clear();
     styleAnchors.clear();
+    identityAnchors.clear();
     
     return NextResponse.json({ 
       success: true, 

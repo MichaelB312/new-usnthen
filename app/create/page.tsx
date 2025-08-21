@@ -39,7 +39,6 @@ export default function CreateBookPage() {
     setProfile, 
     setConversation,
     setStory,
-    illustrationStyle,
     reset 
   } = useBookStore();
 
@@ -72,8 +71,7 @@ export default function CreateBookPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           babyProfile,
-          conversation,
-          illustrationStyle // Pass the illustration style
+          conversation
         })
       });
       

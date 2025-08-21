@@ -1,8 +1,29 @@
-// lib/store/bookStore.ts - Fixed localStorage quota issue
+// lib/store/bookStore.ts - Enhanced with cast management
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-// Complete Page interface with all new fields
+// Character types - Added export
+export type PersonId = 'baby' | 'mom' | 'dad' | 'grandma' | 'grandpa' | 'sibling' | 'aunt' | 'uncle' | 'friend';
+
+export interface CastMember {
+  id: PersonId;
+  displayName: string;
+  identityAnchorUrl?: string; // Stylized portrait in book style
+  fallbackPhotos: string[];  // Original photos
+  outfit_notes?: string;     // Lock outfits for continuity
+  features_lock?: string;    // Face/hair/skin/eyes descriptors
+}
+
+export interface UploadedPhoto {
+  id: string;
+  fileUrl: string;      // Base64 or URL
+  people: PersonId[];   // Who appears in this photo
+  is_identity_anchor?: boolean;
+  is_group_photo?: boolean;
+  notes?: string;       // Outfit/pose notes
+}
+
+// Enhanced Page interface with character tracking
 export interface Page {
   page_number: number;
   scene_type: string;
@@ -12,13 +33,17 @@ export interface Page {
   layout_template: string;
   resolved_layout?: any;
   
+  // Character management
+  characters_on_page: PersonId[];     // Who must be visible
+  background_extras?: PersonId[];     // Optional background cameos
+  
   // Camera and shot fields
-  shot?: string; // Legacy field for backward compatibility
+  shot?: string;
   shot_custom?: string;
   closest_shot?: string;
-  camera_angle?: string; // NEW: specific camera angle (pov_baby, macro, birds_eye, etc.)
-  camera_angle_description?: string; // NEW: detailed camera description
-  camera_prompt?: string; // NEW: direct prompt for image generation
+  camera_angle?: string;
+  camera_angle_description?: string;
+  camera_prompt?: string;
   
   // Action and emotion fields
   action_id?: string;
@@ -27,12 +52,12 @@ export interface Page {
   emotion_custom?: string;
   page_turn_cue?: boolean;
   
-  // Enhanced visual fields for better image generation
-  visual_focus?: string;     // hands, feet, face, eyes, full_body, etc.
-  visual_action?: string;    // grasping_sand, rubbing_feet, etc.
-  detail_prompt?: string;    // Detailed description for image generation
-  sensory_details?: string;  // Texture, temperature, sound details
-  pose_description?: string; // NEW: specific pose description for this shot
+  // Enhanced visual fields
+  visual_focus?: string;
+  visual_action?: string;
+  detail_prompt?: string;
+  sensory_details?: string;
+  pose_description?: string;
 }
 
 interface BookStore {
@@ -42,9 +67,14 @@ interface BookStore {
     baby_name: string;
     birthdate: string;
     gender: 'boy' | 'girl' | 'neutral';
-    baby_photo_url?: string; // This is already a data URL
+    baby_photo_url?: string;
     photo_file?: File;
   } | null;
+  
+  // Cast management
+  cast: Partial<Record<PersonId, CastMember>>; // Made partial - not all characters required
+  uploadedPhotos: UploadedPhoto[];
+  styleAnchorUrl?: string; // Page 1 rendered image as style anchor
   
   // Story data
   conversation: any[];
@@ -54,14 +84,15 @@ interface BookStore {
     metadata?: any;
     refrain?: string;
     style?: string;
-    extracted_moments?: string[]; // Key visual moments from memory
-    camera_sequence?: string[]; // NEW: ordered list of camera angles used
+    extracted_moments?: string[];
+    camera_sequence?: string[];
+    cast_members?: PersonId[]; // Added cast_members
   } | null;
   
-  // Illustrations - Store URLs separately, not persisted
+  // Illustrations
   illustrations: {
     page_number: number;
-    url: string; // This will now be a data URL
+    url: string;
     style: string;
     seed?: number;
     shot?: string;
@@ -71,7 +102,7 @@ interface BookStore {
   }[];
   illustrationStyle: 'wondrous' | 'crayon' | 'vintage' | 'watercolor' | 'pencil';
   
-  // Layout - Don't persist large layouts
+  // Layout
   layouts: {
     [pageNumber: number]: any;
   };
@@ -84,6 +115,14 @@ interface BookStore {
   setIllustrations: (illustrations: any[]) => void;
   setIllustrationStyle: (style: any) => void;
   setPageLayout: (pageNumber: number, layout: any) => void;
+  
+  // Cast management actions
+  addCastMember: (member: CastMember) => void;
+  updateCastMember: (id: PersonId, updates: Partial<CastMember>) => void;
+  addUploadedPhoto: (photo: UploadedPhoto) => void;
+  setStyleAnchor: (url: string) => void;
+  updatePageCharacters: (pageNumber: number, characters: PersonId[], extras?: PersonId[]) => void;
+  
   reset: () => void;
   clearStorage: () => void;
   
@@ -92,7 +131,7 @@ interface BookStore {
   lockVersion: () => void;
 }
 
-// Custom storage that handles quota errors
+// Custom storage handler
 const customStorage = createJSONStorage(() => {
   return {
     getItem: (name: string) => {
@@ -106,26 +145,27 @@ const customStorage = createJSONStorage(() => {
     },
     setItem: (name: string, value: any) => {
       try {
-        // Clear old data if we're about to exceed quota
         const stringified = JSON.stringify(value);
         const sizeInMB = new Blob([stringified]).size / (1024 * 1024);
         
         console.log(`Storage size: ${sizeInMB.toFixed(2)}MB`);
         
-        // If it's too large, don't save images/layouts
         if (sizeInMB > 4) {
           console.warn('Data too large, removing images and layouts from storage');
-          // Remove large data before saving
           const reduced = {
             ...value,
             state: {
               ...value.state,
-              illustrations: [], // Don't persist illustrations
-              layouts: {}, // Don't persist layouts
+              illustrations: [],
+              layouts: {},
               babyProfile: value.state.babyProfile ? {
                 ...value.state.babyProfile,
-                baby_photo_url: undefined // Don't persist large photo
-              } : null
+                baby_photo_url: undefined
+              } : null,
+              uploadedPhotos: value.state.uploadedPhotos?.map((p: UploadedPhoto) => ({
+                ...p,
+                fileUrl: undefined // Don't persist large URLs
+              })) || []
             }
           };
           localStorage.setItem(name, JSON.stringify(reduced));
@@ -135,7 +175,6 @@ const customStorage = createJSONStorage(() => {
       } catch (error: any) {
         if (error.name === 'QuotaExceededError') {
           console.error('localStorage quota exceeded, clearing old data...');
-          // Try to clear and save minimal data
           try {
             const minimal = {
               ...value,
@@ -143,6 +182,7 @@ const customStorage = createJSONStorage(() => {
                 ...value.state,
                 illustrations: [],
                 layouts: {},
+                uploadedPhotos: [],
                 babyProfile: value.state.babyProfile ? {
                   ...value.state.babyProfile,
                   baby_photo_url: undefined
@@ -169,6 +209,9 @@ export const useBookStore = create<BookStore>()(
     (set, get) => ({
       bookId: null,
       babyProfile: null,
+      cast: {}, // Empty object is valid for Partial<Record<PersonId, CastMember>>
+      uploadedPhotos: [],
+      styleAnchorUrl: undefined,
       conversation: [],
       storyData: null,
       illustrations: [],
@@ -180,19 +223,55 @@ export const useBookStore = create<BookStore>()(
       setProfile: (profile) => set({ babyProfile: profile }),
       setConversation: (conversation) => set({ conversation }),
       setStory: (story) => set({ storyData: story }),
-      
-      // Don't persist illustrations - they're too large
-      setIllustrations: (illustrations) => {
-        set({ illustrations });
-      },
-      
+      setIllustrations: (illustrations) => set({ illustrations }),
       setIllustrationStyle: (style) => set({ illustrationStyle: style }),
-      
-      // Don't persist layouts - they're too large
       setPageLayout: (pageNumber, layout) => {
         set((state) => ({
           layouts: { ...state.layouts, [pageNumber]: layout }
         }));
+      },
+      
+      // Cast management
+      addCastMember: (member) => {
+        set((state) => ({
+          cast: { ...state.cast, [member.id]: member }
+        }));
+      },
+      
+      updateCastMember: (id, updates) => {
+        set((state) => ({
+          cast: {
+            ...state.cast,
+            [id]: state.cast[id] ? { ...state.cast[id], ...updates } : { id, displayName: id, fallbackPhotos: [], ...updates }
+          }
+        }));
+      },
+      
+      addUploadedPhoto: (photo) => {
+        set((state) => ({
+          uploadedPhotos: [...state.uploadedPhotos, photo]
+        }));
+      },
+      
+      setStyleAnchor: (url) => set({ styleAnchorUrl: url }),
+      
+      updatePageCharacters: (pageNumber, characters, extras) => {
+        set((state) => {
+          if (!state.storyData) return state;
+          
+          const updatedPages = state.storyData.pages.map(page => 
+            page.page_number === pageNumber
+              ? { ...page, characters_on_page: characters, background_extras: extras }
+              : page
+          );
+          
+          return {
+            storyData: {
+              ...state.storyData,
+              pages: updatedPages
+            }
+          };
+        });
       },
       
       lockVersion: () => {
@@ -200,7 +279,7 @@ export const useBookStore = create<BookStore>()(
         const version = btoa(JSON.stringify({
           profile: state.babyProfile,
           story: state.storyData,
-          // Don't include illustrations or layouts in version
+          cast: state.cast,
           timestamp: Date.now()
         }));
         set({ version });
@@ -213,6 +292,9 @@ export const useBookStore = create<BookStore>()(
       reset: () => set({
         bookId: null,
         babyProfile: null,
+        cast: {}, // Empty object for partial type
+        uploadedPhotos: [],
+        styleAnchorUrl: undefined,
         conversation: [],
         storyData: null,
         illustrations: [],
@@ -223,18 +305,100 @@ export const useBookStore = create<BookStore>()(
     {
       name: 'us-and-then-book',
       storage: customStorage,
-      // Only persist essential data
       partialize: (state) => ({
         bookId: state.bookId,
         babyProfile: state.babyProfile ? {
           ...state.babyProfile,
-          baby_photo_url: undefined // Don't persist large photo
+          baby_photo_url: undefined
         } : null,
+        cast: state.cast, // Save cast metadata
         conversation: state.conversation,
         storyData: state.storyData,
         illustrationStyle: state.illustrationStyle,
-        // Don't persist illustrations or layouts
       })
     }
   )
 );
+
+// Utility functions for character management
+export function selectImageReferences(
+  page: Page,
+  cast: Partial<Record<PersonId, CastMember>>, // Updated to Partial
+  uploads: UploadedPhoto[],
+  styleAnchorUrl: string
+): string[] {
+  const refs: string[] = [];
+  
+  // Always include style anchor first
+  refs.push(styleAnchorUrl);
+  
+  // Add identity anchors for each character on page
+  for (const pid of page.characters_on_page) {
+    const anchor = cast[pid]?.identityAnchorUrl;
+    if (anchor) {
+      refs.push(anchor);
+    } else if (cast[pid]?.fallbackPhotos?.[0]) {
+      refs.push(cast[pid].fallbackPhotos[0]);
+    }
+  }
+  
+  // Look for exact-match group photo for composition
+  const wantedSet = [...page.characters_on_page].sort().join('|');
+  const groupPhoto = uploads.find(u => 
+    u.is_group_photo && 
+    [...u.people].sort().join('|') === wantedSet
+  );
+  if (groupPhoto) {
+    refs.push(groupPhoto.fileUrl);
+  }
+  
+  // Add background extras if specified
+  for (const pid of page.background_extras ?? []) {
+    const anchor = cast[pid]?.identityAnchorUrl;
+    if (anchor) refs.push(anchor);
+  }
+  
+  return refs;
+}
+
+// Extract characters from narration
+export function extractCharactersFromNarration(
+  narration: string,
+  babyName: string
+): PersonId[] {
+  const characters: PersonId[] = [];
+  const text = narration.toLowerCase();
+  
+  // Always include baby if their name is mentioned
+  if (text.includes(babyName.toLowerCase())) {
+    characters.push('baby');
+  }
+  
+  // Check for family members
+  const characterPatterns: Record<PersonId, RegExp[]> = {
+    'mom': [/\bmom\b/, /\bmommy\b/, /\bmother\b/, /\bmama\b/],
+    'dad': [/\bdad\b/, /\bdaddy\b/, /\bfather\b/, /\bpapa\b/],
+    'grandma': [/\bgrandma\b/, /\bgranny\b/, /\bnana\b/],
+    'grandpa': [/\bgrandpa\b/, /\bgranddad\b/, /\bpapa\b/],
+    'sibling': [/\bbrother\b/, /\bsister\b/, /\bsibling\b/],
+    'aunt': [/\baunt\b/, /\bauntie\b/],
+    'uncle': [/\buncle\b/],
+    'baby': [/\bbaby\b/, /\blittle one\b/],
+    'friend': [/\bfriend\b/, /\bbuddy\b/, /\bpal\b/] // Added friend patterns
+  };
+  
+  for (const [id, patterns] of Object.entries(characterPatterns)) {
+    if (patterns.some(pattern => pattern.test(text))) {
+      if (!characters.includes(id as PersonId)) {
+        characters.push(id as PersonId);
+      }
+    }
+  }
+  
+  // Default to baby if no characters found
+  if (characters.length === 0) {
+    characters.push('baby');
+  }
+  
+  return characters;
+}

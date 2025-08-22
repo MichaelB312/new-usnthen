@@ -30,70 +30,97 @@ export default function CreateBookPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isGeneratingStory, setIsGeneratingStory] = useState(false);
-  
-  const { 
+
+  const {
     bookId,
     setBookId,
-    babyProfile, 
-    storyData, 
-    setProfile, 
+    babyProfile,
+    storyData,
+    setProfile,
     setConversation,
     setStory,
     illustrationStyle,
-    reset 
+    reset
   } = useBookStore();
 
   useEffect(() => {
     if (!bookId) {
       setBookId(uuidv4());
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleProfileComplete = (profile: any) => {
     setProfile(profile);
     setCurrentStep(2);
-    toast.success('Great! Now let\'s capture a special memory');
+    toast.success("Great! Now let's capture a special memory");
   };
 
   const handleChatComplete = async (conversation: any) => {
     setConversation(conversation);
     setIsGeneratingStory(true);
-    
+
     // Small delay to show the transition
     setTimeout(() => {
       generateStory(conversation);
     }, 500);
   };
 
+  // Safe fetch that tolerates proxy cutoffs and malformed/empty JSON
   const generateStory = async (conversation: any) => {
     try {
-      const response = await fetch('/api/generate-story', {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25_000); // 25s client cutoff
+
+      const res = await fetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           babyProfile,
           conversation,
-          illustrationStyle // Pass the illustration style
-        })
+          illustrationStyle
+        }),
+        signal: controller.signal
       });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setStory(data.story);
-        toast.success('Your magical story has been created!');
-        
-        // Delay before transitioning to story review
-        setTimeout(() => {
-          setIsGeneratingStory(false);
-          setCurrentStep(3);
-        }, 500);
-      } else {
-        throw new Error('Story generation failed');
+
+      clearTimeout(timeoutId);
+
+      // Read raw body first to avoid "Unexpected end of JSON input"
+      const text = await res.text();
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} – ${text || 'No body'}`);
       }
-    } catch (error) {
-      console.error('Error:', error);
-      toast.error('Failed to generate story. Please try again.');
+      if (!text) {
+        throw new Error('Empty response body from /api/generate-story');
+      }
+
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Malformed JSON from /api/generate-story');
+      }
+
+      if (!data?.success || !data?.story) {
+        throw new Error('Malformed response payload from /api/generate-story');
+      }
+
+      setStory(data.story);
+      toast.success('Your magical story has been created!');
+
+      // Delay before transitioning to story review
+      setTimeout(() => {
+        setIsGeneratingStory(false);
+        setCurrentStep(3);
+      }, 500);
+    } catch (error: any) {
+      console.error('Error generating story:', error?.message || error);
+      const msg =
+        error?.name === 'AbortError'
+          ? 'Generation took too long. Loaded a fallback instead.'
+          : 'Failed to generate story. Please try again.';
+      toast.error(msg);
       setIsGeneratingStory(false);
       setCurrentStep(2);
     }
@@ -126,22 +153,17 @@ export default function CreateBookPage() {
   return (
     <div className="min-h-screen p-6 pt-24">
       {showConfetti && <Confetti width={width} height={height} />}
-      
+
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <button
-            onClick={() => router.push('/')}
-            className="btn-ghost flex items-center gap-2"
-          >
+          <button onClick={() => router.push('/')} className="btn-ghost flex items-center gap-2">
             <Home className="h-5 w-5" />
             Home
           </button>
-          
-          <h1 className="font-patrick text-3xl gradient-text">
-            Create Your Magical Storybook
-          </h1>
-          
+
+          <h1 className="font-patrick text-3xl gradient-text">Create Your Magical Storybook</h1>
+
           <div className="w-20" />
         </div>
 
@@ -151,14 +173,14 @@ export default function CreateBookPage() {
             <div className="card-magical">
               <div className="flex justify-between items-center relative">
                 <div className="absolute top-8 left-0 right-0 h-1 bg-gray-200 z-0">
-                  <motion.div 
+                  <motion.div
                     className="h-full bg-gradient-to-r from-purple-600 to-pink-600"
                     initial={{ width: '0%' }}
                     animate={{ width: `${((currentStep - 1) / (steps.length - 1)) * 100}%` }}
                     transition={{ duration: 0.5 }}
                   />
                 </div>
-                
+
                 {steps.map((step) => {
                   const Icon = step.icon;
                   return (
@@ -167,23 +189,32 @@ export default function CreateBookPage() {
                         <motion.div
                           initial={{ scale: 0.8 }}
                           animate={{
-                            scale: currentStep === step.id ? 1.2 : currentStep > step.id ? 1 : 0.9
+                            scale:
+                              currentStep === step.id ? 1.2 : currentStep > step.id ? 1 : 0.9
                           }}
                           className={`w-16 h-16 rounded-full flex items-center justify-center bg-white border-4 transition-all ${
-                            currentStep === step.id 
-                              ? 'border-purple-600 shadow-lg' 
-                              : currentStep > step.id 
-                              ? 'border-green-500' 
+                            currentStep === step.id
+                              ? 'border-purple-600 shadow-lg'
+                              : currentStep > step.id
+                              ? 'border-green-500'
                               : 'border-gray-300'
                           }`}
                         >
                           {currentStep > step.id ? (
                             <Check className="h-6 w-6 text-green-500" />
                           ) : (
-                            <Icon className={`h-6 w-6 ${currentStep === step.id ? 'text-purple-600' : 'text-gray-400'}`} />
+                            <Icon
+                              className={`h-6 w-6 ${
+                                currentStep === step.id ? 'text-purple-600' : 'text-gray-400'
+                              }`}
+                            />
                           )}
                         </motion.div>
-                        <p className={`mt-2 text-sm font-medium ${currentStep === step.id ? 'text-purple-600' : 'text-gray-600'}`}>
+                        <p
+                          className={`mt-2 text-sm font-medium ${
+                            currentStep === step.id ? 'text-purple-600' : 'text-gray-600'
+                          }`}
+                        >
                           {step.name}
                         </p>
                       </div>
@@ -207,14 +238,12 @@ export default function CreateBookPage() {
             >
               <motion.div
                 animate={{ rotate: 360 }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
                 className="inline-block mb-8"
               >
                 <Wand2 className="h-20 w-20 text-purple-600" />
               </motion.div>
-              <h2 className="text-4xl font-patrick mb-4 gradient-text">
-                Creating Your Story...
-              </h2>
+              <h2 className="text-4xl font-patrick mb-4 gradient-text">Creating Your Story...</h2>
               <p className="text-xl text-gray-600">
                 Our AI is crafting a beautiful tale for {babyProfile?.baby_name}
               </p>
@@ -226,50 +255,36 @@ export default function CreateBookPage() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
             >
-              {currentStep === 1 && (
-                <ProfileForm onComplete={handleProfileComplete} />
-              )}
-              
+              {currentStep === 1 && <ProfileForm onComplete={handleProfileComplete} />}
+
               {currentStep === 2 && babyProfile && (
-                <ChatInterface 
-                  babyName={babyProfile.baby_name} 
-                  onComplete={handleChatComplete}
-                />
+                <ChatInterface babyName={babyProfile.baby_name} onComplete={handleChatComplete} />
               )}
-              
+
               {currentStep === 3 && storyData && (
-                <StoryReview 
-                  onContinue={handleStoryContinue}
-                  onRegenerate={handleStoryRegenerate}
-                />
+                <StoryReview onContinue={handleStoryContinue} onRegenerate={handleStoryRegenerate} />
               )}
-              
+
               {currentStep === 4 && storyData && (
                 <ImageGenerator onComplete={handleIllustrationsComplete} />
               )}
-              
-              {currentStep === 5 && (
-                <BookPreview onComplete={handleLayoutComplete} />
-              )}
-              
+
+              {currentStep === 5 && <BookPreview onComplete={handleLayoutComplete} />}
+
               {currentStep === 6 && (
                 <div className="card-magical text-center py-20">
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    transition={{ type: "spring" }}
+                    transition={{ type: 'spring' }}
                     className="inline-block mb-8"
                   >
                     <div className="w-24 h-24 rounded-full bg-green-500 flex items-center justify-center">
                       <Check className="h-12 w-12 text-white" />
                     </div>
                   </motion.div>
-                  <h2 className="text-4xl font-patrick mb-4 gradient-text">
-                    Your Book is Ready!
-                  </h2>
-                  <p className="text-xl text-gray-600">
-                    Download your PDF or order a printed copy
-                  </p>
+                  <h2 className="text-4xl font-patrick mb-4 gradient-text">Your Book is Ready!</h2>
+                  <p className="text-xl text-gray-600">Download your PDF or order a printed copy</p>
                 </div>
               )}
             </motion.div>

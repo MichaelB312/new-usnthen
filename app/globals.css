@@ -24,15 +24,15 @@
 
 @layer components {
   .btn-primary {
-    @apply bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-6 rounded-full shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
+    @apply bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-6 rounded-full shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none inline-flex items-center justify-center;
   }
   
   .btn-secondary {
-    @apply bg-white text-purple-600 font-semibold py-3 px-6 rounded-full border-2 border-purple-200 hover:border-purple-400 hover:bg-purple-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-white text-purple-600 font-semibold py-3 px-6 rounded-full border-2 border-purple-200 hover:border-purple-400 hover:bg-purple-50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center;
   }
 
   .btn-ghost {
-    @apply text-gray-600 font-medium py-2 px-4 rounded-lg hover:bg-gray-100 transition-all duration-200;
+    @apply text-gray-600 font-medium py-2 px-4 rounded-lg hover:bg-gray-100 transition-all duration-200 inline-flex items-center justify-center;
   }
   
   .card-magical {

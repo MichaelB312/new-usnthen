@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Users, Upload, Camera, Plus, X, Check, 
-  User, Baby, Heart, Star, Crown
+  User, Baby, Heart, Star, Crown, Sparkles
 } from 'lucide-react';
 import { useBookStore, PersonId, CastMember, UploadedPhoto } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';
@@ -15,16 +15,16 @@ interface CastManagerProps {
   onComplete: () => void;
 }
 
-const CHARACTER_OPTIONS: { id: PersonId; label: string; icon: any; color: string }[] = [
-  { id: 'baby', label: 'Baby', icon: Baby, color: 'from-pink-400 to-pink-600' },
-  { id: 'mom', label: 'Mom', icon: Heart, color: 'from-purple-400 to-purple-600' },
-  { id: 'dad', label: 'Dad', icon: User, color: 'from-blue-400 to-blue-600' },
-  { id: 'grandma', label: 'Grandma', icon: Crown, color: 'from-amber-400 to-amber-600' },
-  { id: 'grandpa', label: 'Grandpa', icon: Star, color: 'from-green-400 to-green-600' },
-  { id: 'sibling', label: 'Sibling', icon: Users, color: 'from-teal-400 to-teal-600' },
-  { id: 'aunt', label: 'Aunt', icon: Heart, color: 'from-rose-400 to-rose-600' },
-  { id: 'uncle', label: 'Uncle', icon: User, color: 'from-indigo-400 to-indigo-600' },
-  { id: 'friend', label: 'Friend', icon: Star, color: 'from-yellow-400 to-yellow-600' }
+const CHARACTER_OPTIONS: { id: PersonId; label: string; icon: any; gradient: string }[] = [
+  { id: 'baby', label: 'Baby', icon: Baby, gradient: 'from-pink-400 to-pink-600' },
+  { id: 'mom', label: 'Mom', icon: Heart, gradient: 'from-purple-400 to-purple-600' },
+  { id: 'dad', label: 'Dad', icon: User, gradient: 'from-blue-400 to-blue-600' },
+  { id: 'grandma', label: 'Grandma', icon: Crown, gradient: 'from-amber-400 to-amber-600' },
+  { id: 'grandpa', label: 'Grandpa', icon: Star, gradient: 'from-green-400 to-green-600' },
+  { id: 'sibling', label: 'Sibling', icon: Users, gradient: 'from-teal-400 to-teal-600' },
+  { id: 'aunt', label: 'Aunt', icon: Heart, gradient: 'from-rose-400 to-rose-600' },
+  { id: 'uncle', label: 'Uncle', icon: User, gradient: 'from-indigo-400 to-indigo-600' },
+  { id: 'friend', label: 'Friend', icon: Sparkles, gradient: 'from-yellow-400 to-yellow-600' }
 ];
 
 export function CastManager({ onComplete }: CastManagerProps) {
@@ -186,14 +186,14 @@ export function CastManager({ onComplete }: CastManagerProps) {
         </p>
       </div>
       
-      {/* Active Cast Members */}
+      {/* Active Cast Members - STYLE LIKE "CHOOSE YOUR ART STYLE" */}
       <div className="card-magical">
         <h3 className="text-2xl font-patrick mb-4">Story Characters</h3>
         <p className="text-gray-600 mb-6">
           These characters appear in your story. Upload reference photos for each.
         </p>
         
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="grid md:grid-cols-3 gap-6">
           {activeCastMembers.map(charId => {
             const charOption = CHARACTER_OPTIONS.find(opt => opt.id === charId);
             if (!charOption) return null;
@@ -208,31 +208,37 @@ export function CastManager({ onComplete }: CastManagerProps) {
                 key={charId}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className={`relative p-6 rounded-2xl border-2 ${
+                whileHover={{ scale: 1.03 }}
+                className={`relative p-8 rounded-2xl border-3 text-center transition-all ${
                   photoCount > 0 
-                    ? 'border-green-400 bg-green-50' 
-                    : 'border-gray-300 bg-gray-50'
+                    ? 'border-green-400 bg-white' 
+                    : 'border-gray-200 bg-white hover:border-purple-300'
                 }`}
               >
-                <div className={`inline-flex p-3 rounded-xl bg-gradient-to-br ${charOption.color} mb-3`}>
-                  <Icon className="h-8 w-8 text-white" />
-                </div>
-                
-                <h4 className="text-lg font-semibold mb-1">
-                  {charId === 'baby' ? babyProfile?.baby_name : charOption.label}
-                </h4>
-                
-                <div className="text-sm text-gray-600">
-                  <p>{photoCount} photo(s)</p>
-                  {hasAnchor && (
-                    <p className="text-green-600 font-medium">✓ Has identity anchor</p>
-                  )}
-                </div>
-                
                 {photoCount === 0 && (
-                  <div className="absolute top-2 right-2">
-                    <span className="text-red-500 text-xs font-medium">Needs photo</span>
+                  <div className="absolute top-3 right-3">
+                    <span className="text-red-500 text-xs font-medium">
+                      Needs photo
+                    </span>
                   </div>
+                )}
+                
+                <div className={`inline-flex p-4 rounded-2xl bg-gradient-to-br ${charOption.gradient} mb-4 mx-auto`}>
+                  <Icon className="h-10 w-10 text-white" />
+                </div>
+                
+                <h3 className="text-xl font-semibold mb-2">
+                  {charId === 'baby' ? babyProfile?.baby_name : charOption.label}
+                </h3>
+                
+                <p className="text-sm text-gray-600 mb-1">
+                  {photoCount} photo(s)
+                </p>
+                
+                {hasAnchor && (
+                  <p className="text-sm text-green-600 font-medium">
+                    ✓ Has identity anchor
+                  </p>
                 )}
               </motion.div>
             );
@@ -354,25 +360,25 @@ export function CastManager({ onComplete }: CastManagerProps) {
               </div>
             </div>
             
-            {/* Action Buttons */}
+            {/* Action Buttons - FIXED ALIGNMENT */}
             <div className="flex gap-3">
               <button
                 onClick={savePhotoWithTags}
                 disabled={currentPhotoUpload.selectedCharacters.length === 0}
-                className="btn-primary flex-1"
+                className="btn-primary flex-1 flex items-center justify-center"
               >
                 <Check className="h-5 w-5 mr-2" />
-                Save Photo with Tags
+                <span>Save Photo with Tags</span>
               </button>
               <button
                 onClick={() => {
                   setCurrentPhotoUpload(null);
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
-                className="btn-secondary"
+                className="btn-secondary flex items-center justify-center px-6"
               >
                 <X className="h-5 w-5 mr-2" />
-                Cancel
+                <span>Cancel</span>
               </button>
             </div>
           </div>
@@ -422,7 +428,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
           className="btn-primary text-xl px-10 py-4"
         >
           {allCharactersHavePhotos 
-            ? 'Continue to Image Generation' 
+            ? 'Continue to Style Selection' 
             : `Upload photos for all characters (${
                 activeCastMembers.filter(id => {
                   const charStats = stats[id];

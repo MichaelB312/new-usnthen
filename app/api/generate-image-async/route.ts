@@ -191,12 +191,17 @@ export async function POST(request: NextRequest) {
     } = body;
     
     // Validate required fields
-    if (!bookId || !pageNumber || !pageData) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields: bookId, pageNumber, or pageData' },
-        { status: 400 }
-      );
-    }
+if (!bookId || !pageNumber || !pageData) {
+  console.error('400 generate-image-async: missing fields', {
+    hasBookId: !!bookId,
+    pageNumber,
+    hasPageData: !!pageData,
+  });
+  return NextResponse.json(
+    { success: false, error: 'Missing required fields: bookId, pageNumber, or pageData' },
+    { status: 400 }
+  );
+}
     
     // Create job ID
     const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
@@ -342,16 +347,22 @@ async function processImageGenerationWithCharacters(jobId: string, params: any) 
       const imageFiles = await prepareImageFiles(references);
       
       // Call OpenAI with all reference images
+      // IMPORTANT: Remove response_format for gpt-image-1
       let response;
       try {
         response = await openai.images.edit({
-          model: 'gpt-image-1',
-          image: imageFiles.length === 1 ? imageFiles[0] : imageFiles, // Single image or array
-          prompt,
-          n: 1,
-          size: '1024x1024',
-          response_format: 'b64_json'
-        });
+  model: 'gpt-image-1',
+  image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+  prompt,
+  n: 1,
+  size: '1024x1024',
+  quality: 'high',
+  input_fidelity: 'high',
+  background: 'transparent',
+  // @ts-expect-error: moderation exists for gpt-image-1 edits but isn't in this SDK's types yet
+moderation: 'low',
+
+});
       } catch (apiError: any) {
         console.error(`[Job ${jobId}] OpenAI API error (Page 1):`, apiError);
         
@@ -481,16 +492,22 @@ async function processImageGenerationWithCharacters(jobId: string, params: any) 
       const imageFiles = await prepareImageFiles(references);
       
       // Call OpenAI with ALL reference images
+      // IMPORTANT: Remove response_format for gpt-image-1
       let response;
       try {
         response = await openai.images.edit({
-          model: 'gpt-image-1',
-          image: imageFiles.length === 1 ? imageFiles[0] : imageFiles, // Pass single or array
-          prompt,
-          n: 1,
-          size: '1024x1024',
-          response_format: 'b64_json'
-        });
+  model: 'gpt-image-1',
+  image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+  prompt,
+  n: 1,
+  size: '1024x1024',
+  quality: 'high',
+  input_fidelity: 'high',
+  background: 'transparent',
+  // @ts-expect-error: moderation exists for gpt-image-1 edits but isn't in this SDK's types yet
+moderation: 'low',
+
+});
       } catch (apiError: any) {
         console.error(`[Job ${jobId}] OpenAI API error (Page 2+):`, apiError);
         
@@ -555,6 +572,7 @@ async function processImageGenerationWithCharacters(jobId: string, params: any) 
 
 /**
  * Handle OpenAI response format variations
+ * gpt-image-1 always returns base64, but the SDK might return URLs
  */
 async function handleOpenAIResponse(response: any): Promise<string> {
   if (!response.data || !response.data[0]) {
@@ -563,21 +581,21 @@ async function handleOpenAIResponse(response: any): Promise<string> {
   
   const imageData = response.data[0];
   
-  // Handle URL response
+  // Check for base64 response (what gpt-image-1 should return)
+  if ('b64_json' in imageData && imageData.b64_json) {
+    console.log('Got base64 response directly');
+    return imageData.b64_json;
+  }
+  
+  // Handle URL response (SDK might do this even for gpt-image-1)
   if ('url' in imageData && imageData.url) {
-    console.log('Got URL response, fetching image...');
+    console.log('Got URL response (SDK behavior), fetching image...');
     const imgResponse = await fetch(imageData.url);
     if (!imgResponse.ok) {
       throw new Error(`Failed to fetch image: ${imgResponse.status}`);
     }
     const arrayBuffer = await imgResponse.arrayBuffer();
     return Buffer.from(arrayBuffer).toString('base64');
-  }
-  
-  // Handle base64 response
-  if ('b64_json' in imageData && imageData.b64_json) {
-    console.log('Got base64 response directly');
-    return imageData.b64_json;
   }
   
   throw new Error('Unknown response format from OpenAI');

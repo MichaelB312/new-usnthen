@@ -1,6 +1,8 @@
-// app/api/generate-story/route.ts
 /**
  * Enhanced Story Generation with Character Tracking
+ * - Enforces a fast timeout to avoid Codespaces proxy cutoff
+ * - Falls back to a valid story if the model is slow/unavailable
+ * - Always returns valid JSON (status 200), never an empty body
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,6 +12,9 @@ import { PersonId } from '@/lib/store/bookStore';
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// Prefer a stable, fast model by default. You can override via env.
+const STORY_MODEL = process.env.OPENAI_STORY_MODEL || 'gpt-4o-mini';
 
 // Camera angles remain the same
 const DISTINCT_CAMERA_ANGLES = {
@@ -40,16 +45,19 @@ interface StoryResponse {
   title: string;
   refrain: string;
   pages: StoryPage[];
-  cast_members?: string[]; // Made optional for backward compatibility
-  metadata?: any; // Added metadata
-  style?: string; // Added style
+  cast_members?: string[];
+  metadata?: any;
+  style?: string;
 }
 
 function calculateAgeInMonths(birthdate: string): number {
   const birth = new Date(birthdate);
   const now = new Date();
-  return Math.max(0, (now.getFullYear() - birth.getFullYear()) * 12 + 
-                     (now.getMonth() - birth.getMonth()));
+  return Math.max(
+    0,
+    (now.getFullYear() - birth.getFullYear()) * 12 +
+      (now.getMonth() - birth.getMonth())
+  );
 }
 
 function getPageCount(ageInMonths: number): number {
@@ -68,40 +76,42 @@ function getWordLimit(ageInMonths: number): { min: number; max: number } {
 // Map string character names to PersonId
 function mapToPersonId(character: string, babyName: string): PersonId | null {
   const normalized = character.toLowerCase().trim();
-  
+
   // Check if it's the baby
-  if (normalized === babyName.toLowerCase() || 
-      normalized === 'baby' || 
-      normalized === 'little one') {
+  if (
+    normalized === babyName.toLowerCase() ||
+    normalized === 'baby' ||
+    normalized === 'little one'
+  ) {
     return 'baby';
   }
-  
+
   // Map common family terms
   const mapping: Record<string, PersonId> = {
-    'mom': 'mom',
-    'mommy': 'mom',
-    'mama': 'mom',
-    'mother': 'mom',
-    'dad': 'dad',
-    'daddy': 'dad',
-    'papa': 'dad',
-    'father': 'dad',
-    'grandma': 'grandma',
-    'granny': 'grandma',
-    'nana': 'grandma',
-    'grandmother': 'grandma',
-    'grandpa': 'grandpa',
-    'granddad': 'grandpa',
-    'grandfather': 'grandpa',
-    'brother': 'sibling',
-    'sister': 'sibling',
-    'sibling': 'sibling',
-    'aunt': 'aunt',
-    'auntie': 'aunt',
-    'uncle': 'uncle',
-    'friend': 'friend'
+    mom: 'mom',
+    mommy: 'mom',
+    mama: 'mom',
+    mother: 'mom',
+    dad: 'dad',
+    daddy: 'dad',
+    papa: 'dad',
+    father: 'dad',
+    grandma: 'grandma',
+    granny: 'grandma',
+    nana: 'grandma',
+    grandmother: 'grandma',
+    grandpa: 'grandpa',
+    granddad: 'grandpa',
+    grandfather: 'grandpa',
+    brother: 'sibling',
+    sister: 'sibling',
+    sibling: 'sibling',
+    aunt: 'aunt',
+    auntie: 'aunt',
+    uncle: 'uncle',
+    friend: 'friend'
   };
-  
+
   return mapping[normalized] || null;
 }
 
@@ -113,53 +123,84 @@ function analyzeMemoryForCharacters(
 ): Set<PersonId> {
   const characters = new Set<PersonId>();
   characters.add('baby'); // Baby is always present
-  
+
   const combinedText = `${memory} ${babyActions}`.toLowerCase();
-  
+
   // Check for family members
   if (/\b(mom|mommy|mama|mother)\b/.test(combinedText)) characters.add('mom');
   if (/\b(dad|daddy|papa|father)\b/.test(combinedText)) characters.add('dad');
-  if (/\b(grandma|granny|nana|grandmother)\b/.test(combinedText)) characters.add('grandma');
-  if (/\b(grandpa|granddad|grandfather)\b/.test(combinedText)) characters.add('grandpa');
-  if (/\b(brother|sister|sibling)\b/.test(combinedText)) characters.add('sibling');
+  if (/\b(grandma|granny|nana|grandmother)\b/.test(combinedText))
+    characters.add('grandma');
+  if (/\b(grandpa|granddad|grandfather)\b/.test(combinedText))
+    characters.add('grandpa');
+  if (/\b(brother|sister|sibling)\b/.test(combinedText))
+    characters.add('sibling');
   if (/\b(aunt|auntie)\b/.test(combinedText)) characters.add('aunt');
   if (/\b(uncle)\b/.test(combinedText)) characters.add('uncle');
-  
+
   return characters;
 }
 
 export async function POST(request: NextRequest) {
   let babyProfile: any;
   let conversation: any;
-  let illustrationStyle = 'wondrous'; // Declare at function scope
-  
+  let illustrationStyle = 'wondrous';
+
   try {
-    const body = await request.json();
-    babyProfile = body.babyProfile;
-    conversation = body.conversation;
-    illustrationStyle = body.illustrationStyle || 'wondrous'; // Assign from request
-    
+    const body = await request.json().catch(() => ({}));
+    babyProfile = body?.babyProfile;
+    conversation = body?.conversation || [];
+    illustrationStyle = body?.illustrationStyle || 'wondrous';
+
+    // Guard: if essentials are missing, short-circuit to fallback fast
+    if (!babyProfile?.baby_name || !babyProfile?.birthdate) {
+      const safeName = babyProfile?.baby_name || 'Baby';
+      const safeBirth = babyProfile?.birthdate || '2024-01-01';
+      return NextResponse.json(
+        {
+          success: true,
+          story: createFallbackStoryWithCharacters(
+            safeName,
+            calculateAgeInMonths(safeBirth),
+            illustrationStyle
+          )
+        },
+        { status: 200 }
+      );
+    }
+
     // Extract memory details
-    const memory = conversation.find((c: any) => c.question === 'memory_anchor')?.answer || '';
-    const whySpecial = conversation.find((c: any) => c.question === 'why_special')?.answer || '';
-    const babyActions = conversation.find((c: any) => c.question === 'baby_action')?.answer || '';
-    const emotions = conversation.find((c: any) => c.question === 'baby_reaction')?.answer || '';
-    
+    const memory =
+      conversation.find((c: any) => c.question === 'memory_anchor')?.answer ||
+      '';
+    const babyActions =
+      conversation.find((c: any) => c.question === 'baby_action')?.answer ||
+      '';
+    const emotions =
+      conversation.find((c: any) => c.question === 'baby_reaction')?.answer ||
+      '';
+
     const ageInMonths = calculateAgeInMonths(babyProfile.birthdate);
     const pageCount = getPageCount(ageInMonths);
     const wordLimits = getWordLimit(ageInMonths);
-    
+
     // Analyze memory for potential characters
-    const detectedCharacters = analyzeMemoryForCharacters(memory, babyActions, babyProfile.baby_name);
+    const detectedCharacters = analyzeMemoryForCharacters(
+      memory,
+      babyActions,
+      babyProfile.baby_name
+    );
     const characterList = Array.from(detectedCharacters).join(', ');
-    
+
     // Get camera angles
-    const cameraAngles = Object.keys(DISTINCT_CAMERA_ANGLES) as CameraAngle[];
+    const cameraAngles = Object.keys(
+      DISTINCT_CAMERA_ANGLES
+    ) as CameraAngle[];
     const shuffledAngles = [...cameraAngles].sort(() => Math.random() - 0.5);
     const selectedAngles = shuffledAngles.slice(0, pageCount);
-    const cameraAnglesList = selectedAngles.join(", ");
-    
-    // Enhanced prompt with character tracking
+    const cameraAnglesList = selectedAngles.join(', ');
+
+    // Prompt for the model
     const prompt = `You are an award-winning board-book author who excels at character continuity.
 Write a ${pageCount}-page baby book for ${babyProfile.baby_name}, age ${ageInMonths} months.
 
@@ -192,7 +233,7 @@ OUTPUT JSON (exact structure):
 {
   "title": "Short, concrete title",
   "refrain": "2-4 word refrain",
-  "cast_members": ["baby", "mom", ...], // All unique characters in story
+  "cast_members": ["baby", "mom", ...],
   "pages": [
     {
       "page_number": 1,
@@ -201,36 +242,40 @@ OUTPUT JSON (exact structure):
       "visual_action": "specific action (e.g., 'baby reaches for shell, mom points')",
       "action_description": "what illustrator shows",
       "camera_prompt": "camera framing description",
-      "characters_on_page": ["baby", "mom"], // Who MUST appear
-      "background_extras": [] // Optional background characters
+      "characters_on_page": ["baby", "mom"],
+      "background_extras": []
     }
   ]
 }
 
 IMPORTANT: Track characters carefully. If the memory mentions family members, include them appropriately across pages. The baby should appear on most/all pages as "baby" in the array.`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a children\'s book author who specializes in character consistency and family dynamics. You carefully track which characters appear on each page.'
-        },
-        { role: 'user', content: prompt }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.7,
-      max_tokens: 3500
-    });
+    // Call OpenAI with a strict timeout to avoid proxy cutoffs
+    const completion = await openai.chat.completions.create(
+      {
+        model: STORY_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content:
+              "You are a children's book author who specializes in character consistency and family dynamics. You carefully track which characters appear on each page."
+          },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' }
+      },
+      { timeout: 20_000 } // 20s hard timeout
+    );
 
-    const storyData: StoryResponse = JSON.parse(completion.choices[0].message.content || '{}');
-    
+    const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
+    if (!raw) throw new Error('Empty model response');
+    const storyData: StoryResponse = JSON.parse(raw);
+
     // Validate and convert character arrays to PersonId[]
     const enhancedPages = storyData.pages.map((page, index) => {
-      // Convert string character names to PersonId
       const charactersOnPage: PersonId[] = [];
       const backgroundExtras: PersonId[] = [];
-      
+
       // Process characters_on_page
       for (const char of page.characters_on_page || []) {
         const personId = mapToPersonId(char, babyProfile.baby_name);
@@ -238,7 +283,7 @@ IMPORTANT: Track characters carefully. If the memory mentions family members, in
           charactersOnPage.push(personId);
         }
       }
-      
+
       // Process background_extras
       for (const char of page.background_extras || []) {
         const personId = mapToPersonId(char, babyProfile.baby_name);
@@ -246,62 +291,75 @@ IMPORTANT: Track characters carefully. If the memory mentions family members, in
           backgroundExtras.push(personId);
         }
       }
-      
+
       // Ensure baby is always included if not specified
       if (charactersOnPage.length === 0) {
         charactersOnPage.push('baby');
       }
-      
+
       return {
         ...page,
         page_number: page.page_number,
         characters_on_page: charactersOnPage,
-        background_extras: backgroundExtras.length > 0 ? backgroundExtras : undefined,
-        scene_type: index === 0 ? 'opening' : index === storyData.pages.length - 1 ? 'closing' : 'action',
+        background_extras:
+          backgroundExtras.length > 0 ? backgroundExtras : undefined,
+        scene_type:
+          index === 0
+            ? 'opening'
+            : index === storyData.pages.length - 1
+            ? 'closing'
+            : 'action',
         emotion: 'joy',
         layout_template: 'auto'
       };
     });
-    
+
     // Get unique cast members
     const allCharacters = new Set<PersonId>();
-    enhancedPages.forEach(page => {
-      page.characters_on_page.forEach(c => allCharacters.add(c));
-      page.background_extras?.forEach(c => allCharacters.add(c));
+    enhancedPages.forEach((page) => {
+      page.characters_on_page.forEach((c) => allCharacters.add(c));
+      page.background_extras?.forEach((c) => allCharacters.add(c));
     });
-    
+
     const enhancedStory = {
       title: storyData.title,
       refrain: storyData.refrain,
       pages: enhancedPages,
-      cast_members: Array.from(allCharacters), // Include cast_members
-      metadata: storyData.metadata || {}, // Include metadata with fallback
-      style: storyData.style || illustrationStyle // Include style with fallback using the variable from request
+      cast_members: Array.from(allCharacters),
+      metadata: storyData.metadata || {},
+      style: storyData.style || illustrationStyle
     };
-    
-    return NextResponse.json({ success: true, story: enhancedStory });
-    
+
+    return NextResponse.json({ success: true, story: enhancedStory }, { status: 200 });
   } catch (error) {
+    // Always return a valid JSON fallback within 60s window
     console.error('Story generation error:', error);
-    
-    // Return a fallback story with character tracking
-    return NextResponse.json({ 
-      success: true, 
-      story: createFallbackStoryWithCharacters(
-        babyProfile?.baby_name || 'Baby',
-        calculateAgeInMonths(babyProfile?.birthdate || '2024-01-01'),
-        illustrationStyle
-      )
-    });
+    const safeName = babyProfile?.baby_name || 'Baby';
+    const safeBirth = babyProfile?.birthdate || '2024-01-01';
+    const safeStyle = illustrationStyle || 'wondrous';
+
+    return NextResponse.json(
+      {
+        success: true,
+        story: createFallbackStoryWithCharacters(
+          safeName,
+          calculateAgeInMonths(safeBirth),
+          safeStyle
+        )
+      },
+      { status: 200 }
+    );
   }
 }
 
-function createFallbackStoryWithCharacters(babyName: string, ageInMonths: number, style: string = 'wondrous'): any {
+function createFallbackStoryWithCharacters(
+  babyName: string,
+  ageInMonths: number,
+  style: string = 'wondrous'
+): any {
   const pageCount = getPageCount(ageInMonths);
-  const angles = Object.keys(DISTINCT_CAMERA_ANGLES) as CameraAngle[];
-  const refrain = "So much fun!";
-  
-  // Simple story with mom and baby
+  const refrain = 'So much fun!';
+
   const pages = [
     {
       narration: `${babyName} wakes up happy. ${refrain}`,
@@ -334,13 +392,13 @@ function createFallbackStoryWithCharacters(babyName: string, ageInMonths: number
       camera_angle: 'birds_eye' as CameraAngle
     }
   ];
-  
+
   return {
     title: `${babyName}'s Happy Day`,
     refrain,
     cast_members: ['baby', 'mom'],
     metadata: {},
-    style: style,
+    style,
     pages: pages.slice(0, pageCount).map((page, i) => ({
       page_number: i + 1,
       ...page,

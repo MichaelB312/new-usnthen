@@ -1,17 +1,10 @@
-// app/api/generate-image-async/route.ts
-/**
- * Enhanced Image Generation with Multi-Reference Character Support
- * 
- * FLOW:
- * 1. Page 1: Creates style anchor with first character reference
- * 2. Pages 2+: Uses style anchor + character-specific identity anchors
- * 3. Explicit mapping tells model which reference is which character
- */
+// app/api/generate-image-async/route.ts - Fixed version with one ref per character
+// Key changes: Only send ONE reference per unique character, better styles
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
-import { PersonId, CastMember, UploadedPhoto, selectImageReferences } from '@/lib/store/bookStore';
+import { PersonId, CastMember, UploadedPhoto } from '@/lib/store/bookStore';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,8 +30,8 @@ const jobs = new Map<string, {
 // Style anchor storage
 const styleAnchors = new Map<string, string>();
 
-// Character identity anchors storage
-const identityAnchors = new Map<string, Map<PersonId, string>>(); // bookId -> personId -> anchorUrl
+// Character reference cache - store best reference per character per book
+const characterReferences = new Map<string, Map<PersonId, string>>();
 
 // Cleanup interval
 setInterval(() => {
@@ -51,162 +44,148 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 /**
- * Build character-aware prompt with explicit reference mapping
+ * Build vibrant, high-contrast prompt for baby books
  */
-function buildCharacterAwarePrompt(
+function buildVibrantPrompt(
   pageData: any,
-  style: string,
-  referenceMapping: { index: number; type: 'style' | 'identity' | 'group'; character?: PersonId; description: string }[]
+  pageNumber: number,
+  style: string
 ): string {
+  // Updated styles with high contrast and vibrant colors for babies
   const styleMap: Record<string, string> = {
-    wondrous: 'soft watercolor illustration, pastel colors, dreamy atmosphere',
-    crayon: 'crayon drawing style, waxy texture, bold colors, hand-drawn feel',
-    vintage: 'vintage children\'s book illustration, muted colors, nostalgic'
+    'bright-bold': 'BRIGHT BOLD illustration style: vivid saturated colors, thick black outlines, high contrast, cheerful and energetic, baby board book style',
+    'pop-art': 'POP ART baby book style: bold primary colors (red, blue, yellow), thick black outlines, high contrast shapes, playful and graphic',
+    'rainbow': 'RAINBOW BRIGHT style: vibrant multi-colored palette, bold shapes, high contrast, joyful and stimulating for babies, thick outlines',
+    
+    // Legacy styles (updated to be more vibrant)
+    wondrous: 'VIBRANT watercolor style: bright saturated colors, high contrast, thick outlines, cheerful atmosphere',
+    crayon: 'BOLD CRAYON style: bright waxy colors, thick black outlines, high contrast, playful texture',
+    vintage: 'RETRO BRIGHT style: vivid colors, high contrast, thick lines, nostalgic but energetic'
   };
   
-  // Build reference mapping description
-  const refDescription = referenceMapping.map(ref => {
-    if (ref.type === 'style') {
-      return `image[${ref.index}] = STYLE ANCHOR (lock palette, line, texture)`;
-    } else if (ref.type === 'identity') {
-      return `image[${ref.index}] = ${ref.character} identity anchor`;
-    } else if (ref.type === 'group') {
-      return `image[${ref.index}] = Group composition reference`;
-    }
-    return '';
-  }).join('\n');
-  
-  // Build character list
   const charactersPresent = pageData.characters_on_page?.join(', ') || 'baby';
-  const backgroundExtras = pageData.background_extras?.length 
-    ? `Optional background extras: ${pageData.background_extras.join(', ')}. Keep them low prominence, background only.`
-    : 'No background extras.';
   
   const prompt = [
-    `REFERENCE MAPPING:`,
-    refDescription,
+    pageNumber === 1 ? 'CREATE STYLE:' : 'MATCH STYLE:',
+    pageNumber === 1 
+      ? `${styleMap[style] || styleMap['bright-bold']}` 
+      : 'Match image[0] style EXACTLY - same colors, same line thickness, same energy level',
     '',
-    'STYLE: Match image[0] exactly (palette, line weight, texture).',
-    '',
-    'IDENTITIES:',
-    ...referenceMapping
-      .filter(ref => ref.type === 'identity')
-      .map(ref => `- ${ref.character} = image[${ref.index}] (preserve exact face, hair, skin tone, eye color, outfit)`),
+    'IMPORTANT: Use BRIGHT, HIGH-CONTRAST colors suitable for baby vision',
+    'Thick black outlines on all elements',
+    'Bold, simple shapes',
     '',
     `SCENE (Page ${pageData.page_number}):`,
-    `- Characters present: ${charactersPresent}. Do NOT introduce anyone not listed.`,
-    `- ${backgroundExtras}`,
-    `- Action: ${pageData.visual_action || pageData.action_description || 'interacting'}`,
+    `- Characters: ${charactersPresent}`,
+    `- Action: ${pageData.visual_action || pageData.action_description || 'playing'}`,
     `- Camera: ${pageData.camera_prompt || pageData.camera_angle || 'medium shot'}`,
-    `- Setting: ${pageData.sensory_details || 'bright, cheerful environment'}`,
     '',
     'RULES:',
-    '- Composition: single frame, no text on canvas',
-    '- Keep consistent outfits per identity anchors',
-    '- Baby/toddler must be smaller than adults',
-    '- Natural lighting, picture book for ages 0-3',
-    '- No text or labels in the image',
-    '',
-    referenceMapping.some(ref => ref.type === 'group') 
-      ? 'If provided, use the group photo reference for relative scale and spacing, but keep art style locked to image[0].'
-      : ''
+    '- Baby board book illustration (ages 0-3)',
+    '- HIGH CONTRAST and BRIGHT COLORS essential',
+    '- Thick, bold outlines on everything',
+    '- Simple, clear shapes',
+    '- Cheerful, energetic mood',
+    '- Keep characters consistent',
+    '- No text or labels',
+    '- Single frame composition'
   ].filter(line => line !== undefined).join('\n');
   
-  console.log('Generated character-aware prompt:', prompt);
+  console.log(`[Page ${pageNumber}] Vibrant prompt:`, prompt);
   return prompt;
 }
 
 /**
- * Convert base64 images to files for OpenAI
+ * Convert base64/URL to file for OpenAI
  */
-async function prepareImageFiles(imageUrls: string[]): Promise<any[]> {
-  const files = [];
-  const MAX_SIZE = 50 * 1024 * 1024; // 50MB max per image for gpt-image-1
-  const MAX_IMAGES = 16; // Maximum 16 images for gpt-image-1
+async function prepareImageFile(imageUrl: string, name: string = 'ref.png'): Promise<any> {
+  let buffer: Buffer;
   
-  // Filter out invalid URLs
-  const validUrls = imageUrls.filter(url => url && url.length > 0);
-  
-  if (validUrls.length === 0) {
-    throw new Error('No valid image URLs provided');
-  }
-  
-  if (validUrls.length > MAX_IMAGES) {
-    console.warn(`Attempting to send ${validUrls.length} images, but gpt-image-1 only supports up to ${MAX_IMAGES}`);
-    throw new Error(`Too many reference images: ${validUrls.length} (max ${MAX_IMAGES})`);
-  }
-  
-  for (let i = 0; i < validUrls.length; i++) {
-    const url = validUrls[i];
-    let buffer: Buffer;
-    
-    try {
-      if (url.startsWith('data:')) {
-        // Base64 image
-        const base64 = url.replace(/^data:image\/\w+;base64,/, '');
-        buffer = Buffer.from(base64, 'base64');
-      } else if (url.startsWith('http')) {
-        // Fetch from URL
-        const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer();
-        buffer = Buffer.from(arrayBuffer);
-      } else {
-        // Assume it's already base64
-        buffer = Buffer.from(url, 'base64');
-      }
-      
-      // Check size
-      if (buffer.length > MAX_SIZE) {
-        console.warn(`Image ${i} is ${(buffer.length / 1024 / 1024).toFixed(2)}MB, which exceeds the 50MB limit`);
-        throw new Error(`Image ${i} exceeds 50MB size limit`);
-      }
-      
-      const file = await toFile(buffer, `ref_${i}.png`, { type: 'image/png' });
-      files.push(file);
-    } catch (error) {
-      console.error(`Failed to prepare image ${i}:`, error);
-      throw new Error(`Failed to prepare image ${i}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  try {
+    if (imageUrl.startsWith('data:')) {
+      const base64 = imageUrl.replace(/^data:image\/\w+;base64,/, '');
+      buffer = Buffer.from(base64, 'base64');
+    } else if (imageUrl.startsWith('http')) {
+      const response = await fetch(imageUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      buffer = Buffer.from(arrayBuffer);
+    } else {
+      buffer = Buffer.from(imageUrl, 'base64');
     }
+    
+    if (buffer.length > 50 * 1024 * 1024) {
+      throw new Error('Image exceeds 50MB limit');
+    }
+    
+    return await toFile(buffer, name, { type: 'image/png' });
+  } catch (error) {
+    console.error(`Failed to prepare image:`, error);
+    throw error;
   }
-  
-  console.log(`Prepared ${files.length} image files for OpenAI`);
-  return files;
 }
 
 /**
- * POST - Start image generation job with character management
+ * Get ONE best reference for a character (cached)
+ */
+function getOneCharacterReference(
+  characterId: PersonId,
+  uploadedPhotos: UploadedPhoto[],
+  bookId: string
+): string | null {
+  // Check cache first
+  const bookCache = characterReferences.get(bookId);
+  if (bookCache?.has(characterId)) {
+    return bookCache.get(characterId)!;
+  }
+  
+  // Find best photo (prefer solo shots)
+  let bestPhoto: string | null = null;
+  
+  // Priority 1: Solo photo of just this character
+  const soloPhoto = uploadedPhotos.find(p => 
+    p.people.length === 1 && p.people[0] === characterId
+  );
+  if (soloPhoto) {
+    bestPhoto = soloPhoto.fileUrl;
+  } else {
+    // Priority 2: Any photo with this character (prefer fewer people)
+    const photosWithChar = uploadedPhotos
+      .filter(p => p.people.includes(characterId))
+      .sort((a, b) => a.people.length - b.people.length);
+    
+    if (photosWithChar.length > 0) {
+      bestPhoto = photosWithChar[0].fileUrl;
+    }
+  }
+  
+  // Cache the result
+  if (bestPhoto) {
+    if (!bookCache) {
+      characterReferences.set(bookId, new Map());
+    }
+    characterReferences.get(bookId)!.set(characterId, bestPhoto);
+  }
+  
+  return bestPhoto;
+}
+
+/**
+ * POST - Start image generation job
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { 
-      bookId, 
-      pageNumber, 
-      babyPhotoUrl,
-      pageData, 
-      style,
-      cast,           // New: cast member data
-      uploadedPhotos, // New: all uploaded photos with character tags
-      identityAnchors: providedAnchors // New: pre-generated identity anchors
-    } = body;
+    const { bookId, pageNumber, pageData } = body;
     
-    // Validate required fields
-if (!bookId || !pageNumber || !pageData) {
-  console.error('400 generate-image-async: missing fields', {
-    hasBookId: !!bookId,
-    pageNumber,
-    hasPageData: !!pageData,
-  });
-  return NextResponse.json(
-    { success: false, error: 'Missing required fields: bookId, pageNumber, or pageData' },
-    { status: 400 }
-  );
-}
+    if (!bookId || !pageNumber || !pageData) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
     
-    // Create job ID
     const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
     
-    // Store job
     jobs.set(jobId, {
       id: jobId,
       status: 'pending',
@@ -214,8 +193,7 @@ if (!bookId || !pageNumber || !pageData) {
       startedAt: Date.now()
     });
     
-    // Start async processing
-    processImageGenerationWithCharacters(jobId, body).catch(error => {
+    processOptimalImageGeneration(jobId, body).catch(error => {
       console.error(`Job ${jobId} failed:`, error);
       const job = jobs.get(jobId);
       if (job) {
@@ -237,6 +215,184 @@ if (!bookId || !pageNumber || !pageData) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Process image generation with ONE reference per character
+ */
+async function processOptimalImageGeneration(jobId: string, params: any) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  
+  try {
+    job.status = 'processing';
+    job.progress = 10;
+    
+    const { 
+      bookId, 
+      pageNumber, 
+      babyPhotoUrl,
+      pageData, 
+      style = 'bright-bold', // Default to vibrant style
+      uploadedPhotos = []
+    } = params;
+    
+    console.log(`[Job ${jobId}] Page ${pageNumber}, Characters: ${pageData.characters_on_page?.join(', ')}`);
+    
+    let imageFiles: any[] = [];
+    let prompt: string;
+    
+    if (pageNumber === 1) {
+      // PAGE 1: Create style anchor with ONLY baby photo
+      let babyReference = babyPhotoUrl;
+      if (!babyReference && uploadedPhotos.length > 0) {
+        babyReference = getOneCharacterReference('baby', uploadedPhotos, bookId);
+      }
+      
+      if (!babyReference) {
+        throw new Error('No baby photo provided for Page 1');
+      }
+      
+      console.log(`[Job ${jobId}] Page 1: Creating vibrant style anchor`);
+      
+      const babyFile = await prepareImageFile(babyReference, 'baby.png');
+      imageFiles = [babyFile];
+      
+      prompt = buildVibrantPrompt(pageData, 1, style);
+      
+    } else {
+      // PAGES 2+: Style anchor + ONE reference per unique character
+      const styleAnchor = await waitForStyleAnchor(bookId);
+      if (!styleAnchor) {
+        throw new Error('Style anchor not available. Please generate Page 1 first.');
+      }
+      
+      const references: { url: string; name: string }[] = [];
+      references.push({ url: styleAnchor, name: 'style.png' });
+      
+      // Get UNIQUE characters on this page
+      const uniqueCharacters = new Set(pageData.characters_on_page || []);
+      
+      // Add ONE reference per unique character (max 3 characters typically)
+      for (const characterId of uniqueCharacters) {
+        if (references.length >= 4) break; // Max 4 total (style + 3 chars)
+        
+        const charRef = getOneCharacterReference(characterId as PersonId, uploadedPhotos, bookId);
+        if (charRef) {
+          references.push({ 
+            url: charRef, 
+            name: `${characterId}.png` 
+          });
+        }
+      }
+      
+      console.log(`[Job ${jobId}] Page ${pageNumber}: ${uniqueCharacters.size} unique characters, ${references.length} total refs`);
+      
+      imageFiles = await Promise.all(
+        references.map(ref => prepareImageFile(ref.url, ref.name))
+      );
+      
+      prompt = buildVibrantPrompt(pageData, pageNumber, style);
+    }
+    
+    job.progress = 30;
+    
+    // Call OpenAI
+    console.log(`[Job ${jobId}] Calling OpenAI with ${imageFiles.length} reference(s)`);
+    
+    const response = await openai.images.edit({
+      model: 'gpt-image-1',
+      image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+      prompt,
+      n: 1,
+      size: '1024x1024',
+      quality: 'high',
+      input_fidelity: 'high',
+      background: 'transparent',
+      // @ts-expect-error: moderation exists but not in SDK types
+      moderation: 'low',
+    });
+    
+    job.progress = 80;
+    
+    const imageBase64 = await handleOpenAIResponse(response);
+    
+    if (pageNumber === 1) {
+      styleAnchors.set(bookId, imageBase64);
+      console.log(`[Job ${jobId}] Vibrant style anchor created for book ${bookId}`);
+    }
+    
+    job.progress = 90;
+    
+    const dataUrl = `data:image/png;base64,${imageBase64}`;
+    
+    job.progress = 100;
+    job.status = 'completed';
+    job.completedAt = Date.now();
+    job.result = {
+      page_number: pageNumber,
+      dataUrl,
+      sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
+      style,
+      characters_on_page: pageData.characters_on_page,
+      reference_count: imageFiles.length,
+      elapsed_ms: Date.now() - job.startedAt
+    };
+    
+    console.log(`[Job ${jobId}] Completed with ${imageFiles.length} reference(s)`);
+    
+  } catch (error: any) {
+    console.error(`[Job ${jobId}] Failed:`, error);
+    job.status = 'failed';
+    job.error = error.message;
+    job.completedAt = Date.now();
+  }
+}
+
+/**
+ * Handle OpenAI response
+ */
+async function handleOpenAIResponse(response: any): Promise<string> {
+  if (!response.data || !response.data[0]) {
+    throw new Error('No image data in response');
+  }
+  
+  const imageData = response.data[0];
+  
+  if ('b64_json' in imageData && imageData.b64_json) {
+    return imageData.b64_json;
+  }
+  
+  if ('url' in imageData && imageData.url) {
+    const imgResponse = await fetch(imageData.url);
+    if (!imgResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imgResponse.status}`);
+    }
+    const arrayBuffer = await imgResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
+  }
+  
+  throw new Error('Unknown response format from OpenAI');
+}
+
+/**
+ * Wait for style anchor
+ */
+async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<string | null> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const anchor = styleAnchors.get(bookId);
+    if (anchor) {
+      return anchor;
+    }
+    
+    if (attempt === 0) {
+      console.log(`Waiting for style anchor for book ${bookId}...`);
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  
+  return null;
 }
 
 /**
@@ -272,367 +428,17 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Process image generation with character management
- */
-async function processImageGenerationWithCharacters(jobId: string, params: any) {
-  const job = jobs.get(jobId);
-  if (!job) return;
-  
-  try {
-    job.status = 'processing';
-    job.progress = 10;
-    
-    const { 
-      bookId, 
-      pageNumber, 
-      babyPhotoUrl,
-      pageData, 
-      style,
-      cast = {} as Partial<Record<PersonId, CastMember>>, // Updated type
-      uploadedPhotos = [],
-      identityAnchors: providedAnchors = {}
-    } = params;
-    
-    console.log(`[Job ${jobId}] Page ${pageNumber}, Characters: ${pageData.characters_on_page?.join(', ')}`);
-    console.log(`[Job ${jobId}] Received ${uploadedPhotos?.length || 0} uploaded photos`);
-    console.log(`[Job ${jobId}] Cast members: ${Object.keys(cast || {}).join(', ')}`);
-    
-    let imageBase64: string;
-    let referenceMapping: any[] = [];
-    
-    if (pageNumber === 1) {
-      // PAGE 1: Create style anchor with initial character
-      
-      // Prepare references for Page 1
-      const references: string[] = [];
-      
-      // Use baby photo as base if available
-      if (babyPhotoUrl) {
-        references.push(babyPhotoUrl);
-        referenceMapping.push({ 
-          index: 0, 
-          type: 'identity', 
-          character: 'baby',
-          description: 'Baby photo for style creation'
-        });
-      } else {
-        throw new Error('No baby photo provided for Page 1 generation');
-      }
-      
-      // Add any other character photos for Page 1
-      for (const character of pageData.characters_on_page || ['baby']) {
-        if (character !== 'baby') {
-          const photo = uploadedPhotos.find((p: UploadedPhoto) => 
-            p.people.includes(character as PersonId)
-          );
-          if (photo) {
-            references.push(photo.fileUrl);
-            referenceMapping.push({
-              index: references.length - 1,
-              type: 'identity',
-              character,
-              description: `${character} reference`
-            });
-          }
-        }
-      }
-      
-      // Generate Page 1 with character references
-      const prompt = buildCharacterAwarePrompt(pageData, style, [
-        { index: 0, type: 'style', description: 'Creating initial style' },
-        ...referenceMapping.slice(1)
-      ]);
-      
-      console.log(`[Job ${jobId}] Preparing ${references.length} reference images for Page 1`);
-      const imageFiles = await prepareImageFiles(references);
-      
-      // Call OpenAI with all reference images
-      // IMPORTANT: Remove response_format for gpt-image-1
-      let response;
-      try {
-        response = await openai.images.edit({
-  model: 'gpt-image-1',
-  image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-  prompt,
-  n: 1,
-  size: '1024x1024',
-  quality: 'high',
-  input_fidelity: 'high',
-  background: 'transparent',
-  // @ts-expect-error: moderation exists for gpt-image-1 edits but isn't in this SDK's types yet
-moderation: 'low',
-
-});
-      } catch (apiError: any) {
-        console.error(`[Job ${jobId}] OpenAI API error (Page 1):`, apiError);
-        
-        // Log more details about the error
-        if (apiError.response) {
-          console.error(`[Job ${jobId}] Response status:`, apiError.response.status);
-          console.error(`[Job ${jobId}] Response data:`, apiError.response.data);
-        }
-        if (apiError.error) {
-          console.error(`[Job ${jobId}] Error details:`, apiError.error);
-        }
-        
-        // Extract meaningful error message
-        let errorMessage = 'OpenAI API error';
-        if (apiError.response?.data?.error?.message) {
-          errorMessage = apiError.response.data.error.message;
-        } else if (apiError.message) {
-          errorMessage = apiError.message;
-        }
-        
-        throw new Error(errorMessage);
-      }
-      
-      // Handle response
-      imageBase64 = await handleOpenAIResponse(response);
-      
-      // Store as style anchor
-      styleAnchors.set(bookId, imageBase64);
-      
-      // Also store any identity anchors if this is a solo shot
-      if (pageData.characters_on_page?.length === 1) {
-        const charId = pageData.characters_on_page[0] as PersonId;
-        if (!identityAnchors.has(bookId)) {
-          identityAnchors.set(bookId, new Map());
-        }
-        identityAnchors.get(bookId)!.set(charId, imageBase64);
-      }
-      
-      console.log(`[Job ${jobId}] Created style anchor for book ${bookId}`);
-      
-    } else {
-      // PAGES 2+: Use style anchor + character identity anchors
-      
-      // Wait for style anchor
-      const styleAnchor = await waitForStyleAnchor(bookId);
-      if (!styleAnchor) {
-        throw new Error('Style anchor from Page 1 not available');
-      }
-      
-      // Build reference array (filter out any undefined/empty values)
-      const references: string[] = [];
-      referenceMapping = [];
-      
-      // Always start with style anchor
-      if (styleAnchor) {
-        references.push(styleAnchor);
-        referenceMapping.push({ 
-          index: 0, 
-          type: 'style',
-          description: 'Style anchor from Page 1'
-        });
-      } else {
-        throw new Error('Style anchor not available for page 2+ generation');
-      }
-      
-      // Add identity anchors for each character
-      const bookAnchors = identityAnchors.get(bookId) || new Map();
-      
-      for (const character of pageData.characters_on_page || []) {
-        const charId = character as PersonId;
-        
-        // Check for pre-generated identity anchor
-        let anchor = providedAnchors[charId] || bookAnchors.get(charId);
-        
-        // Fallback to uploaded photo
-        if (!anchor) {
-          const photo = uploadedPhotos.find((p: UploadedPhoto) => 
-            p.people.includes(charId) && p.is_identity_anchor
-          );
-          if (photo) {
-            anchor = photo.fileUrl;
-          }
-        }
-        
-        // Last resort: any photo with this character
-        if (!anchor) {
-          const photo = uploadedPhotos.find((p: UploadedPhoto) => 
-            p.people.includes(charId)
-          );
-          if (photo) {
-            anchor = photo.fileUrl;
-          }
-        }
-        
-        if (anchor) {
-          references.push(anchor);
-          referenceMapping.push({
-            index: references.length - 1,
-            type: 'identity',
-            character: charId,
-            description: `${charId} identity anchor`
-          });
-        }
-      }
-      
-      // Look for exact-match group photo
-      const wantedSet = [...(pageData.characters_on_page || [])].sort().join('|');
-      const groupPhoto = uploadedPhotos.find((p: UploadedPhoto) => 
-        p.is_group_photo && 
-        [...p.people].sort().join('|') === wantedSet
-      );
-      
-      if (groupPhoto) {
-        references.push(groupPhoto.fileUrl);
-        referenceMapping.push({
-          index: references.length - 1,
-          type: 'group',
-          description: 'Group composition reference'
-        });
-      }
-      
-      // Build prompt with explicit mapping
-      const prompt = buildCharacterAwarePrompt(pageData, style, referenceMapping);
-      
-      // Prepare ALL reference images as files
-      console.log(`[Job ${jobId}] Preparing ${references.length} reference images for Page ${pageNumber}`);
-      const imageFiles = await prepareImageFiles(references);
-      
-      // Call OpenAI with ALL reference images
-      // IMPORTANT: Remove response_format for gpt-image-1
-      let response;
-      try {
-        response = await openai.images.edit({
-  model: 'gpt-image-1',
-  image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-  prompt,
-  n: 1,
-  size: '1024x1024',
-  quality: 'high',
-  input_fidelity: 'high',
-  background: 'transparent',
-  // @ts-expect-error: moderation exists for gpt-image-1 edits but isn't in this SDK's types yet
-moderation: 'low',
-
-});
-      } catch (apiError: any) {
-        console.error(`[Job ${jobId}] OpenAI API error (Page 2+):`, apiError);
-        
-        // Log more details about the error
-        if (apiError.response) {
-          console.error(`[Job ${jobId}] Response status:`, apiError.response.status);
-          console.error(`[Job ${jobId}] Response data:`, apiError.response.data);
-        }
-        if (apiError.error) {
-          console.error(`[Job ${jobId}] Error details:`, apiError.error);
-        }
-        
-        // Extract meaningful error message
-        let errorMessage = 'OpenAI API error';
-        if (apiError.response?.data?.error?.message) {
-          errorMessage = apiError.response.data.error.message;
-        } else if (apiError.message) {
-          errorMessage = apiError.message;
-        }
-        
-        throw new Error(errorMessage);
-      }
-      
-      imageBase64 = await handleOpenAIResponse(response);
-      
-      // If this page has a single character, store as potential identity anchor
-      if (pageData.characters_on_page?.length === 1) {
-        const charId = pageData.characters_on_page[0] as PersonId;
-        if (!bookAnchors.has(charId)) {
-          bookAnchors.set(charId, imageBase64);
-        }
-      }
-    }
-    
-    job.progress = 90;
-    
-    // Create data URL
-    const dataUrl = `data:image/png;base64,${imageBase64}`;
-    
-    job.progress = 100;
-    job.status = 'completed';
-    job.completedAt = Date.now();
-    job.result = {
-      page_number: pageNumber,
-      dataUrl,
-      sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
-      style,
-      characters_on_page: pageData.characters_on_page,
-      reference_count: referenceMapping.length,
-      elapsed_ms: Date.now() - job.startedAt
-    };
-    
-    console.log(`[Job ${jobId}] Completed with ${referenceMapping.length} references`);
-    
-  } catch (error: any) {
-    console.error(`[Job ${jobId}] Failed:`, error);
-    job.status = 'failed';
-    job.error = error.message;
-    job.completedAt = Date.now();
-  }
-}
-
-/**
- * Handle OpenAI response format variations
- * gpt-image-1 always returns base64, but the SDK might return URLs
- */
-async function handleOpenAIResponse(response: any): Promise<string> {
-  if (!response.data || !response.data[0]) {
-    throw new Error('No image data in response');
-  }
-  
-  const imageData = response.data[0];
-  
-  // Check for base64 response (what gpt-image-1 should return)
-  if ('b64_json' in imageData && imageData.b64_json) {
-    console.log('Got base64 response directly');
-    return imageData.b64_json;
-  }
-  
-  // Handle URL response (SDK might do this even for gpt-image-1)
-  if ('url' in imageData && imageData.url) {
-    console.log('Got URL response (SDK behavior), fetching image...');
-    const imgResponse = await fetch(imageData.url);
-    if (!imgResponse.ok) {
-      throw new Error(`Failed to fetch image: ${imgResponse.status}`);
-    }
-    const arrayBuffer = await imgResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer).toString('base64');
-  }
-  
-  throw new Error('Unknown response format from OpenAI');
-}
-
-/**
- * Wait for style anchor to be available
- */
-async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<string | null> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const anchor = styleAnchors.get(bookId);
-    if (anchor) {
-      return anchor;
-    }
-    
-    if (attempt === 0) {
-      console.log(`Waiting for style anchor for book ${bookId}...`);
-    }
-    
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-  
-  return null;
-}
-
-/**
- * DELETE - Clean up temporary data
+ * DELETE - Clean up
  */
 export async function DELETE() {
   try {
     jobs.clear();
     styleAnchors.clear();
-    identityAnchors.clear();
+    characterReferences.clear();
     
     return NextResponse.json({ 
       success: true, 
-      message: 'Cleaned up old data'
+      message: 'Cleaned up temporary data'
     });
   } catch (error) {
     return NextResponse.json(

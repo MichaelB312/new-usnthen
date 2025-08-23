@@ -1,6 +1,5 @@
 // components/illustrations/AsyncBatchedImageGenerator.tsx
 'use client';
-
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -61,6 +60,12 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const visualProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const generatedImagesRef = useRef<GeneratedImage[]>([]);
+  
+  // Update ref whenever generatedImages changes
+  useEffect(() => {
+    generatedImagesRef.current = generatedImages;
+  }, [generatedImages]);
   
   // Style options - KEEP ORIGINAL SIMPLE STYLE
   const styles = [
@@ -103,15 +108,30 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     }
   }, [storyData, illustrationStyle]);
   
-  // Cleanup on unmount
+  // Add cleanup on component unmount
   useEffect(() => {
     return () => {
+      // Cleanup all intervals on unmount
+      console.log('Component unmounting, cleaning up polling intervals...');
       pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
+      pollingIntervalsRef.current.clear();
+      
       if (visualProgressIntervalRef.current) {
         clearInterval(visualProgressIntervalRef.current);
+        visualProgressIntervalRef.current = null;
       }
     };
   }, []);
+
+  // Also cleanup when phase changes
+  useEffect(() => {
+    if (phase !== 'generate') {
+      // Clear all polling when not in generate phase
+      console.log('Phase changed from generate, cleaning up polling...');
+      pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
+      pollingIntervalsRef.current.clear();
+    }
+  }, [phase]);
 
   // Visual progress animation
   useEffect(() => {
@@ -158,98 +178,122 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   };
 
   const startImageGeneration = async (page: any): Promise<string | null> => {
-  try {
-    console.log(`Starting generation for page ${page.page_number}`);
+    try {
+      console.log(`Starting generation for page ${page.page_number}`);
 
-    // Build the references we need on the client ONLY to decide if page 1 has a baby photo.
-    // Do NOT send the style anchor (base64) back to the server for pages 2+.
-    let babyPhotoForPage1: string | undefined;
+      // Prepare minimal payload
+      const payload: any = {
+        bookId,
+        pageNumber: page.page_number,
+        pageData: {
+          ...page,
+          narration: page.narration,
+          camera_angle: page.camera_angle,
+          camera_prompt: page.camera_prompt,
+          visual_action: page.visual_action || page.action_description,
+          action_label: page.action_label,
+          sensory_details: page.sensory_details,
+          characters_on_page: page.characters_on_page,
+          background_extras: page.background_extras
+        },
+        style: illustrationStyle
+      };
 
-    if (page.page_number === 1) {
-      // Page 1: ONLY send a baby photo as base64/URL
-      const babyPhoto = uploadedPhotos.find(p => p.people.includes('baby'));
-      if (babyPhoto?.fileUrl) {
-        babyPhotoForPage1 = babyPhoto.fileUrl;
-      } else if (babyProfile?.baby_photo_url) {
-        babyPhotoForPage1 = babyProfile.baby_photo_url;
+      // For Page 1 ONLY: Include the best baby photo
+      if (page.page_number === 1) {
+        // Find the best baby photo (prefer identity anchor, then any baby photo)
+        const babyPhoto = uploadedPhotos.find(p => 
+          p.people.includes('baby') && p.is_identity_anchor
+        ) || uploadedPhotos.find(p => 
+          p.people.includes('baby')
+        );
+        
+        if (babyPhoto?.fileUrl) {
+          payload.babyPhotoUrl = babyPhoto.fileUrl;
+        } else if (babyProfile?.baby_photo_url) {
+          payload.babyPhotoUrl = babyProfile.baby_photo_url;
+        } else {
+          toast.error('No baby photo available for Page 1');
+          return null;
+        }
+        
+        console.log('Page 1: Sending single baby reference');
+      } else {
+        // For Pages 2+: Send minimal character references
+        // The server will use the stored style anchor + minimal refs
+        
+        // Only send references for characters actually on this page
+        const charactersOnPage = page.characters_on_page || [];
+        const minimalPhotos = charactersOnPage.map((charId: PersonId) => {
+          // Find best photo for this character
+          const photo = uploadedPhotos.find(p => 
+            p.people.includes(charId) && p.is_identity_anchor
+          ) || uploadedPhotos.find(p => 
+            p.people.includes(charId)
+          );
+          
+          if (photo) {
+            return {
+              fileUrl: photo.fileUrl,
+              people: [charId], // Only the relevant character
+              is_identity_anchor: !!photo.is_identity_anchor
+            };
+          }
+          return null;
+        }).filter(Boolean);
+        
+        payload.uploadedPhotos = minimalPhotos;
+        console.log(`Page ${page.page_number}: Sending ${minimalPhotos.length} character refs`);
       }
-      if (!babyPhotoForPage1) {
-        toast.error('No baby photo provided for Page 1');
-        return null;
+
+      // Send request with minimal payload
+      const response = await fetch('/api/generate-image-async', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        console.error(`API error for page ${page.page_number}:`, errorText);
+        throw new Error(`Failed to start generation for page ${page.page_number}`);
       }
-    } else {
-      // Page 2+: Server will build refs using the style anchor it already stored,
-      // identity anchors, and uploaded photos. Do not send babyPhotoUrl (avoid huge base64).
-      // (We keep this branch empty on purpose.)
-    }
 
-    // Send a slim version of uploadedPhotos (avoid large/unused props).
-    const slimUploadedPhotos = uploadedPhotos.map(p => ({
-      fileUrl: p.fileUrl,                  // can be URL or base64 that YOU uploaded
-      people: p.people,                    // PersonId[]
-      is_identity_anchor: !!p.is_identity_anchor,
-      is_group_photo: !!p.is_group_photo,
-    }));
-
-    const payload: any = {
-      bookId,
-      pageNumber: page.page_number,
-      // IMPORTANT: Only include babyPhotoUrl on page 1
-      ...(page.page_number === 1 ? { babyPhotoUrl: babyPhotoForPage1 } : {}),
-      pageData: {
-        ...page,
-        narration: page.narration,
-        camera_angle: page.camera_angle,
-        camera_prompt: page.camera_prompt,
-        visual_action: page.visual_action || page.action_description,
-        action_label: page.action_label,
-        sensory_details: page.sensory_details,
-        characters_on_page: page.characters_on_page,
-        background_extras: page.background_extras
-      },
-      style: illustrationStyle,
-      cast,
-      uploadedPhotos: slimUploadedPhotos,
-      identityAnchors: {} // let server resolve stored anchors
-    };
-
-    const response = await fetch('/api/generate-image-async', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      console.error(`API error for page ${page.page_number}:`, errorText);
-      let errorMessage = `Failed to start generation for page ${page.page_number}`;
-      try {
-        const errorData = errorText ? JSON.parse(errorText) : null;
-        if (errorData?.error) errorMessage = errorData.error;
-      } catch {
-        if (errorText) errorMessage = errorText;
+      const data = await response.json();
+      if (data.success && data.jobId) {
+        return data.jobId;
       }
-      throw new Error(errorMessage);
+      
+      throw new Error(data.error || 'Failed to start job');
+    } catch (error: any) {
+      console.error(`Failed to start job for page ${page.page_number}:`, error);
+      toast.error(`Page ${page.page_number}: ${error.message}`);
+      return null;
     }
+  };
 
-    const data = await response.json();
-    if (data.success && data.jobId) {
-      return data.jobId;
-    }
-    throw new Error(data.error || 'Failed to start job');
-  } catch (error: any) {
-    console.error(`Failed to start job for page ${page.page_number}:`, error);
-    toast.error(`Page ${page.page_number}: ${error.message}`);
-    return null;
-  }
-};
   const pollJobStatus = (jobId: string, pageNumber: number): Promise<boolean> => {
     return new Promise((resolve) => {
       const startTime = Date.now();
+      let pollCount = 0;
       
       const interval = setInterval(async () => {
+        pollCount++;
+        
         try {
+          // Check if already completed using ref
+          const pageImage = generatedImagesRef.current.find(img => img.page_number === pageNumber);
+          if (pageImage?.status === 'success') {
+            console.log(`[Poll] Page ${pageNumber} already complete, stopping poll`);
+            clearInterval(interval);
+            pollingIntervalsRef.current.delete(jobId);
+            resolve(true);
+            return;
+          }
+          
+          // Check timeout
           if (Date.now() - startTime > MAX_POLL_TIME) {
+            console.log(`[Poll] Timeout for job ${jobId}`);
             clearInterval(interval);
             pollingIntervalsRef.current.delete(jobId);
             
@@ -262,29 +306,49 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             return;
           }
           
+          // Check max poll attempts to prevent infinite polling
+          if (pollCount > 150) { // 150 * 2s = 5 minutes max
+            console.log(`[Poll] Max attempts reached for job ${jobId}`);
+            clearInterval(interval);
+            pollingIntervalsRef.current.delete(jobId);
+            resolve(false);
+            return;
+          }
+          
           const response = await fetch(`/api/generate-image-async?jobId=${jobId}`);
+          
+          if (!response.ok) {
+            console.error(`[Poll] Bad response for ${jobId}: ${response.status}`);
+            // Don't stop polling on network errors, just skip this attempt
+            return;
+          }
+          
           const data = await response.json();
           
-          if (!data.success) return;
+          if (!data.success) {
+            console.error(`[Poll] API error for ${jobId}:`, data.error);
+            return;
+          }
           
           const { job } = data;
           
+          // Update job status
           setJobs(prev => prev.map(j => 
             j.jobId === jobId 
               ? { ...j, status: job.status, progress: job.progress || 0 }
               : j
           ));
           
+          // Handle completion
           if (job.status === 'completed' && job.result) {
+            console.log(`[Poll] Job ${jobId} completed for page ${pageNumber}`);
             clearInterval(interval);
             pollingIntervalsRef.current.delete(jobId);
             
             if (pageNumber === 1) {
               setStyleAnchor(job.result.dataUrl);
               setPage1Completed(true);
-              toast.success('Style anchor created! 🎨', { 
-                duration: 3000 
-              });
+              toast.success('Style anchor created! 🎨', { duration: 3000 });
             }
             
             setGeneratedImages(prev => {
@@ -300,15 +364,19 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                   : img
               );
               
+              // Check overall completion
               checkCompletion(updated);
               
               return updated;
             });
             
             resolve(true);
+            return; // Important: exit after resolving
           }
           
+          // Handle failure
           if (job.status === 'failed') {
+            console.log(`[Poll] Job ${jobId} failed:`, job.error);
             clearInterval(interval);
             pollingIntervalsRef.current.delete(jobId);
             
@@ -319,17 +387,21 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             ));
             
             resolve(false);
+            return; // Important: exit after resolving
           }
           
         } catch (error) {
-          console.error(`Polling error for job ${jobId}:`, error);
+          console.error(`[Poll] Error polling ${jobId}:`, error);
+          // Don't stop polling on errors, just log them
         }
       }, POLL_INTERVAL);
       
+      // Store the interval
       pollingIntervalsRef.current.set(jobId, interval);
     });
   };
 
+  // Updated checkCompletion to ensure cleanup
   const checkCompletion = (images: GeneratedImage[]) => {
     const totalPages = storyData?.pages.length || 0;
     const completed = images.filter(img => 
@@ -338,7 +410,14 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     
     const successful = images.filter(img => img.status === 'success');
     
+    console.log(`[Completion] ${completed}/${totalPages} pages done, ${successful.length} successful`);
+    
     if (completed === totalPages) {
+      // IMPORTANT: Clear all remaining intervals
+      console.log('All pages complete, cleaning up polling...');
+      pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
+      pollingIntervalsRef.current.clear();
+      
       setVisualProgress(100);
       
       setTimeout(() => {
@@ -360,132 +439,176 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           if (successful.length === totalPages) {
             toast.success('All illustrations generated! 🎉', { duration: 5000 });
             setTimeout(() => onComplete(), 1500);
+          } else {
+            toast(`Generated ${successful.length}/${totalPages} illustrations`, { 
+  icon: '⚠️',
+  duration: 5000 
+});
           }
         }
       }, 1000);
     }
   };
 
+  // Add a safety check in generateAllAsync
   const generateAllAsync = async () => {
-  if (!storyData?.pages) {
-    toast.error('Missing story data');
-    return;
-  }
-
-  // Ensure every character on every page has at least one uploaded photo
-  const hasRequiredPhotos =
-    storyData.pages.every(page =>
-      page.characters_on_page?.every(charId =>
-        uploadedPhotos.some(p => p.people.includes(charId))
-      ) ?? true
-    );
-
-  if (!hasRequiredPhotos) {
-    toast.error('Missing character photos. Please upload photos for all characters.');
-    return;
-  }
-
-  setGenerating(true);
-  setPhase('generate');
-  setJobs([]);
-  setVisualProgress(0);
-  setPage1Completed(false);
-
-  toast('Creating your magical illustrations...', { icon: '✨', duration: 5000 });
-
-  try {
-    // --- PAGE 1: create style anchor first ---
-    const page1 = storyData.pages[0];
-    console.log('Starting Page 1 generation (style anchor)...');
-
-    setGeneratedImages(prev =>
-      prev.map(img =>
-        img.page_number === 1 ? { ...img, status: 'generating' as const } : img
-      )
-    );
-
-    const page1JobId = await startImageGeneration(page1);
-    if (!page1JobId) {
-      throw new Error('Failed to start Page 1 generation');
-    }
-
-    const job1: ImageJob = {
-      jobId: page1JobId,
-      pageNumber: 1,
-      status: 'pending',
-      progress: 0,
-      startTime: Date.now(),
-    };
-    setJobs([job1]);
-
-    const page1Success = await pollJobStatus(page1JobId, 1);
-    if (!page1Success) {
-      toast.error('Failed to create style anchor. Cannot continue.');
-      setGenerating(false);
+    if (!storyData?.pages) {
+      toast.error('Missing story data');
       return;
     }
 
-    // Give the store a moment to persist the style anchor and then verify
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    const anchor = useBookStore.getState().styleAnchorUrl;
-    if (!anchor) {
-      toast.error('Style anchor not ready yet. Please try again.');
-      setGenerating(false);
+    // Clear any existing intervals before starting
+    pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
+    pollingIntervalsRef.current.clear();
+
+    // Validate minimal requirements - only need one photo per unique character
+    const uniqueCharacters = new Set<PersonId>();
+    storyData.pages.forEach(page => {
+      page.characters_on_page?.forEach(char => uniqueCharacters.add(char));
+    });
+    
+    const missingPhotos = Array.from(uniqueCharacters).filter(
+      charId => !uploadedPhotos.some(p => p.people.includes(charId))
+    );
+    
+    if (missingPhotos.length > 0) {
+      toast.error(`Missing photos for: ${missingPhotos.join(', ')}`);
       return;
     }
 
-    // --- REMAINING PAGES: kick off jobs using stored style anchor ---
-    for (let i = 1; i < storyData.pages.length; i++) {
-      const page = storyData.pages[i];
+    setGenerating(true);
+    setPhase('generate');
+    setJobs([]);
+    setVisualProgress(0);
+    setPage1Completed(false);
+
+    toast('Creating vibrant illustrations with high contrast for baby vision! 🌈', { 
+      icon: '✨', 
+      duration: 5000 
+    });
+
+    try {
+      // STEP 1: Generate Page 1 first (creates style anchor)
+      const page1 = storyData.pages[0];
+      console.log('Starting Page 1 generation to create style anchor...');
 
       setGeneratedImages(prev =>
         prev.map(img =>
-          img.page_number === page.page_number
-            ? { ...img, status: 'generating' as const }
-            : img
+          img.page_number === 1 ? { ...img, status: 'generating' as const } : img
         )
       );
 
-      const jobId = await startImageGeneration(page);
+      const page1JobId = await startImageGeneration(page1);
+      if (!page1JobId) {
+        throw new Error('Failed to start Page 1 generation');
+      }
 
-      if (jobId) {
-        const job: ImageJob = {
-          jobId,
-          pageNumber: page.page_number,
-          status: 'pending',
-          progress: 0,
-          startTime: Date.now(),
-        };
-        setJobs(prev => [...prev, job]);
+      const job1: ImageJob = {
+        jobId: page1JobId,
+        pageNumber: 1,
+        status: 'pending',
+        progress: 0,
+        startTime: Date.now(),
+      };
+      setJobs([job1]);
 
-        // Poll in the background; don't block the loop
-        pollJobStatus(jobId, page.page_number);
+      // Wait for Page 1 to complete (creates style anchor)
+      const page1Success = await pollJobStatus(page1JobId, 1);
 
-        // Small spacing between job starts
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } else {
-        // Mark page as error if job didn't start
+      if (!page1Success) {
+        toast.error('Failed to create style anchor. Cannot continue.');
+        setGenerating(false);
+        // Clean up on failure
+        pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
+        pollingIntervalsRef.current.clear();
+        return;
+      }
+
+      // Small delay to ensure style anchor is saved
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // STEP 2: Generate remaining pages (using style anchor)
+      const remainingJobs: { jobId: string; pageNumber: number }[] = [];
+      
+      for (let i = 1; i < storyData.pages.length; i++) {
+        const page = storyData.pages[i];
+
         setGeneratedImages(prev =>
           prev.map(img =>
             img.page_number === page.page_number
-              ? { ...img, status: 'error' as const, error: 'Failed to start job' }
+              ? { ...img, status: 'generating' as const }
               : img
           )
         );
+
+        const jobId = await startImageGeneration(page);
+        if (jobId) {
+          const job: ImageJob = {
+            jobId,
+            pageNumber: page.page_number,
+            status: 'pending',
+            progress: 0,
+            startTime: Date.now(),
+          };
+          setJobs(prev => [...prev, job]);
+          remainingJobs.push({ jobId, pageNumber: page.page_number });
+
+          // Small delay between starts
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } else {
+          setGeneratedImages(prev =>
+            prev.map(img =>
+              img.page_number === page.page_number
+                ? { ...img, status: 'error' as const, error: 'Failed to start' }
+                : img
+            )
+          );
+        }
       }
+      
+      // Poll all remaining jobs in parallel
+      await Promise.all(
+        remainingJobs.map(({ jobId, pageNumber }) => 
+          pollJobStatus(jobId, pageNumber).catch(err => {
+            console.error(`Polling failed for page ${pageNumber}:`, err);
+            return false;
+          })
+        )
+      );
+      
+    } catch (error: any) {
+      console.error('Generation failed:', error);
+      toast.error('Generation failed: ' + (error.message || 'Unknown error'));
+      
+      // Clean up on error
+      pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
+      pollingIntervalsRef.current.clear();
+      
+      setGenerating(false);
+      setPhase('style');
     }
-  } catch (error: any) {
-    console.error('Generation failed:', error);
-    toast.error('Generation failed: ' + (error.message || 'Unknown error'));
-    setGenerating(false);
-  }
-};
+  };
 
-
+  // Updated cancelGeneration with better cleanup
   const cancelGeneration = () => {
+    console.log('Cancelling generation, cleaning up...');
+    
+    // Clear all polling intervals
     pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
     pollingIntervalsRef.current.clear();
+    
+    // Clear visual progress interval
+    if (visualProgressIntervalRef.current) {
+      clearInterval(visualProgressIntervalRef.current);
+      visualProgressIntervalRef.current = null;
+    }
+    
+    // Reset state
     setGenerating(false);
+    setPhase('style'); // Go back to style selection
+    setJobs([]);
+    setVisualProgress(0);
+    
     toast('Generation cancelled', { icon: '🛑' });
   };
 
@@ -665,15 +788,15 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             })}
           </div>
           
-<motion.button
-  whileHover={{ scale: 1.02 }}
-  whileTap={{ scale: 0.98 }}
-  onClick={generateAllAsync}
-  className="btn-primary w-full text-xl py-6 mt-8 flex items-center justify-center gap-3"
->
-  <Wand2 className="h-7 w-7" />
-  <span>Create Your Magical Book</span>
-</motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={generateAllAsync}
+            className="btn-primary w-full text-xl py-6 mt-8 flex items-center justify-center gap-3"
+          >
+            <Wand2 className="h-7 w-7" />
+            <span>Create Your Magical Book</span>
+          </motion.button>
         </motion.div>
       </div>
     );

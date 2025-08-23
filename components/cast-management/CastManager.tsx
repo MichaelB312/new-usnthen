@@ -1,4 +1,4 @@
-// components/cast-management/CastManager.tsx
+// components/cast-management/CastManager.tsx - Simplified version
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -42,8 +42,6 @@ export function CastManager({ onComplete }: CastManagerProps) {
     id: string;
     url: string;
     selectedCharacters: PersonId[];
-    isIdentityAnchor: boolean;
-    isGroupPhoto: boolean;
     notes: string;
   } | null>(null);
   
@@ -77,8 +75,6 @@ export function CastManager({ onComplete }: CastManagerProps) {
         id: uuidv4(),
         url,
         selectedCharacters: [],
-        isIdentityAnchor: false,
-        isGroupPhoto: false,
         notes: ''
       });
     };
@@ -97,8 +93,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
       
       return {
         ...prev,
-        selectedCharacters: updated,
-        isGroupPhoto: updated.length > 1
+        selectedCharacters: updated
       };
     });
   };
@@ -109,13 +104,16 @@ export function CastManager({ onComplete }: CastManagerProps) {
       return;
     }
     
+    // Determine if this is a good identity photo (solo shot)
+    const isSoloShot = currentPhotoUpload.selectedCharacters.length === 1;
+    
     // Add photo to store
     const uploadedPhoto: UploadedPhoto = {
       id: currentPhotoUpload.id,
       fileUrl: currentPhotoUpload.url,
       people: currentPhotoUpload.selectedCharacters,
-      is_identity_anchor: currentPhotoUpload.isIdentityAnchor,
-      is_group_photo: currentPhotoUpload.isGroupPhoto,
+      is_identity_anchor: isSoloShot, // Auto-set for solo shots
+      is_group_photo: currentPhotoUpload.selectedCharacters.length > 1,
       notes: currentPhotoUpload.notes
     };
     
@@ -129,16 +127,22 @@ export function CastManager({ onComplete }: CastManagerProps) {
           id: charId,
           displayName: charId === 'baby' ? babyProfile?.baby_name || 'Baby' : charOption?.label || charId,
           fallbackPhotos: [currentPhotoUpload.url],
-          identityAnchorUrl: currentPhotoUpload.isIdentityAnchor ? currentPhotoUpload.url : undefined
+          identityAnchorUrl: isSoloShot ? currentPhotoUpload.url : undefined
         });
-      } else if (currentPhotoUpload.isIdentityAnchor) {
+      } else if (isSoloShot && !cast[charId]?.identityAnchorUrl) {
+        // Update with better solo shot if we don't have one
         updateCastMember(charId, {
           identityAnchorUrl: currentPhotoUpload.url
         });
       }
     });
     
-    toast.success(`Photo tagged with ${currentPhotoUpload.selectedCharacters.length} character(s)`);
+    const characterNames = currentPhotoUpload.selectedCharacters.map(id => {
+      if (id === 'baby') return babyProfile?.baby_name || 'Baby';
+      return CHARACTER_OPTIONS.find(opt => opt.id === id)?.label || id;
+    }).join(', ');
+    
+    toast.success(`Photo saved with ${characterNames}`);
     setCurrentPhotoUpload(null);
     
     // Reset file input
@@ -148,15 +152,15 @@ export function CastManager({ onComplete }: CastManagerProps) {
   };
   
   const getCharacterStats = () => {
-    const stats: Partial<Record<PersonId, { photoCount: number; hasAnchor: boolean }>> = {};
+    const stats: Partial<Record<PersonId, { photoCount: number; hasSoloShot: boolean }>> = {};
     
     activeCastMembers.forEach(charId => {
       const photos = uploadedPhotos.filter(p => p.people.includes(charId));
-      const hasAnchor = photos.some(p => p.is_identity_anchor) || !!cast[charId]?.identityAnchorUrl;
+      const hasSoloShot = photos.some(p => p.people.length === 1);
       
       stats[charId] = {
         photoCount: photos.length,
-        hasAnchor
+        hasSoloShot
       };
     });
     
@@ -179,18 +183,21 @@ export function CastManager({ onComplete }: CastManagerProps) {
           <Users className="h-12 w-12 text-purple-600" />
         </div>
         <h2 className="text-4xl font-patrick gradient-text mb-3">
-          Cast Management
+          Upload Character Photos
         </h2>
         <p className="text-xl text-gray-600">
-          Upload photos and tag who appears in each one for consistent character rendering
+          Upload photos of each character who appears in your story
+        </p>
+        <p className="text-sm text-gray-500 mt-2">
+          💡 Tip: Solo photos work best for consistent character generation
         </p>
       </div>
       
-      {/* Active Cast Members - STYLE LIKE "CHOOSE YOUR ART STYLE" */}
+      {/* Active Cast Members */}
       <div className="card-magical">
-        <h3 className="text-2xl font-patrick mb-4">Story Characters</h3>
+        <h3 className="text-2xl font-patrick mb-4">Characters in Your Story</h3>
         <p className="text-gray-600 mb-6">
-          These characters appear in your story. Upload reference photos for each.
+          Upload at least one photo for each character. Solo shots are preferred.
         </p>
         
         <div className="grid md:grid-cols-3 gap-6">
@@ -201,7 +208,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
             const Icon = charOption.icon;
             const charStats = stats[charId];
             const photoCount = charStats ? charStats.photoCount : 0;
-            const hasAnchor = charStats ? charStats.hasAnchor : false;
+            const hasSoloShot = charStats ? charStats.hasSoloShot : false;
             
             return (
               <motion.div
@@ -211,7 +218,9 @@ export function CastManager({ onComplete }: CastManagerProps) {
                 whileHover={{ scale: 1.03 }}
                 className={`relative p-8 rounded-2xl border-3 text-center transition-all ${
                   photoCount > 0 
-                    ? 'border-green-400 bg-white' 
+                    ? hasSoloShot 
+                      ? 'border-green-400 bg-green-50' 
+                      : 'border-yellow-400 bg-yellow-50'
                     : 'border-gray-200 bg-white hover:border-purple-300'
                 }`}
               >
@@ -232,12 +241,12 @@ export function CastManager({ onComplete }: CastManagerProps) {
                 </h3>
                 
                 <p className="text-sm text-gray-600 mb-1">
-                  {photoCount} photo(s)
+                  {photoCount} photo{photoCount !== 1 ? 's' : ''}
                 </p>
                 
-                {hasAnchor && (
-                  <p className="text-sm text-green-600 font-medium">
-                    ✓ Has identity anchor
+                {photoCount > 0 && (
+                  <p className={`text-sm font-medium ${hasSoloShot ? 'text-green-600' : 'text-yellow-600'}`}>
+                    {hasSoloShot ? '✓ Has solo shot' : '⚠ Group photo only'}
                   </p>
                 )}
               </motion.div>
@@ -248,7 +257,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
       
       {/* Photo Upload Section */}
       <div className="card-magical">
-        <h3 className="text-2xl font-patrick mb-4">Upload Character Photos</h3>
+        <h3 className="text-2xl font-patrick mb-4">Add Photo</h3>
         
         {!currentPhotoUpload ? (
           <label className="block cursor-pointer">
@@ -258,10 +267,10 @@ export function CastManager({ onComplete }: CastManagerProps) {
             >
               <Camera className="h-20 w-20 text-purple-400 mx-auto mb-4" />
               <p className="text-xl font-medium text-center mb-2">
-                Click to Upload Character Photo
+                Click to Upload Photo
               </p>
               <p className="text-sm text-gray-500 text-center">
-                Upload photos of family members who appear in the story
+                Upload clear photos of family members
               </p>
               <input
                 ref={fileInputRef}
@@ -284,6 +293,9 @@ export function CastManager({ onComplete }: CastManagerProps) {
               
               <div className="flex-1">
                 <h4 className="font-semibold mb-3">Who's in this photo?</h4>
+                <p className="text-sm text-gray-500 mb-3">
+                  Select all people visible in this photo
+                </p>
                 
                 {/* Character Selection */}
                 <div className="grid grid-cols-3 gap-2 mb-4">
@@ -314,43 +326,22 @@ export function CastManager({ onComplete }: CastManagerProps) {
                   })}
                 </div>
                 
-                {/* Photo Type Options */}
-                <div className="space-y-2 mb-4">
-                  <label className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={currentPhotoUpload.isIdentityAnchor}
-                      onChange={(e) => setCurrentPhotoUpload(prev => 
-                        prev ? { ...prev, isIdentityAnchor: e.target.checked } : prev
-                      )}
-                      className="w-4 h-4 text-purple-600"
-                    />
-                    <span className="text-sm">
-                      Use as identity anchor (best front-facing shot for this character)
-                    </span>
-                  </label>
-                  
-                  {currentPhotoUpload.selectedCharacters.length > 1 && (
-                    <label className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={currentPhotoUpload.isGroupPhoto}
-                        onChange={(e) => setCurrentPhotoUpload(prev => 
-                          prev ? { ...prev, isGroupPhoto: e.target.checked } : prev
-                        )}
-                        className="w-4 h-4 text-purple-600"
-                      />
-                      <span className="text-sm">
-                        Group photo (good for composition reference)
-                      </span>
-                    </label>
-                  )}
-                </div>
+                {/* Helper text */}
+                {currentPhotoUpload.selectedCharacters.length === 1 && (
+                  <p className="text-sm text-green-600 mb-3">
+                    ✨ Great! Solo photos work best for character consistency
+                  </p>
+                )}
+                {currentPhotoUpload.selectedCharacters.length > 1 && (
+                  <p className="text-sm text-blue-600 mb-3">
+                    📸 Group photo - good for showing relationships
+                  </p>
+                )}
                 
-                {/* Notes */}
+                {/* Optional notes */}
                 <input
                   type="text"
-                  placeholder="Notes (e.g., outfit details, location)"
+                  placeholder="Optional notes (e.g., beach vacation, birthday party)"
                   value={currentPhotoUpload.notes}
                   onChange={(e) => setCurrentPhotoUpload(prev => 
                     prev ? { ...prev, notes: e.target.value } : prev
@@ -360,7 +351,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
               </div>
             </div>
             
-            {/* Action Buttons - FIXED ALIGNMENT */}
+            {/* Action Buttons */}
             <div className="flex gap-3">
               <button
                 onClick={savePhotoWithTags}
@@ -368,7 +359,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
                 className="btn-primary flex-1 flex items-center justify-center"
               >
                 <Check className="h-5 w-5 mr-2" />
-                <span>Save Photo with Tags</span>
+                <span>Save Photo</span>
               </button>
               <button
                 onClick={() => {
@@ -389,7 +380,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
       {uploadedPhotos.length > 0 && (
         <div className="card-magical">
           <h3 className="text-2xl font-patrick mb-4">
-            Uploaded Photos ({uploadedPhotos.length})
+            Your Photos ({uploadedPhotos.length})
           </h3>
           
           <div className="grid md:grid-cols-4 gap-4">
@@ -407,11 +398,8 @@ export function CastManager({ onComplete }: CastManagerProps) {
                       return pid === 'baby' ? babyProfile?.baby_name : char?.label;
                     }).join(', ')}
                   </p>
-                  {photo.is_identity_anchor && (
-                    <span className="text-xs text-green-400">Identity Anchor</span>
-                  )}
-                  {photo.is_group_photo && (
-                    <span className="text-xs text-blue-400">Group Photo</span>
+                  {photo.people.length === 1 && (
+                    <span className="text-xs text-green-400">Best for consistency</span>
                   )}
                 </div>
               </div>

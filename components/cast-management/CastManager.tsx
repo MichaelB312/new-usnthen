@@ -1,4 +1,4 @@
-// components/cast-management/CastManager.tsx - Simplified version
+// components/cast-management/CastManager.tsx - Simplified version without success toasts
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -59,7 +59,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
     }
   }, [storyData]);
   
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
@@ -137,12 +137,7 @@ export function CastManager({ onComplete }: CastManagerProps) {
       }
     });
     
-    const characterNames = currentPhotoUpload.selectedCharacters.map(id => {
-      if (id === 'baby') return babyProfile?.baby_name || 'Baby';
-      return CHARACTER_OPTIONS.find(opt => opt.id === id)?.label || id;
-    }).join(', ');
-    
-    toast.success(`Photo saved with ${characterNames}`);
+    // Removed success toast - just reset the upload
     setCurrentPhotoUpload(null);
     
     // Reset file input

@@ -53,7 +53,7 @@ export default function CreateBookPage() {
   const handleProfileComplete = (profile: any) => {
     setProfile(profile);
     setCurrentStep(2);
-    toast.success("Great! Now let's capture a special memory");
+    // Removed: toast.success("Great! Now let's capture a special memory");
   };
 
   const handleChatComplete = async (conversation: any) => {
@@ -107,7 +107,7 @@ export default function CreateBookPage() {
       }
 
       setStory(data.story);
-      toast.success('Your magical story has been created!');
+      // Removed: toast.success('Your magical story has been created!');
 
       // Delay before transitioning to story review
       setTimeout(() => {
@@ -118,9 +118,9 @@ export default function CreateBookPage() {
       console.error('Error generating story:', error?.message || error);
       const msg =
         error?.name === 'AbortError'
-          ? 'Generation took too long. Loaded a fallback instead.'
+          ? 'Generation took too long. Please try again.'
           : 'Failed to generate story. Please try again.';
-      toast.error(msg);
+      toast.error(msg); // Keep only error toasts
       setIsGeneratingStory(false);
       setCurrentStep(2);
     }
@@ -141,7 +141,7 @@ export default function CreateBookPage() {
   const handleIllustrationsComplete = () => {
     // Skip step 5 (Book Preview) and go directly to Book Layout
     setCurrentStep(5);
-    toast.success('Beautiful illustrations created!');
+    // Removed: toast.success('Beautiful illustrations created!');
   };
 
   const handleLayoutComplete = () => {

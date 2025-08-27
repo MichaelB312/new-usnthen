@@ -89,7 +89,7 @@ interface BookStore {
     cast_members?: PersonId[]; // Added cast_members
   } | null;
   
-  // Illustrations
+  // Illustrations - UPDATED to vibrant styles
   illustrations: {
     page_number: number;
     url: string;
@@ -100,7 +100,7 @@ interface BookStore {
     prompt?: string;
     model?: string;
   }[];
-  illustrationStyle: 'wondrous' | 'crayon' | 'vintage' | 'watercolor' | 'pencil';
+  illustrationStyle: 'bright-bold' | 'pop-art' | 'rainbow'; // UPDATED: New vibrant styles
   
   // Layout
   layouts: {
@@ -113,7 +113,7 @@ interface BookStore {
   setConversation: (conversation: any[]) => void;
   setStory: (story: any) => void;
   setIllustrations: (illustrations: any[]) => void;
-  setIllustrationStyle: (style: any) => void;
+  setIllustrationStyle: (style: 'bright-bold' | 'pop-art' | 'rainbow') => void; // UPDATED
   setPageLayout: (pageNumber: number, layout: any) => void;
   
   // Cast management actions
@@ -215,7 +215,7 @@ export const useBookStore = create<BookStore>()(
       conversation: [],
       storyData: null,
       illustrations: [],
-      illustrationStyle: 'wondrous',
+      illustrationStyle: 'bright-bold', // UPDATED: Default to vibrant style
       layouts: {},
       version: '',
       
@@ -299,7 +299,8 @@ export const useBookStore = create<BookStore>()(
         storyData: null,
         illustrations: [],
         layouts: {},
-        version: ''
+        version: '',
+        illustrationStyle: 'bright-bold' // UPDATED: Reset to default vibrant style
       })
     }),
     {

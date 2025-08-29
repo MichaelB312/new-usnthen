@@ -85,9 +85,13 @@ export default function CreateBookPage() {
   // Safe fetch with longer timeout for story generation
   const generateStory = async (conversation: any, retryCount = 0) => {
     try {
+      // Extract story length from conversation
+      const storyLengthEntry = conversation.find((c: any) => c.question === 'story_length');
+      const storyLength = storyLengthEntry?.answer || 'medium';
+      
       // Longer timeout for complex story generation - 45 seconds
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45_000); // Increased from 25s to 45s
+      const timeoutId = setTimeout(() => controller.abort(), 45_000);
 
       const res = await fetch('/api/generate-story', {
         method: 'POST',
@@ -95,7 +99,8 @@ export default function CreateBookPage() {
         body: JSON.stringify({
           babyProfile,
           conversation,
-          illustrationStyle
+          illustrationStyle,
+          storyLength // Pass the story length
         }),
         signal: controller.signal
       });
@@ -125,6 +130,10 @@ export default function CreateBookPage() {
 
       setStory(data.story);
       setGenerationProgress(100);
+
+      // Show page count in toast
+      const pageCount = data.story?.pages?.length || 10;
+      toast.success(`Created a ${pageCount}-page story for ${babyProfile?.baby_name}!`);
 
       // Delay before transitioning to story review
       setTimeout(() => {
@@ -339,7 +348,10 @@ export default function CreateBookPage() {
                     </div>
                   </motion.div>
                   <h2 className="text-4xl font-patrick mb-4 gradient-text">Your Book is Ready!</h2>
-                  <p className="text-xl text-gray-600">Download your PDF or order a printed copy</p>
+                  <p className="text-xl text-gray-600 mb-4">
+                    {storyData?.pages?.length || 0} beautiful pages featuring {babyProfile?.baby_name}
+                  </p>
+                  <p className="text-lg text-gray-600">Download your PDF or order a printed copy</p>
                 </div>
               )}
             </motion.div>

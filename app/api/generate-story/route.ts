@@ -1,26 +1,18 @@
 // app/api/generate-story/route.ts
 /**
- * Story Generation with Emotional Narrative Arc
- * Creates engaging stories with heart, not just action logs
+ * Story Generation with High-Contrast Shots and Character-Free Pages
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { PersonId } from '@/lib/store/bookStore';
-import { generateDiverseShotSequence, CINEMATIC_SHOTS } from '@/lib/camera/cinematicShots';
+import { generateHighContrastSequence, HIGH_CONTRAST_SHOTS } from '@/lib/camera/highContrastShots';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 const STORY_MODEL = process.env.OPENAI_STORY_MODEL || 'gpt-4o-mini';
-
-// Get list of available shots for variety
-const SHOT_OPTIONS = Object.keys(CINEMATIC_SHOTS).map(id => ({
-  id,
-  name: CINEMATIC_SHOTS[id].name,
-  mood: CINEMATIC_SHOTS[id].mood?.join(', ')
-}));
 
 interface StoryPage {
   page_number: number;
@@ -33,8 +25,9 @@ interface StoryPage {
   emotion: string;
   sensory_details?: string;
   characters_on_page: string[];
-  background_extras?: string[];
-  scene_type?: 'opening' | 'action' | 'closing';
+  is_character_free?: boolean;
+  object_focus?: string;
+  scene_type?: 'opening' | 'action' | 'closing' | 'transition';
   page_goal?: string;
 }
 
@@ -99,16 +92,6 @@ function getStoryGuidelines(ageInMonths: number): string {
     - Build to a satisfying emotional resolution
     - Example: "A little wave tickled her toes. *Swish!* ${"{name}"} giggled and chased it back to the sea. 'You can't catch me!' she squealed with delight."`;
   }
-}
-
-function getEmotionalArcs(): string[] {
-  return [
-    'Discovery Arc: Curiosity → Exploration → Wonder → Joy',
-    'Challenge Arc: Desire → Attempt → Small Struggle → Triumph',
-    'Connection Arc: Alone → Meeting → Playing Together → Friendship',
-    'Comfort Arc: Uncertainty → Gentle Exploration → Growing Confidence → Safety',
-    'Adventure Arc: Ordinary Moment → Unexpected Discovery → Brave Investigation → Happy Resolution'
-  ];
 }
 
 // Map string character names to PersonId
@@ -196,13 +179,23 @@ export async function POST(request: NextRequest) {
     const wordLimits = getWordLimit(ageInMonths);
     const babyGender = babyProfile.gender || 'neutral';
     const storyGuidelines = getStoryGuidelines(ageInMonths);
-    const emotionalArcs = getEmotionalArcs();
 
-    // Generate diverse shot sequence
-    const shotSequence = generateDiverseShotSequence(pageCount);
+    // Generate high-contrast shot sequence with character-free pages
+    const shotSequence = generateHighContrastSequence(pageCount, true);
+    
+    // Build shot descriptions for the prompt
     const shotsDescription = shotSequence.map((shotId, idx) => {
-      const shot = CINEMATIC_SHOTS[shotId];
-      return `Page ${idx + 1}: ${shot.name} - MUST BE VISUALLY DISTINCT FROM OTHER PAGES`;
+      const shot = HIGH_CONTRAST_SHOTS[shotId];
+      const pageNum = idx + 1;
+      
+      if (!shot.requires_character) {
+        return `Page ${pageNum}: ${shot.name} (CHARACTER-FREE) - ${shot.base_prompt}
+        This page should NOT include ${babyProfile.baby_name} or any characters.
+        Focus on: objects, atmosphere, or environmental details.`;
+      } else {
+        return `Page ${pageNum}: ${shot.name} - ${shot.base_prompt}
+        This is a CHARACTER shot featuring ${babyProfile.baby_name}.`;
+      }
     }).join('\n');
 
     // Gender-specific guidance
@@ -213,7 +206,7 @@ export async function POST(request: NextRequest) {
       : 'Baby with joyful, curious spirit';
 
     // Enhanced story generation prompt
-    const prompt = `You are a beloved children's book author who creates emotionally engaging stories that parents love to read and babies adore hearing. Your stories have HEART, not just actions.
+    const prompt = `You are creating an emotionally engaging children's book with sophisticated visual pacing.
 
 CREATE A STORY FOR: ${babyProfile.baby_name}, a ${babyGender === 'girl' ? 'baby girl' : babyGender === 'boy' ? 'baby boy' : 'baby'}, age ${ageInMonths} months.
 
@@ -228,69 +221,58 @@ ${storyGuidelines}
 
 WORD LIMIT: ${wordLimits.min}-${wordLimits.max} words per page (STRICT)
 
-THE 3 GOLDEN RULES YOU MUST FOLLOW:
-1. GIVE IT A HEART: Every page needs emotional resonance. Show how ${babyProfile.baby_name} FEELS, not just what they do.
-2. CREATE AN ARC: Choose one of these emotional journeys:
-   ${emotionalArcs.join('\n   ')}
-3. USE SENSORY LANGUAGE: Include sounds (splash!), textures (squishy), and sensations (tickly) on every page.
-
-VISUAL VARIETY REQUIREMENT - CRITICAL:
+CRITICAL VISUAL VARIETY REQUIREMENTS:
+You MUST use these EXACT shots for each page (NO SUBSTITUTIONS):
 ${shotsDescription}
 
-Each page MUST have a completely different camera angle and composition. NO SIMILAR SHOTS!
-Available shot types to ensure variety:
-${SHOT_OPTIONS.slice(0, 20).map(s => `- ${s.id}: ${s.name}`).join('\n')}
+IMPORTANT RULES FOR CHARACTER-FREE PAGES:
+- Pages marked as "CHARACTER-FREE" must NOT mention ${babyProfile.baby_name} in the narration
+- These pages should describe objects, atmosphere, or environmental details
+- They create pacing, build anticipation, or show aftermath
+- Example character-free narrations:
+  * "A bright red ball sits waiting in the grass."
+  * "Tiny footprints trail across the sandy beach."
+  * "Sunlight dances through the window, warm and golden."
 
-STORY STRUCTURE:
-Page 1: Opening - Establish setting and emotion (use wide/establishing shot)
-Pages 2-${pageCount-1}: Build the narrative with varied actions and emotions (alternate between close, medium, wide, high, low angles)
-Page ${pageCount}: Closing - Emotional resolution and satisfaction (use intimate/emotional shot)
+STORY STRUCTURE RULES:
+1. Use character-free pages strategically for:
+   - Opening: Set the scene or introduce an object of desire
+   - Mid-story: Create breathing room after intense action
+   - Transitions: Show passage of time or change of scene
+   - Closing: Peaceful aftermath or setting for next adventure
 
-WRITING STYLE REQUIREMENTS:
-- Present tense only
-- Include a 2-4 word REFRAIN that appears on at least 3 pages
-- Use ${babyProfile.baby_name}'s name 2-3 times (not on every page)
-- Include at least 2 instances of onomatopoeia (sound words)
-- Each page should make the reader FEEL something
-- Create moments of wonder, discovery, or connection
-- Use rhythm and musicality in your language
-
-AVOID THESE COMMON MISTAKES:
-❌ DON'T write action logs: "Yara sits. Yara plays. Yara laughs."
-✅ DO write with emotion: "Down plops Yara in the warm, tickly sand. *Giggle!*"
-
-❌ DON'T use similar shots: All medium shots or all portraits
-✅ DO vary dramatically: Overhead → Close-up → Wide → Low angle → Profile
-
-❌ DON'T forget sensory details: "Yara touches sand"
-✅ DO engage the senses: "Soft sand squishes between tiny fingers"
+2. Each page must have COMPLETELY DIFFERENT visual composition
+3. Never use similar angles on consecutive pages
+4. Include a 2-4 word REFRAIN that appears on at least 3 CHARACTER pages
 
 OUTPUT JSON (exact structure):
 {
   "title": "Short, emotionally evocative title",
   "refrain": "2-4 word rhythmic refrain",
   "emotional_core": "The heart of this story in one sentence",
-  "story_arc": "The emotional journey (e.g., curiosity to joy)",
+  "story_arc": "The emotional journey",
   "cast_members": ["baby", ...],
   "pages": [
     {
       "page_number": 1,
-      "narration": "${wordLimits.min}-${wordLimits.max} words with EMOTION and SENSORY details",
-      "page_goal": "What emotional beat this page achieves",
-      "shot_id": "${shotSequence[0]}" (MUST use assigned shot),
-      "shot_description": "How this unique angle serves the story",
-      "visual_action": "Specific physical action for isolated illustration",
-      "action_description": "How the action shows emotion",
-      "visual_focus": "Key detail to emphasize",
+      "narration": "${wordLimits.min}-${wordLimits.max} words (or object description for character-free pages)",
+      "page_goal": "What this page achieves narratively",
+      "shot_id": "${shotSequence[0]}",
+      "shot_description": "${HIGH_CONTRAST_SHOTS[shotSequence[0]]?.name}",
+      "is_character_free": ${!HIGH_CONTRAST_SHOTS[shotSequence[0]]?.requires_character},
+      "visual_action": "Specific action or object focus",
+      "action_description": "How this serves the story",
+      "visual_focus": "Key visual element",
       "emotion": "joy/wonder/peaceful/curious/proud/excited",
       "sensory_details": "What can be felt/heard/seen",
-      "characters_on_page": ["baby", ...],
+      "characters_on_page": ${!HIGH_CONTRAST_SHOTS[shotSequence[0]]?.requires_character ? '[]' : '["baby", ...]'},
+      "object_focus": "For character-free pages, what object/detail to show",
       "scene_type": "opening"
     }
   ]
 }
 
-Remember: You're not documenting events, you're creating MOMENTS that matter. Make parents smile and babies giggle!`;
+Remember: Character-free pages are powerful tools for pacing and atmosphere. Use them wisely!`;
 
     // Call OpenAI with enhanced prompt
     const completion = await openai.chat.completions.create(
@@ -300,12 +282,12 @@ Remember: You're not documenting events, you're creating MOMENTS that matter. Ma
           {
             role: 'system',
             content:
-              "You are a master children's book author who understands that the best baby books create emotional connections through simple, sensory-rich narratives. Every word you write serves both the child's delight and the parent's joy in reading."
+              "You are a master children's book author who understands visual storytelling and the power of pacing through character-free atmospheric pages."
           },
           { role: 'user', content: prompt }
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.8, // Slightly higher for more creative variation
+        temperature: 0.8,
       },
       { timeout: 20_000 }
     );
@@ -316,38 +298,42 @@ Remember: You're not documenting events, you're creating MOMENTS that matter. Ma
 
     // Validate and enhance pages
     const enhancedPages = storyData.pages.map((page, index) => {
+      const shotId = shotSequence[index] || 'establishing_wide';
+      const shot = HIGH_CONTRAST_SHOTS[shotId];
+      
       const charactersOnPage: PersonId[] = [];
       
-      // Process characters
-      for (const char of page.characters_on_page || []) {
-        const personId = mapToPersonId(char, babyProfile.baby_name);
-        if (personId && !charactersOnPage.includes(personId)) {
-          charactersOnPage.push(personId);
+      // Only process characters for character pages
+      if (shot?.requires_character && page.characters_on_page) {
+        for (const char of page.characters_on_page) {
+          const personId = mapToPersonId(char, babyProfile.baby_name);
+          if (personId && !charactersOnPage.includes(personId)) {
+            charactersOnPage.push(personId);
+          }
+        }
+        
+        // Ensure baby is included if not specified
+        if (charactersOnPage.length === 0 && !page.is_character_free) {
+          charactersOnPage.push('baby');
         }
       }
-
-      // Ensure baby is included if not specified
-      if (charactersOnPage.length === 0) {
-        charactersOnPage.push('baby');
-      }
-
-      // Ensure unique shot_id
-      const shotId = page.shot_id || shotSequence[index] || 'isolated_portrait';
 
       return {
         ...page,
         page_number: page.page_number,
         shot_id: shotId,
-        shot_description: page.shot_description || CINEMATIC_SHOTS[shotId]?.name || 'Unique angle',
+        shot_description: shot?.name || 'Unique angle',
+        is_character_free: !shot?.requires_character,
         characters_on_page: charactersOnPage,
         scene_type: page.scene_type || (
           index === 0 ? 'opening' : 
           index === storyData.pages.length - 1 ? 'closing' : 
-          'action'
+          page.is_character_free ? 'transition' : 'action'
         ),
         emotion: page.emotion || 'joy',
         layout_template: 'auto',
-        page_goal: page.page_goal || `Emotional beat ${index + 1}`
+        page_goal: page.page_goal || `Page ${index + 1} beat`,
+        object_focus: page.object_focus || (page.is_character_free ? 'atmospheric detail' : undefined)
       };
     });
 
@@ -359,10 +345,11 @@ Remember: You're not documenting events, you're creating MOMENTS that matter. Ma
       metadata: {
         ...storyData.metadata,
         emotional_core: storyData.emotional_core,
-        story_arc: storyData.story_arc
+        story_arc: storyData.story_arc,
+        includes_character_free_pages: true
       },
       style: 'isolated-paper-collage',
-      cinematic_sequence: shotSequence,
+      high_contrast_sequence: shotSequence,
       gender: babyGender
     };
 
@@ -394,90 +381,99 @@ function createEngagingFallbackStory(
 ): any {
   const pageCount = getPageCount(ageInMonths);
   const refrain = 'What joy!';
-  const shotSequence = generateDiverseShotSequence(pageCount);
+  const shotSequence = generateHighContrastSequence(pageCount, true);
 
   const pages = [
     {
-      narration: `Morning sunshine kisses ${babyName}'s cheeks. Mmm, warm! ${refrain}`,
-      page_goal: 'Establish warmth and comfort',
-      characters_on_page: ['baby' as PersonId],
-      shot_id: shotSequence[0],
-      shot_description: 'Wide establishing shot showing baby in morning light',
-      emotion: 'peaceful' as const,
-      visual_focus: 'face',
-      sensory_details: 'Warm golden light, soft textures'
+      narration: `A bright yellow duck sits waiting by the tub.`,
+      page_goal: 'Set the scene with object of desire',
+      characters_on_page: [],
+      is_character_free: true,
+      shot_id: 'object_of_desire',
+      shot_description: 'Object of Desire',
+      emotion: 'anticipatory' as const,
+      object_focus: 'yellow rubber duck',
+      visual_focus: 'toy',
+      sensory_details: 'Shiny, smooth, inviting'
     },
     {
-      narration: `Peek-a-boo! Mommy's here! *Giggle giggle!*`,
-      page_goal: 'Connection and recognition',
-      characters_on_page: ['baby' as PersonId, 'mom' as PersonId],
-      shot_id: shotSequence[1],
-      shot_description: 'Over-shoulder intimate moment',
+      narration: `${babyName} crawls closer. Eyes wide! ${refrain}`,
+      page_goal: 'Show approach and excitement',
+      characters_on_page: ['baby' as PersonId],
+      is_character_free: false,
+      shot_id: 'worms_eye_ground',
+      shot_description: 'Worm\'s-Eye View',
+      emotion: 'excited' as const,
+      visual_action: 'crawling forward eagerly',
+      sensory_details: 'Movement, anticipation'
+    },
+    {
+      narration: `Tiny fingers reach and grab! *Squeak!*`,
+      page_goal: 'The moment of contact',
+      characters_on_page: ['baby' as PersonId],
+      is_character_free: false,
+      shot_id: 'extreme_macro_detail',
+      shot_description: 'Extreme Macro',
       emotion: 'joy' as const,
-      visual_action: 'reaching up happily',
-      sensory_details: 'Soft voice, warm embrace'
-    },
-    {
-      narration: `Tiny fingers explore. Soft... bumpy... smooth!`,
-      page_goal: 'Sensory discovery',
-      characters_on_page: ['baby' as PersonId],
-      shot_id: shotSequence[2],
-      shot_description: 'Extreme close-up on hands',
-      emotion: 'curious' as const,
       visual_focus: 'hands',
-      sensory_details: 'Different textures to touch'
+      visual_action: 'grabbing duck',
+      sensory_details: 'Texture of duck, squeeze'
     },
     {
-      narration: `${babyName} kicks! Splash-splash-splash! ${refrain}`,
-      page_goal: 'Active play and cause-effect',
+      narration: `Splash splash splash! ${babyName} and ducky play! ${refrain}`,
+      page_goal: 'Peak action and joy',
       characters_on_page: ['baby' as PersonId],
-      shot_id: shotSequence[3],
-      shot_description: 'Dynamic angle showing movement',
+      is_character_free: false,
+      shot_id: 'birds_eye_overhead',
+      shot_description: 'Bird\'s-Eye View',
       emotion: 'joy' as const,
-      visual_action: 'kicking and splashing',
-      sensory_details: 'Water droplets, movement'
+      visual_action: 'splashing in bath',
+      sensory_details: 'Water, bubbles, laughter'
     },
     {
-      narration: `Together we dance, swirl and sway. Round and round!`,
-      page_goal: 'Joyful connection',
+      narration: `Mommy wraps ${babyName} warm and snug.`,
+      page_goal: 'Comfort and care',
       characters_on_page: ['baby' as PersonId, 'mom' as PersonId],
-      shot_id: shotSequence[4],
-      shot_description: 'Wide shot showing movement',
-      emotion: 'joy' as const,
-      visual_action: 'being held and spun gently',
-      sensory_details: 'Motion, laughter, closeness'
+      is_character_free: false,
+      shot_id: 'over_shoulder_parent',
+      shot_description: 'Over-the-Shoulder',
+      emotion: 'peaceful' as const,
+      visual_action: 'being wrapped in towel',
+      sensory_details: 'Soft, warm, cozy'
     },
     {
-      narration: `Sleepy ${babyName}, cozy and loved. Sweet dreams. ${refrain}`,
-      page_goal: 'Peaceful resolution',
-      characters_on_page: ['baby' as PersonId],
-      shot_id: shotSequence[5],
-      shot_description: 'Soft, peaceful close-up',
+      narration: `Duck floats alone. Bubbles pop one by one.`,
+      page_goal: 'Peaceful aftermath',
+      characters_on_page: [],
+      is_character_free: true,
+      shot_id: 'aftermath_quiet',
+      shot_description: 'Aftermath Shot',
       emotion: 'peaceful' as const,
-      visual_action: 'curled up peacefully',
-      sensory_details: 'Soft blanket, quiet, warmth'
+      object_focus: 'duck floating in calm water',
+      sensory_details: 'Quiet, still, peaceful'
     }
   ];
 
   return {
-    title: `${babyName}'s Day of Wonder`,
+    title: `${babyName}'s Splish Splash`,
     refrain,
-    emotional_core: 'The joy of simple discoveries and loving connections',
-    story_arc: 'Peaceful awakening → playful exploration → restful satisfaction',
+    emotional_core: 'The simple joy of bath time discovery',
+    story_arc: 'anticipation → excitement → joy → comfort → peace',
     cast_members: ['baby', 'mom'],
     metadata: {
-      emotional_core: 'A celebration of everyday moments of joy and discovery',
-      story_arc: 'comfort → play → rest'
+      emotional_core: 'A celebration of simple pleasures and loving care',
+      story_arc: 'desire → action → joy → comfort',
+      includes_character_free_pages: true
     },
     style: 'isolated-paper-collage',
     gender,
-    cinematic_sequence: shotSequence,
+    high_contrast_sequence: shotSequence,
     pages: pages.slice(0, pageCount).map((page, i) => ({
       page_number: i + 1,
       ...page,
-      action_description: page.visual_action || 'Gentle baby moment',
+      action_description: page.visual_action || 'Scene moment',
       background_extras: undefined,
-      scene_type: i === 0 ? 'opening' : i === pageCount - 1 ? 'closing' : 'action',
+      scene_type: i === 0 ? 'opening' : i === pageCount - 1 ? 'closing' : page.is_character_free ? 'transition' : 'action',
       layout_template: 'auto'
     }))
   };

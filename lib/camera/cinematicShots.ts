@@ -1,279 +1,364 @@
-// lib/camera/cinematicShots.ts - Updated for Paper Collage style
+// lib/camera/cinematicShots.ts
 /**
- * Advanced Cinematic Shot System for Paper Collage Children's Books
- * Combines shot size, camera angle, lens effects, and emotional keywords
- * Optimized for paper cutout aesthetic
+ * Diverse Isolated Shot System - Ensures Visual Variety
+ * Every page gets a dramatically different angle
  */
 
 export interface ShotDefinition {
   id: string;
   name: string;
   base_prompt: string;
+  isolation_prompt: string;
+  angle_type: 'extreme_close' | 'close' | 'medium' | 'wide' | 'overhead' | 'low' | 'high' | 'profile' | 'three_quarter';
+  variety_score: number; // Higher = more unique
   emotional_variants?: Record<string, string>;
   requires?: ('visual_focus' | 'visual_action' | 'sensory_details')[];
   focus_template?: string;
-  lens_effect?: string;
-  depth_of_field?: 'shallow' | 'medium' | 'deep';
   mood?: string[];
   best_for?: string[];
 }
 
-// Import Paper Collage style elements if available
-import { PAPER_COLLAGE_STYLE, enhanceWithPaperCollage } from '../styles/paperCollage';
+import { PAPER_COLLAGE_STYLE, enhanceWithIsolatedPaperCollage, extractSurface, extractProps } from '../styles/paperCollage';
 
-// Comprehensive shot library for Paper Collage style
+// Diverse isolated shot library with variety scores
 export const CINEMATIC_SHOTS: Record<string, ShotDefinition> = {
-  // EXTREME CLOSE-UPS - For tiny paper details
-  wonder_macro: {
-    id: 'wonder_macro',
-    name: 'Wonder Macro',
-    base_prompt: 'An enchanting macro shot of layered paper details',
+  // EXTREME CLOSE-UPS (Variety: 9/10)
+  isolated_macro_hands: {
+    id: 'isolated_macro_hands',
+    name: 'Macro Hands Detail',
+    base_prompt: 'EXTREME CLOSE-UP of baby hands only, isolated on white',
+    isolation_prompt: 'tiny hands filling frame, white background',
+    angle_type: 'extreme_close',
+    variety_score: 9,
     emotional_variants: {
-      joy: 'A joyful extreme close-up of paper cutout eyes with sparkle details',
-      discovery: 'A wondrous macro shot of tiny paper fingers exploring paper textures',
-      peaceful: 'A serene extreme close-up of peaceful paper features'
+      joy: 'Happy clapping hands isolated on white',
+      discovery: 'Exploring fingers isolated on white',
+      peaceful: 'Resting tiny hands isolated on white'
     },
-    requires: ['visual_focus'],
-    focus_template: 'of {visual_focus}, rendered with paper layers and torn edges',
-    lens_effect: '100mm macro lens style showing paper grain',
-    depth_of_field: 'shallow',
-    mood: ['intimate', 'magical', 'detailed'],
-    best_for: ['hands', 'feet', 'eyes', 'textures']
+    mood: ['intimate', 'detailed', 'precious']
   },
 
-  intimate_detail: {
-    id: 'intimate_detail',
-    name: 'Intimate Detail',
-    base_prompt: 'An intimate extreme close-up with layered paper depth',
-    requires: ['visual_focus'],
-    focus_template: 'focusing on baby\'s {visual_focus} made from paper cutouts',
-    lens_effect: '85mm portrait lens with paper layer separation',
-    depth_of_field: 'shallow',
-    mood: ['tender', 'warm', 'emotional']
+  isolated_macro_feet: {
+    id: 'isolated_macro_feet',
+    name: 'Macro Feet Detail',
+    base_prompt: 'EXTREME CLOSE-UP of baby feet only, isolated on white',
+    isolation_prompt: 'tiny feet filling frame, white background',
+    angle_type: 'extreme_close',
+    variety_score: 9,
+    mood: ['intimate', 'cute', 'detailed']
   },
 
-  // CLOSE-UPS - For paper collage emotions
-  emotional_portrait: {
-    id: 'emotional_portrait',
-    name: 'Emotional Portrait',
-    base_prompt: 'A warm close-up portrait with paper cutout features',
-    emotional_variants: {
-      joy: 'A radiant close-up of paper collage joy with bright paper pieces',
-      wonder: 'An awe-filled close-up with layered paper creating depth',
-      sleepy: 'A gentle close-up with soft tissue paper overlay'
-    },
-    lens_effect: '85mm portrait style with paper layers creating depth',
-    depth_of_field: 'shallow',
-    mood: ['expressive', 'heartwarming', 'intimate']
+  isolated_macro_face: {
+    id: 'isolated_macro_face',
+    name: 'Macro Face Expression',
+    base_prompt: 'EXTREME CLOSE-UP of baby face expression, isolated on white',
+    isolation_prompt: 'face filling entire frame, white background',
+    angle_type: 'extreme_close',
+    variety_score: 8,
+    mood: ['emotional', 'expressive', 'intimate']
   },
 
-  // MEDIUM SHOTS - For paper action scenes
-  playful_medium: {
-    id: 'playful_medium',
-    name: 'Playful Medium',
-    base_prompt: 'A dynamic medium shot with paper pieces at playful angles',
+  // OVERHEAD SHOTS (Variety: 10/10)
+  isolated_birds_eye: {
+    id: 'isolated_birds_eye',
+    name: 'Bird\'s Eye View',
+    base_prompt: 'DIRECTLY OVERHEAD looking straight down at baby, isolated on white',
+    isolation_prompt: 'perfect top-down view, baby on white surface',
+    angle_type: 'overhead',
+    variety_score: 10,
+    mood: ['unique', 'playful', 'geometric']
+  },
+
+  isolated_overhead_play: {
+    id: 'isolated_overhead_play',
+    name: 'Overhead Play View',
+    base_prompt: 'HIGH OVERHEAD ANGLE of baby playing, isolated on white',
+    isolation_prompt: 'looking down from above at 75 degrees, white background',
+    angle_type: 'overhead',
+    variety_score: 9,
+    mood: ['organized', 'clear', 'documentary']
+  },
+
+  // LOW ANGLE SHOTS (Variety: 10/10)
+  isolated_worms_eye: {
+    id: 'isolated_worms_eye',
+    name: 'Worm\'s Eye View',
+    base_prompt: 'EXTREME LOW ANGLE looking up at baby from ground level, isolated on white',
+    isolation_prompt: 'camera on ground looking up, baby appears heroic, white background',
+    angle_type: 'low',
+    variety_score: 10,
+    mood: ['heroic', 'powerful', 'unique']
+  },
+
+  isolated_low_angle: {
+    id: 'isolated_low_angle',
+    name: 'Low Angle Portrait',
+    base_prompt: 'LOW ANGLE shot looking up at baby, isolated on white',
+    isolation_prompt: 'slightly below baby looking up, white background',
+    angle_type: 'low',
+    variety_score: 8,
+    mood: ['empowering', 'dramatic', 'interesting']
+  },
+
+  // HIGH ANGLE SHOTS (Variety: 8/10)
+  isolated_high_angle: {
+    id: 'isolated_high_angle',
+    name: 'High Angle View',
+    base_prompt: 'HIGH ANGLE looking down at baby at 45 degrees, isolated on white',
+    isolation_prompt: 'elevated view looking down, baby small in frame, white background',
+    angle_type: 'high',
+    variety_score: 8,
+    mood: ['protective', 'observational', 'gentle']
+  },
+
+  // PROFILE SHOTS (Variety: 7/10)
+  isolated_perfect_profile: {
+    id: 'isolated_perfect_profile',
+    name: 'Perfect Profile',
+    base_prompt: 'EXACT SIDE PROFILE of baby, isolated on white',
+    isolation_prompt: 'pure 90-degree side view, white background',
+    angle_type: 'profile',
+    variety_score: 7,
+    mood: ['elegant', 'classic', 'artistic']
+  },
+
+  isolated_profile_action: {
+    id: 'isolated_profile_action',
+    name: 'Profile in Action',
+    base_prompt: 'SIDE VIEW of baby in motion, isolated on white',
+    isolation_prompt: 'profile showing movement, white background',
+    angle_type: 'profile',
+    variety_score: 7,
     requires: ['visual_action'],
-    focus_template: 'showing baby {visual_action} with paper cutouts',
-    lens_effect: '50mm natural perspective with paper depth',
-    mood: ['energetic', 'fun', 'active'],
-    best_for: ['playing', 'crawling', 'reaching']
+    mood: ['dynamic', 'active', 'energetic']
   },
 
-  interaction_frame: {
-    id: 'interaction_frame',
-    name: 'Interaction Frame',
-    base_prompt: 'A warm medium shot with layered paper figures interacting',
+  // THREE-QUARTER ANGLES (Variety: 6/10)
+  isolated_three_quarter_high: {
+    id: 'isolated_three_quarter_high',
+    name: 'Three-Quarter High',
+    base_prompt: 'THREE-QUARTER VIEW from slightly above, isolated on white',
+    isolation_prompt: '3/4 angle elevated view, white background',
+    angle_type: 'three_quarter',
+    variety_score: 6,
+    mood: ['friendly', 'approachable', 'warm']
+  },
+
+  isolated_three_quarter_low: {
+    id: 'isolated_three_quarter_low',
+    name: 'Three-Quarter Low',
+    base_prompt: 'THREE-QUARTER VIEW from slightly below, isolated on white',
+    isolation_prompt: '3/4 angle looking up, white background',
+    angle_type: 'three_quarter',
+    variety_score: 6,
+    mood: ['confident', 'strong', 'engaging']
+  },
+
+  // WIDE SHOTS (Variety: 5/10)
+  isolated_full_body: {
+    id: 'isolated_full_body',
+    name: 'Full Body Wide',
+    base_prompt: 'WIDE FULL BODY shot of baby, isolated on white',
+    isolation_prompt: 'entire baby visible with space around, white background',
+    angle_type: 'wide',
+    variety_score: 5,
+    mood: ['complete', 'contextual', 'clear']
+  },
+
+  isolated_wide_sitting: {
+    id: 'isolated_wide_sitting',
+    name: 'Wide Sitting Shot',
+    base_prompt: 'WIDE SHOT of baby sitting, full figure visible, isolated on white',
+    isolation_prompt: 'seated baby with margin of white space, white background',
+    angle_type: 'wide',
+    variety_score: 5,
+    mood: ['stable', 'calm', 'centered']
+  },
+
+  // MEDIUM SHOTS (Variety: 4/10)
+  isolated_medium_waist: {
+    id: 'isolated_medium_waist',
+    name: 'Medium Waist Up',
+    base_prompt: 'MEDIUM SHOT from waist up, isolated on white',
+    isolation_prompt: 'baby from waist up, white background',
+    angle_type: 'medium',
+    variety_score: 4,
+    mood: ['balanced', 'standard', 'friendly']
+  },
+
+  isolated_medium_action: {
+    id: 'isolated_medium_action',
+    name: 'Medium Action Shot',
+    base_prompt: 'MEDIUM SHOT capturing action, isolated on white',
+    isolation_prompt: 'mid-distance action shot, white background',
+    angle_type: 'medium',
+    variety_score: 4,
     requires: ['visual_action'],
-    focus_template: 'capturing paper collage moment of {visual_action}',
-    lens_effect: '35mm lens with multiple paper layers',
-    mood: ['connected', 'loving', 'gentle']
+    mood: ['active', 'engaged', 'dynamic']
   },
 
-  // WIDE SHOTS - For paper collage environments
-  storybook_wide: {
-    id: 'storybook_wide',
-    name: 'Storybook Wide',
-    base_prompt: 'A magical wide shot with elaborate paper collage background',
-    requires: ['sensory_details'],
-    focus_template: 'with paper baby exploring {sensory_details}',
-    lens_effect: '24mm wide-angle showing full paper scene',
-    depth_of_field: 'deep',
-    mood: ['adventurous', 'expansive', 'magical']
+  // CLOSE-UPS (Variety: 3/10)
+  isolated_close_portrait: {
+    id: 'isolated_close_portrait',
+    name: 'Close Portrait',
+    base_prompt: 'CLOSE-UP portrait of baby face and shoulders, isolated on white',
+    isolation_prompt: 'head and shoulders filling frame, white background',
+    angle_type: 'close',
+    variety_score: 3,
+    mood: ['intimate', 'emotional', 'connecting']
   },
 
-  cozy_establishing: {
-    id: 'cozy_establishing',
-    name: 'Cozy Establishing',
-    base_prompt: 'A warm establishing shot with layered paper creating cozy scene',
-    lens_effect: '35mm wide shot with paper depth layers',
-    mood: ['safe', 'comfortable', 'homey']
+  // UNIQUE ANGLES (Variety: 10/10)
+  isolated_dutch_angle: {
+    id: 'isolated_dutch_angle',
+    name: 'Dutch Angle Tilt',
+    base_prompt: 'TILTED DUTCH ANGLE of baby at 30 degrees, isolated on white',
+    isolation_prompt: 'camera tilted for dynamic composition, white background',
+    angle_type: 'three_quarter',
+    variety_score: 10,
+    mood: ['playful', 'energetic', 'whimsical']
   },
 
-  // HERO ANGLES - Paper cutouts from below
-  tiny_hero: {
-    id: 'tiny_hero',
-    name: 'Tiny Hero',
-    base_prompt: 'An empowering low-angle shot with paper baby looking brave',
-    requires: ['visual_action'],
-    focus_template: 'as paper baby triumphantly {visual_action}',
-    lens_effect: '24mm dramatic angle with paper pieces',
-    mood: ['brave', 'proud', 'triumphant'],
-    best_for: ['first_steps', 'standing', 'reaching_up']
+  isolated_over_shoulder: {
+    id: 'isolated_over_shoulder',
+    name: 'Over Shoulder View',
+    base_prompt: 'OVER THE SHOULDER view of baby, isolated on white',
+    isolation_prompt: 'looking over baby shoulder, white background',
+    angle_type: 'three_quarter',
+    variety_score: 8,
+    mood: ['following', 'engaged', 'participatory']
   },
 
-  giant_world: {
-    id: 'giant_world',
-    name: 'Giant\'s World',
-    base_prompt: 'A worm\'s-eye view with towering paper cutout world',
-    lens_effect: '14mm ultra-wide with paper layers stacked high',
-    mood: ['awe-inspiring', 'vast', 'adventurous']
-  },
-
-  // OVERHEAD SHOTS - Flat lay paper arrangements
-  dreamy_overhead: {
-    id: 'dreamy_overhead',
-    name: 'Dreamy Overhead',
-    base_prompt: 'A gentle bird\'s-eye view of paper collage arrangement',
-    lens_effect: '50mm overhead shot of paper pieces laid flat',
-    mood: ['peaceful', 'protective', 'calm'],
-    best_for: ['sleeping', 'playing_on_mat', 'tummy_time']
-  },
-
-  playmat_symphony: {
-    id: 'playmat_symphony',
-    name: 'Playmat Symphony',
-    base_prompt: 'A perfectly arranged overhead shot of colorful paper pieces',
-    lens_effect: '35mm flat lay style with paper cutout toys',
-    mood: ['organized', 'colorful', 'playful']
-  },
-
-  // DUTCH ANGLES - Tilted paper fun
-  giggle_tilt: {
-    id: 'giggle_tilt',
-    name: 'Giggle Tilt',
-    base_prompt: 'A playfully tilted angle with paper pieces at dynamic angles',
-    requires: ['visual_action'],
-    focus_template: 'as paper baby joyfully {visual_action}',
-    lens_effect: '35mm with 15-degree tilt of paper scene',
-    mood: ['silly', 'energetic', 'fun']
-  },
-
-  tumble_angle: {
-    id: 'tumble_angle',
-    name: 'Tumble Angle',
-    base_prompt: 'A dynamic canted angle with paper pieces tumbling',
-    lens_effect: '24mm with 30-degree tilt showing paper chaos',
-    mood: ['chaotic', 'exciting', 'dynamic']
-  },
-
-  // POV SHOTS - First person paper perspective
-  baby_pov: {
-    id: 'baby_pov',
-    name: 'Baby\'s Eyes',
-    base_prompt: 'POV shot showing paper hands from baby perspective',
-    requires: ['visual_focus'],
-    focus_template: 'focusing on paper cutout {visual_focus}',
-    lens_effect: '28mm POV with paper edges visible',
-    depth_of_field: 'shallow',
-    mood: ['curious', 'discovering', 'personal']
-  },
-
-  parent_pov: {
-    id: 'parent_pov',
-    name: 'Parent\'s View',
-    base_prompt: 'Tender POV looking down at precious paper baby',
-    lens_effect: '35mm from above with paper layers',
-    mood: ['loving', 'protective', 'adoring']
-  },
-
-  // OVER-THE-SHOULDER - Paper collage perspectives
-  peek_over_shoulder: {
-    id: 'peek_over_shoulder',
-    name: 'Peek Over Shoulder',
-    base_prompt: 'Over-the-shoulder shot with paper baby discovering',
-    requires: ['visual_action'],
-    focus_template: 'as paper baby discovers {visual_action}',
-    lens_effect: '50mm following paper baby\'s view',
-    mood: ['curious', 'exploring', 'shared']
-  },
-
-  // PROFILE SHOTS - Paper silhouettes
-  gentle_profile: {
-    id: 'gentle_profile',
-    name: 'Gentle Profile',
-    base_prompt: 'A soft profile shot with layered paper creating silhouette',
-    lens_effect: '85mm profile with paper depth layers',
-    depth_of_field: 'shallow',
-    mood: ['thoughtful', 'peaceful', 'focused']
-  },
-
-  // CINEMATIC PAPER COLLAGE COMBINATIONS
-  magic_moment: {
-    id: 'magic_moment',
-    name: 'Magic Moment',
-    base_prompt: 'A cinematic shot with golden paper accents and sparkles',
-    emotional_variants: {
-      sunset: 'Paper scene with warm orange and pink paper layers',
-      morning: 'Soft pastel paper pieces with tissue paper light',
-      twilight: 'Deep blue paper with glitter paper stars'
-    },
-    lens_effect: '50mm with layered paper creating depth',
-    mood: ['magical', 'ethereal', 'memorable']
-  },
-
-  storybook_spread: {
-    id: 'storybook_spread',
-    name: 'Storybook Spread',
-    base_prompt: 'A beautifully composed paper collage two-page spread',
-    lens_effect: '35mm showing full paper scene composition',
-    depth_of_field: 'medium',
-    mood: ['balanced', 'artistic', 'timeless']
+  isolated_between_legs: {
+    id: 'isolated_between_legs',
+    name: 'Through Legs View',
+    base_prompt: 'VIEW THROUGH BABY\'S LEGS while crawling, isolated on white',
+    isolation_prompt: 'unique view between legs, white background',
+    angle_type: 'low',
+    variety_score: 10,
+    mood: ['playful', 'unique', 'surprising']
   }
 };
 
-// Helper function to get appropriate shot based on context
+// Generate maximally diverse shot sequence
+export function generateDiverseShotSequence(pageCount: number): string[] {
+  // Group shots by angle type for maximum variety
+  const angleGroups = {
+    extreme_close: ['isolated_macro_hands', 'isolated_macro_feet', 'isolated_macro_face'],
+    overhead: ['isolated_birds_eye', 'isolated_overhead_play'],
+    low: ['isolated_worms_eye', 'isolated_low_angle', 'isolated_between_legs'],
+    high: ['isolated_high_angle'],
+    profile: ['isolated_perfect_profile', 'isolated_profile_action'],
+    three_quarter: ['isolated_three_quarter_high', 'isolated_three_quarter_low', 'isolated_dutch_angle', 'isolated_over_shoulder'],
+    wide: ['isolated_full_body', 'isolated_wide_sitting'],
+    medium: ['isolated_medium_waist', 'isolated_medium_action'],
+    close: ['isolated_close_portrait']
+  };
+  
+  const sequence: string[] = [];
+  const usedTypes = new Set<string>();
+  const usedShots = new Set<string>();
+  
+  // Start with establishing wide or medium
+  const openingShots = ['isolated_full_body', 'isolated_wide_sitting', 'isolated_medium_waist'];
+  const opening = openingShots[Math.floor(Math.random() * openingShots.length)];
+  sequence.push(opening);
+  usedShots.add(opening);
+  usedTypes.add('wide');
+  
+  // Fill middle pages with maximum variety
+  for (let i = 1; i < pageCount - 1; i++) {
+    // Find angle types we haven't used recently
+    const availableTypes = Object.keys(angleGroups).filter(type => {
+      // Don't repeat the same angle type within 2 pages
+      const lastTwoTypes = sequence.slice(-2).map(shotId => {
+        const shot = CINEMATIC_SHOTS[shotId];
+        return shot ? shot.angle_type : null;
+      });
+      return !lastTwoTypes.includes(type as any);
+    });
+    
+    // If all types used recently, pick the one used longest ago
+    const typeToUse = availableTypes.length > 0 
+      ? availableTypes[Math.floor(Math.random() * availableTypes.length)]
+      : Object.keys(angleGroups)[i % Object.keys(angleGroups).length];
+    
+    // Pick unused shot from this type
+    const availableShots = angleGroups[typeToUse as keyof typeof angleGroups]
+      .filter(shot => !usedShots.has(shot));
+    
+    if (availableShots.length > 0) {
+      const shot = availableShots[Math.floor(Math.random() * availableShots.length)];
+      sequence.push(shot);
+      usedShots.add(shot);
+    } else {
+      // Fallback: pick highest variety score shot not used
+      const allShots = Object.keys(CINEMATIC_SHOTS)
+        .filter(id => !usedShots.has(id))
+        .sort((a, b) => CINEMATIC_SHOTS[b].variety_score - CINEMATIC_SHOTS[a].variety_score);
+      
+      if (allShots.length > 0) {
+        sequence.push(allShots[0]);
+        usedShots.add(allShots[0]);
+      }
+    }
+  }
+  
+  // End with emotional close-up or intimate shot
+  const closingShots = ['isolated_close_portrait', 'isolated_macro_face', 'isolated_perfect_profile']
+    .filter(shot => !usedShots.has(shot));
+  
+  if (closingShots.length > 0) {
+    sequence.push(closingShots[0]);
+  } else {
+    sequence.push('isolated_close_portrait');
+  }
+  
+  console.log('Generated diverse shot sequence:', sequence.map(id => CINEMATIC_SHOTS[id]?.name).join(' → '));
+  
+  return sequence;
+}
+
+// Helper function to select best shot based on context
 export function selectBestShot(
   action?: string,
   emotion?: string,
   visualFocus?: string,
   pageType?: 'opening' | 'action' | 'closing'
 ): string {
-  // Opening pages benefit from establishing shots
   if (pageType === 'opening') {
-    return emotion === 'peaceful' ? 'cozy_establishing' : 'storybook_wide';
+    return 'isolated_full_body';
   }
   
-  // Closing pages work well with emotional shots
   if (pageType === 'closing') {
-    return emotion === 'peaceful' ? 'dreamy_overhead' : 'emotional_portrait';
+    return emotion === 'peaceful' ? 'isolated_close_portrait' : 'isolated_macro_face';
   }
   
-  // Match shots to specific visual focuses
+  // Match to visual focus
   if (visualFocus) {
-    if (visualFocus === 'hands' || visualFocus === 'feet') return 'wonder_macro';
-    if (visualFocus === 'face' || visualFocus === 'eyes') return 'emotional_portrait';
-    if (visualFocus === 'toys') return 'playmat_symphony';
+    if (visualFocus === 'hands') return 'isolated_macro_hands';
+    if (visualFocus === 'feet') return 'isolated_macro_feet';
+    if (visualFocus === 'face' || visualFocus === 'eyes') return 'isolated_macro_face';
   }
   
-  // Match shots to actions
+  // Match to action with variety
   if (action) {
-    if (action.includes('sleep')) return 'dreamy_overhead';
-    if (action.includes('crawl') || action.includes('tumble')) return 'tumble_angle';
-    if (action.includes('stand') || action.includes('step')) return 'tiny_hero';
-    if (action.includes('play')) return 'playful_medium';
-    if (action.includes('reach')) return 'tiny_hero';
+    if (action.includes('crawl')) return 'isolated_between_legs';
+    if (action.includes('stand')) return 'isolated_worms_eye';
+    if (action.includes('sit')) return 'isolated_birds_eye';
+    if (action.includes('play')) return 'isolated_dutch_angle';
+    if (action.includes('reach')) return 'isolated_low_angle';
   }
   
-  // Default based on emotion
-  if (emotion === 'joy') return 'giggle_tilt';
-  if (emotion === 'wonder') return 'emotional_portrait';
-  if (emotion === 'peaceful') return 'gentle_profile';
+  // Default based on emotion with variety
+  if (emotion === 'joy') return 'isolated_dutch_angle';
+  if (emotion === 'wonder') return 'isolated_over_shoulder';
+  if (emotion === 'peaceful') return 'isolated_perfect_profile';
   
-  // Fallback
-  return 'playful_medium';
+  return 'isolated_medium_waist';
 }
 
-// Build a complete cinematic prompt for Paper Collage style
+// Build complete isolated prompt with specific angle emphasis
 export function buildCinematicPrompt(
   shotId: string,
   context: {
@@ -284,98 +369,55 @@ export function buildCinematicPrompt(
     style?: string;
     characters?: string[];
     gender?: 'boy' | 'girl' | 'neutral';
+    narration?: string;
   }
 ): string {
   const shot = CINEMATIC_SHOTS[shotId];
   if (!shot) {
-    // Fallback to simple prompt if shot not found
-    return `medium shot of paper collage baby ${context.visualAction || 'playing'}`;
+    return 'isolated paper cutout baby on pure white background, varied angle';
   }
   
-  let prompt = shot.base_prompt;
+  // Start with strong angle specification
+  let prompt = `CRITICAL ANGLE: ${shot.base_prompt}\n`;
+  prompt += `ISOLATED SUBJECT on PURE WHITE BACKGROUND\n`;
+  prompt += `${shot.isolation_prompt}\n`;
   
   // Use emotional variant if available
   if (context.emotion && shot.emotional_variants?.[context.emotion]) {
-    prompt = shot.emotional_variants[context.emotion];
+    prompt += shot.emotional_variants[context.emotion] + '\n';
   }
   
-  // Apply focus template
-  if (shot.focus_template) {
-    if (context.visualFocus && shot.focus_template.includes('{visual_focus}')) {
-      prompt += ', ' + shot.focus_template.replace('{visual_focus}', context.visualFocus);
-    }
-    if (context.visualAction && shot.focus_template.includes('{visual_action}')) {
-      prompt += ', ' + shot.focus_template.replace('{visual_action}', context.visualAction);
-    }
-    if (context.sensoryDetails && shot.focus_template.includes('{sensory_details}')) {
-      prompt += ', ' + shot.focus_template.replace('{sensory_details}', context.sensoryDetails);
+  // Extract and add minimal surface from narration
+  if (context.narration) {
+    const surface = extractSurface(context.narration);
+    prompt += `Surface indication: ${surface}\n`;
+    
+    const props = extractProps(context.narration);
+    if (props.length > 0) {
+      prompt += `Props: ${props.join(', ')} as isolated paper elements\n`;
     }
   }
   
-  // Add lens effect
-  if (shot.lens_effect) {
-    prompt += ', ' + shot.lens_effect;
-  }
+  // Add specific angle reinforcement
+  prompt += `\nCAMERA ANGLE REQUIREMENTS:\n`;
+  prompt += `- This MUST be a ${shot.angle_type.replace('_', ' ').toUpperCase()} shot\n`;
+  prompt += `- Variety score: ${shot.variety_score}/10 - make it visually distinct!\n`;
+  prompt += `- Mood: ${shot.mood?.join(', ')}\n`;
   
-  // Add depth of field for paper layers
-  if (shot.depth_of_field === 'shallow') {
-    prompt += ', with foreground paper pieces blurred, focus on main subject';
-  } else if (shot.depth_of_field === 'deep') {
-    prompt += ', with all paper layers in sharp focus';
-  }
+  // Paper collage style
+  prompt += '\nSTYLE: Paper collage cutout, visible texture, torn edges\n';
   
-  // Add characters if specified
-  if (context.characters && context.characters.length > 0) {
-    prompt += ', featuring paper cutout ' + context.characters.join(' and ');
-  }
-  
-  // ALWAYS add Paper Collage style descriptors
-  prompt += ', paper collage art style, visible paper texture, torn edges, layered paper pieces';
-  prompt += ', handcrafted look, construction paper and tissue paper';
-  prompt += ', clear distinct paper shapes, dimensional paper layers';
-  
-  // Add gender clarity if specified
+  // Gender clarity
   if (context.gender) {
     if (context.gender === 'girl') {
-      prompt += ', clearly a baby girl with feminine paper details';
+      prompt += 'Clearly a paper cutout baby GIRL with feminine details\n';
     } else if (context.gender === 'boy') {
-      prompt += ', obviously a baby boy with boyish paper features';
+      prompt += 'Obviously a paper cutout baby BOY with boyish features\n';
     }
   }
   
-  // Always end with baby book context
-  prompt += ', children\'s book illustration for ages 0-3, paper craft art';
+  // Final isolation emphasis
+  prompt += '\nREMEMBER: NO BACKGROUND, NO SCENERY, only character on WHITE';
   
   return prompt;
-}
-
-// Get diverse shot sequence for a story
-export function generateShotSequence(pageCount: number): string[] {
-  const sequence: string[] = [];
-  
-  // Opening shot - establishing
-  sequence.push('cozy_establishing');
-  
-  // Vary between different shot types
-  const shotTypes = [
-    ['wonder_macro', 'intimate_detail'],
-    ['emotional_portrait', 'gentle_profile'],
-    ['playful_medium', 'interaction_frame'],
-    ['tiny_hero', 'giant_world'],
-    ['dreamy_overhead', 'playmat_symphony'],
-    ['giggle_tilt', 'tumble_angle'],
-    ['baby_pov', 'peek_over_shoulder']
-  ];
-  
-  for (let i = 1; i < pageCount - 1; i++) {
-    const typeIndex = i % shotTypes.length;
-    const options = shotTypes[typeIndex];
-    const shot = options[Math.floor(Math.random() * options.length)];
-    sequence.push(shot);
-  }
-  
-  // Closing shot - emotional or peaceful
-  sequence.push(Math.random() > 0.5 ? 'emotional_portrait' : 'magic_moment');
-  
-  return sequence.slice(0, pageCount);
 }

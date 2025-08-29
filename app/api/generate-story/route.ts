@@ -1,21 +1,21 @@
+// app/api/generate-story/route.ts
 /**
- * Story Generation with Paper Collage Style and Cinematic Shots
- * Uses Paper Collage as the single brand style
+ * Story Generation with Emotional Narrative Arc
+ * Creates engaging stories with heart, not just action logs
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { PersonId } from '@/lib/store/bookStore';
-import { generateShotSequence, CINEMATIC_SHOTS } from '@/lib/camera/cinematicShots';
+import { generateDiverseShotSequence, CINEMATIC_SHOTS } from '@/lib/camera/cinematicShots';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Prefer a stable, fast model by default
 const STORY_MODEL = process.env.OPENAI_STORY_MODEL || 'gpt-4o-mini';
 
-// Get list of available cinematic shots for prompting
+// Get list of available shots for variety
 const SHOT_OPTIONS = Object.keys(CINEMATIC_SHOTS).map(id => ({
   id,
   name: CINEMATIC_SHOTS[id].name,
@@ -35,6 +35,7 @@ interface StoryPage {
   characters_on_page: string[];
   background_extras?: string[];
   scene_type?: 'opening' | 'action' | 'closing';
+  page_goal?: string;
 }
 
 interface StoryResponse {
@@ -44,6 +45,8 @@ interface StoryResponse {
   cast_members?: string[];
   metadata?: any;
   style?: string;
+  story_arc?: string;
+  emotional_core?: string;
 }
 
 function calculateAgeInMonths(birthdate: string): number {
@@ -67,6 +70,45 @@ function getWordLimit(ageInMonths: number): { min: number; max: number } {
   if (ageInMonths < 12) return { min: 5, max: 10 };
   if (ageInMonths < 24) return { min: 8, max: 15 };
   return { min: 10, max: 20 };
+}
+
+function getStoryGuidelines(ageInMonths: number): string {
+  if (ageInMonths < 12) {
+    return `LITTLEST LISTENERS (0-12 months):
+    - Focus on sensory experiences and parent-child bond
+    - Use rhythmic, musical language with lots of repetition
+    - Include onomatopoeia (boom!, splash!, whoosh!)
+    - Create wonder through simple cause-and-effect
+    - Each page should engage the senses (sight, sound, touch)
+    - Use the baby's name frequently
+    - Example: "Down sits ${"{name}"}. Wiggle, wiggle, toes! What is that? Sand!"`;
+  } else if (ageInMonths < 24) {
+    return `EAGER TODDLERS (12-24 months):
+    - Simple sequence with clear cause and effect
+    - Character wants something, does something, gets result
+    - Use strong action verbs (stomp, reach, tumble, hug)
+    - Include repetitive phrases they can join in on
+    - Create mini-narratives within each page
+    - Example: "A shiny red pail! ${"{name}"} reaches... and GRABS it. Up, up, up it goes. Then... THUMP! Down it comes again."`;
+  } else {
+    return `CURIOUS PRESCHOOLERS (24-36 months):
+    - Clear problem and solution arc
+    - Name and explore feelings (proud, frustrated, excited)
+    - Include simple dialogue and character interactions
+    - Answer "why" through the narrative
+    - Build to a satisfying emotional resolution
+    - Example: "A little wave tickled her toes. *Swish!* ${"{name}"} giggled and chased it back to the sea. 'You can't catch me!' she squealed with delight."`;
+  }
+}
+
+function getEmotionalArcs(): string[] {
+  return [
+    'Discovery Arc: Curiosity → Exploration → Wonder → Joy',
+    'Challenge Arc: Desire → Attempt → Small Struggle → Triumph',
+    'Connection Arc: Alone → Meeting → Playing Together → Friendship',
+    'Comfort Arc: Uncertainty → Gentle Exploration → Growing Confidence → Safety',
+    'Adventure Arc: Ordinary Moment → Unexpected Discovery → Brave Investigation → Happy Resolution'
+  ];
 }
 
 // Map string character names to PersonId
@@ -109,31 +151,6 @@ function mapToPersonId(character: string, babyName: string): PersonId | null {
   return mapping[normalized] || null;
 }
 
-// Extract characters from memory details
-function analyzeMemoryForCharacters(
-  memory: string,
-  babyActions: string,
-  babyName: string
-): Set<PersonId> {
-  const characters = new Set<PersonId>();
-  characters.add('baby');
-
-  const combinedText = `${memory} ${babyActions}`.toLowerCase();
-
-  if (/\b(mom|mommy|mama|mother)\b/.test(combinedText)) characters.add('mom');
-  if (/\b(dad|daddy|papa|father)\b/.test(combinedText)) characters.add('dad');
-  if (/\b(grandma|granny|nana|grandmother)\b/.test(combinedText))
-    characters.add('grandma');
-  if (/\b(grandpa|granddad|grandfather)\b/.test(combinedText))
-    characters.add('grandpa');
-  if (/\b(brother|sister|sibling)\b/.test(combinedText))
-    characters.add('sibling');
-  if (/\b(aunt|auntie)\b/.test(combinedText)) characters.add('aunt');
-  if (/\b(uncle)\b/.test(combinedText)) characters.add('uncle');
-
-  return characters;
-}
-
 export async function POST(request: NextRequest) {
   let babyProfile: any;
   let conversation: any;
@@ -150,7 +167,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: true,
-          story: createFallbackStoryWithPaperCollage(
+          story: createEngagingFallbackStory(
             safeName,
             calculateAgeInMonths(safeBirth),
             safeGender
@@ -164,10 +181,13 @@ export async function POST(request: NextRequest) {
     const memory =
       conversation.find((c: any) => c.question === 'memory_anchor')?.answer ||
       '';
+    const whySpecial =
+      conversation.find((c: any) => c.question === 'why_special')?.answer ||
+      '';
     const babyActions =
       conversation.find((c: any) => c.question === 'baby_action')?.answer ||
       '';
-    const emotions =
+    const babyReaction =
       conversation.find((c: any) => c.question === 'baby_reaction')?.answer ||
       '';
 
@@ -175,102 +195,104 @@ export async function POST(request: NextRequest) {
     const pageCount = getPageCount(ageInMonths);
     const wordLimits = getWordLimit(ageInMonths);
     const babyGender = babyProfile.gender || 'neutral';
+    const storyGuidelines = getStoryGuidelines(ageInMonths);
+    const emotionalArcs = getEmotionalArcs();
 
-    // Analyze memory for potential characters
-    const detectedCharacters = analyzeMemoryForCharacters(
-      memory,
-      babyActions,
-      babyProfile.baby_name
-    );
-    const characterList = Array.from(detectedCharacters).join(', ');
-
-    // Generate a cinematic shot sequence
-    const shotSequence = generateShotSequence(pageCount);
+    // Generate diverse shot sequence
+    const shotSequence = generateDiverseShotSequence(pageCount);
     const shotsDescription = shotSequence.map((shotId, idx) => {
       const shot = CINEMATIC_SHOTS[shotId];
-      return `Page ${idx + 1}: ${shot.name} (${shot.base_prompt})`;
+      return `Page ${idx + 1}: ${shot.name} - MUST BE VISUALLY DISTINCT FROM OTHER PAGES`;
     }).join('\n');
-
-    // Available shots for the AI to understand
-    const availableShotsInfo = SHOT_OPTIONS.slice(0, 15).map(s => 
-      `${s.id}: ${s.name} (mood: ${s.mood})`
-    ).join('\n');
 
     // Gender-specific guidance
     const genderGuidance = babyGender === 'girl' 
-      ? 'Make sure the baby girl has clearly feminine features and wears girly outfits'
+      ? 'Baby girl with feminine charm and sweetness'
       : babyGender === 'boy'
-      ? 'Ensure the baby boy has distinctly boyish features and wears boyish outfits'
-      : 'Keep the baby gender-neutral with cheerful, colorful appearance';
+      ? 'Baby boy with boyish energy and playfulness'
+      : 'Baby with joyful, curious spirit';
 
-    // Enhanced prompt with Paper Collage focus
-    const prompt = `You are an award-winning children's book author specializing in Paper Collage style stories.
-Write a ${pageCount}-page baby book for ${babyProfile.baby_name}, a ${babyGender === 'girl' ? 'baby girl' : babyGender === 'boy' ? 'baby boy' : 'baby'}, age ${ageInMonths} months.
+    // Enhanced story generation prompt
+    const prompt = `You are a beloved children's book author who creates emotionally engaging stories that parents love to read and babies adore hearing. Your stories have HEART, not just actions.
 
-MEMORY: ${JSON.stringify(memory)}
-BABY ACTIONS: ${babyActions}
-EMOTIONS: ${emotions}
-BABY GENDER: ${babyGender}
-POTENTIAL CHARACTERS DETECTED: ${characterList}
+CREATE A STORY FOR: ${babyProfile.baby_name}, a ${babyGender === 'girl' ? 'baby girl' : babyGender === 'boy' ? 'baby boy' : 'baby'}, age ${ageInMonths} months.
 
-AGE WORD WINDOW PER PAGE: ${wordLimits.min}-${wordLimits.max} words (HARD requirement)
+MEMORY CONTEXT:
+- What happened: ${memory}
+- Why it was special: ${whySpecial}
+- What ${babyProfile.baby_name} did: ${babyActions}
+- How ${babyProfile.baby_name} felt: ${babyReaction}
 
-IMPORTANT STYLE NOTE: This book will be illustrated in PAPER COLLAGE style - think of scenes that would look beautiful as paper cutouts with layers, texture, and dimensional depth.
+AGE-APPROPRIATE GUIDELINES:
+${storyGuidelines}
 
-GENDER CLARITY: ${genderGuidance}
+WORD LIMIT: ${wordLimits.min}-${wordLimits.max} words per page (STRICT)
 
-CINEMATIC SHOT SEQUENCE (use these specific shots):
+THE 3 GOLDEN RULES YOU MUST FOLLOW:
+1. GIVE IT A HEART: Every page needs emotional resonance. Show how ${babyProfile.baby_name} FEELS, not just what they do.
+2. CREATE AN ARC: Choose one of these emotional journeys:
+   ${emotionalArcs.join('\n   ')}
+3. USE SENSORY LANGUAGE: Include sounds (splash!), textures (squishy), and sensations (tickly) on every page.
+
+VISUAL VARIETY REQUIREMENT - CRITICAL:
 ${shotsDescription}
 
-AVAILABLE SHOT TYPES (for reference):
-${availableShotsInfo}
+Each page MUST have a completely different camera angle and composition. NO SIMILAR SHOTS!
+Available shot types to ensure variety:
+${SHOT_OPTIONS.slice(0, 20).map(s => `- ${s.id}: ${s.name}`).join('\n')}
 
-CHARACTER MANAGEMENT RULES:
-- EXPLICITLY list who appears on each page in characters_on_page array
-- Use these character IDs: baby, mom, dad, grandma, grandpa, sibling, aunt, uncle, friend
-- The baby (${babyProfile.baby_name}) should be "baby" in the array
-- Only include characters who are actively part of the scene
+STORY STRUCTURE:
+Page 1: Opening - Establish setting and emotion (use wide/establishing shot)
+Pages 2-${pageCount-1}: Build the narrative with varied actions and emotions (alternate between close, medium, wide, high, low angles)
+Page ${pageCount}: Closing - Emotional resolution and satisfaction (use intimate/emotional shot)
 
-VISUAL STORYTELLING FOR PAPER COLLAGE:
-- Each page must use its assigned shot_id from the sequence
-- Think about how paper layers would create depth
-- Consider paper textures (torn edges, tissue paper, construction paper)
-- Visualize scenes that work well with paper cutouts
-- Include sensory details that translate to paper textures
+WRITING STYLE REQUIREMENTS:
+- Present tense only
+- Include a 2-4 word REFRAIN that appears on at least 3 pages
+- Use ${babyProfile.baby_name}'s name 2-3 times (not on every page)
+- Include at least 2 instances of onomatopoeia (sound words)
+- Each page should make the reader FEEL something
+- Create moments of wonder, discovery, or connection
+- Use rhythm and musicality in your language
 
-STORY RULES:
-- Present tense only. Concrete, sensory words. Short, read-aloud-friendly lines.
-- Include ONE short refrain (2-4 words). Repeat it on at least 3 different pages.
-- Gentle musicality: prefer soft end-rhyme or internal rhyme on at least 4 pages.
-- Use ${babyProfile.baby_name} by name on 1-2 pages.
-- Include at least one playful onomatopoeia.
+AVOID THESE COMMON MISTAKES:
+❌ DON'T write action logs: "Yara sits. Yara plays. Yara laughs."
+✅ DO write with emotion: "Down plops Yara in the warm, tickly sand. *Giggle!*"
+
+❌ DON'T use similar shots: All medium shots or all portraits
+✅ DO vary dramatically: Overhead → Close-up → Wide → Low angle → Profile
+
+❌ DON'T forget sensory details: "Yara touches sand"
+✅ DO engage the senses: "Soft sand squishes between tiny fingers"
 
 OUTPUT JSON (exact structure):
 {
-  "title": "Short, concrete title",
-  "refrain": "2-4 word refrain",
-  "cast_members": ["baby", "mom", ...],
+  "title": "Short, emotionally evocative title",
+  "refrain": "2-4 word rhythmic refrain",
+  "emotional_core": "The heart of this story in one sentence",
+  "story_arc": "The emotional journey (e.g., curiosity to joy)",
+  "cast_members": ["baby", ...],
   "pages": [
     {
       "page_number": 1,
-      "narration": "${wordLimits.min}-${wordLimits.max} words, present tense",
-      "shot_id": "${shotSequence[0]}",
-      "shot_description": "Description of how this shot frames the paper collage scene",
-      "visual_action": "specific action suitable for paper cutouts",
-      "action_description": "what paper elements to show",
-      "visual_focus": "what paper detail to emphasize",
-      "emotion": "joy/wonder/peaceful/curious",
-      "sensory_details": "paper textures, colors, layers",
-      "characters_on_page": ["baby", "mom"],
-      "background_extras": [],
+      "narration": "${wordLimits.min}-${wordLimits.max} words with EMOTION and SENSORY details",
+      "page_goal": "What emotional beat this page achieves",
+      "shot_id": "${shotSequence[0]}" (MUST use assigned shot),
+      "shot_description": "How this unique angle serves the story",
+      "visual_action": "Specific physical action for isolated illustration",
+      "action_description": "How the action shows emotion",
+      "visual_focus": "Key detail to emphasize",
+      "emotion": "joy/wonder/peaceful/curious/proud/excited",
+      "sensory_details": "What can be felt/heard/seen",
+      "characters_on_page": ["baby", ...],
       "scene_type": "opening"
     }
   ]
 }
 
-IMPORTANT: Create scenes that will translate beautifully into layered paper collage art with clear shapes and dimensional depth.`;
+Remember: You're not documenting events, you're creating MOMENTS that matter. Make parents smile and babies giggle!`;
 
-    // Call OpenAI with strict timeout
+    // Call OpenAI with enhanced prompt
     const completion = await openai.chat.completions.create(
       {
         model: STORY_MODEL,
@@ -278,11 +300,12 @@ IMPORTANT: Create scenes that will translate beautifully into layered paper coll
           {
             role: 'system',
             content:
-              "You are a visual storyteller who specializes in Paper Collage children's books. Each page should be designed to work beautifully as a paper cutout illustration with layers and texture."
+              "You are a master children's book author who understands that the best baby books create emotional connections through simple, sensory-rich narratives. Every word you write serves both the child's delight and the parent's joy in reading."
           },
           { role: 'user', content: prompt }
         ],
-        response_format: { type: 'json_object' }
+        response_format: { type: 'json_object' },
+        temperature: 0.8, // Slightly higher for more creative variation
       },
       { timeout: 20_000 }
     );
@@ -291,12 +314,11 @@ IMPORTANT: Create scenes that will translate beautifully into layered paper coll
     if (!raw) throw new Error('Empty model response');
     const storyData: StoryResponse = JSON.parse(raw);
 
-    // Validate and convert character arrays to PersonId[]
+    // Validate and enhance pages
     const enhancedPages = storyData.pages.map((page, index) => {
       const charactersOnPage: PersonId[] = [];
-      const backgroundExtras: PersonId[] = [];
-
-      // Process characters_on_page
+      
+      // Process characters
       for (const char of page.characters_on_page || []) {
         const personId = mapToPersonId(char, babyProfile.baby_name);
         if (personId && !charactersOnPage.includes(personId)) {
@@ -304,53 +326,42 @@ IMPORTANT: Create scenes that will translate beautifully into layered paper coll
         }
       }
 
-      // Process background_extras
-      for (const char of page.background_extras || []) {
-        const personId = mapToPersonId(char, babyProfile.baby_name);
-        if (personId && !backgroundExtras.includes(personId)) {
-          backgroundExtras.push(personId);
-        }
-      }
-
-      // Ensure baby is always included if not specified
+      // Ensure baby is included if not specified
       if (charactersOnPage.length === 0) {
         charactersOnPage.push('baby');
       }
 
-      // Ensure we have a valid shot_id
-      const shotId = page.shot_id || shotSequence[index] || 'playful_medium';
+      // Ensure unique shot_id
+      const shotId = page.shot_id || shotSequence[index] || 'isolated_portrait';
 
       return {
         ...page,
         page_number: page.page_number,
         shot_id: shotId,
-        shot_description: page.shot_description || CINEMATIC_SHOTS[shotId]?.name || 'Medium shot',
+        shot_description: page.shot_description || CINEMATIC_SHOTS[shotId]?.name || 'Unique angle',
         characters_on_page: charactersOnPage,
-        background_extras: backgroundExtras.length > 0 ? backgroundExtras : undefined,
         scene_type: page.scene_type || (
           index === 0 ? 'opening' : 
           index === storyData.pages.length - 1 ? 'closing' : 
           'action'
         ),
         emotion: page.emotion || 'joy',
-        layout_template: 'auto'
+        layout_template: 'auto',
+        page_goal: page.page_goal || `Emotional beat ${index + 1}`
       };
-    });
-
-    // Get unique cast members
-    const allCharacters = new Set<PersonId>();
-    enhancedPages.forEach((page) => {
-      page.characters_on_page.forEach((c) => allCharacters.add(c));
-      page.background_extras?.forEach((c) => allCharacters.add(c));
     });
 
     const enhancedStory = {
       title: storyData.title,
       refrain: storyData.refrain,
       pages: enhancedPages,
-      cast_members: Array.from(allCharacters),
-      metadata: storyData.metadata || {},
-      style: 'paper-collage', // Always Paper Collage
+      cast_members: Array.from(new Set(enhancedPages.flatMap(p => p.characters_on_page))),
+      metadata: {
+        ...storyData.metadata,
+        emotional_core: storyData.emotional_core,
+        story_arc: storyData.story_arc
+      },
+      style: 'isolated-paper-collage',
       cinematic_sequence: shotSequence,
       gender: babyGender
     };
@@ -365,7 +376,7 @@ IMPORTANT: Create scenes that will translate beautifully into layered paper coll
     return NextResponse.json(
       {
         success: true,
-        story: createFallbackStoryWithPaperCollage(
+        story: createEngagingFallbackStory(
           safeName,
           calculateAgeInMonths(safeBirth),
           safeGender
@@ -376,79 +387,95 @@ IMPORTANT: Create scenes that will translate beautifully into layered paper coll
   }
 }
 
-function createFallbackStoryWithPaperCollage(
+function createEngagingFallbackStory(
   babyName: string,
   ageInMonths: number,
   gender: 'boy' | 'girl' | 'neutral' = 'neutral'
 ): any {
   const pageCount = getPageCount(ageInMonths);
-  const refrain = 'So much fun!';
-  const shotSequence = generateShotSequence(pageCount);
+  const refrain = 'What joy!';
+  const shotSequence = generateDiverseShotSequence(pageCount);
 
   const pages = [
     {
-      narration: `${babyName} wakes up happy. ${refrain}`,
+      narration: `Morning sunshine kisses ${babyName}'s cheeks. Mmm, warm! ${refrain}`,
+      page_goal: 'Establish warmth and comfort',
       characters_on_page: ['baby' as PersonId],
       shot_id: shotSequence[0],
-      shot_description: 'Paper collage establishing scene',
+      shot_description: 'Wide establishing shot showing baby in morning light',
       emotion: 'peaceful' as const,
-      visual_focus: 'face'
+      visual_focus: 'face',
+      sensory_details: 'Warm golden light, soft textures'
     },
     {
-      narration: `Mommy comes to play.`,
+      narration: `Peek-a-boo! Mommy's here! *Giggle giggle!*`,
+      page_goal: 'Connection and recognition',
       characters_on_page: ['baby' as PersonId, 'mom' as PersonId],
       shot_id: shotSequence[1],
-      shot_description: 'Layered paper interaction',
+      shot_description: 'Over-shoulder intimate moment',
       emotion: 'joy' as const,
-      visual_action: 'reaching for mommy'
+      visual_action: 'reaching up happily',
+      sensory_details: 'Soft voice, warm embrace'
     },
     {
-      narration: `Tiny hands reach up high.`,
+      narration: `Tiny fingers explore. Soft... bumpy... smooth!`,
+      page_goal: 'Sensory discovery',
       characters_on_page: ['baby' as PersonId],
       shot_id: shotSequence[2],
-      shot_description: 'Paper cutout detail shot',
+      shot_description: 'Extreme close-up on hands',
       emotion: 'curious' as const,
-      visual_focus: 'hands'
+      visual_focus: 'hands',
+      sensory_details: 'Different textures to touch'
     },
     {
-      narration: `Together they explore. ${refrain}`,
-      characters_on_page: ['baby' as PersonId, 'mom' as PersonId],
-      shot_id: shotSequence[3],
-      shot_description: 'Paper scene with depth',
-      emotion: 'wonder' as const,
-      visual_action: 'discovering paper toys'
-    },
-    {
-      narration: `Giggles fill the air.`,
+      narration: `${babyName} kicks! Splash-splash-splash! ${refrain}`,
+      page_goal: 'Active play and cause-effect',
       characters_on_page: ['baby' as PersonId],
-      shot_id: shotSequence[4],
-      shot_description: 'Dynamic paper angles',
+      shot_id: shotSequence[3],
+      shot_description: 'Dynamic angle showing movement',
       emotion: 'joy' as const,
-      visual_focus: 'face'
+      visual_action: 'kicking and splashing',
+      sensory_details: 'Water droplets, movement'
     },
     {
-      narration: `Time for snuggles now. ${refrain}`,
+      narration: `Together we dance, swirl and sway. Round and round!`,
+      page_goal: 'Joyful connection',
       characters_on_page: ['baby' as PersonId, 'mom' as PersonId],
+      shot_id: shotSequence[4],
+      shot_description: 'Wide shot showing movement',
+      emotion: 'joy' as const,
+      visual_action: 'being held and spun gently',
+      sensory_details: 'Motion, laughter, closeness'
+    },
+    {
+      narration: `Sleepy ${babyName}, cozy and loved. Sweet dreams. ${refrain}`,
+      page_goal: 'Peaceful resolution',
+      characters_on_page: ['baby' as PersonId],
       shot_id: shotSequence[5],
-      shot_description: 'Peaceful paper collage closing',
+      shot_description: 'Soft, peaceful close-up',
       emotion: 'peaceful' as const,
-      visual_action: 'cuddling together'
+      visual_action: 'curled up peacefully',
+      sensory_details: 'Soft blanket, quiet, warmth'
     }
   ];
 
   return {
-    title: `${babyName}'s Happy Day`,
+    title: `${babyName}'s Day of Wonder`,
     refrain,
+    emotional_core: 'The joy of simple discoveries and loving connections',
+    story_arc: 'Peaceful awakening → playful exploration → restful satisfaction',
     cast_members: ['baby', 'mom'],
-    metadata: {},
-    style: 'paper-collage',
+    metadata: {
+      emotional_core: 'A celebration of everyday moments of joy and discovery',
+      story_arc: 'comfort → play → rest'
+    },
+    style: 'isolated-paper-collage',
     gender,
     cinematic_sequence: shotSequence,
     pages: pages.slice(0, pageCount).map((page, i) => ({
       page_number: i + 1,
       ...page,
-      action_description: 'Paper cutout baby moments',
-      sensory_details: 'Layered paper with torn edges and texture',
+      action_description: page.visual_action || 'Gentle baby moment',
       background_extras: undefined,
       scene_type: i === 0 ? 'opening' : i === pageCount - 1 ? 'closing' : 'action',
       layout_template: 'auto'

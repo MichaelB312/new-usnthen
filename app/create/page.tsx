@@ -1,3 +1,4 @@
+// app/create/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -30,6 +31,7 @@ export default function CreateBookPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
 
   const {
     bookId,
@@ -50,10 +52,24 @@ export default function CreateBookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Progress animation during generation
+  useEffect(() => {
+    if (isGeneratingStory) {
+      const interval = setInterval(() => {
+        setGenerationProgress(prev => {
+          if (prev >= 90) return prev; // Cap at 90% until complete
+          return prev + 5; // Increment by 5% every second
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setGenerationProgress(0);
+    }
+  }, [isGeneratingStory]);
+
   const handleProfileComplete = (profile: any) => {
     setProfile(profile);
     setCurrentStep(2);
-    // Removed: toast.success("Great! Now let's capture a special memory");
   };
 
   const handleChatComplete = async (conversation: any) => {
@@ -66,11 +82,12 @@ export default function CreateBookPage() {
     }, 500);
   };
 
-  // Safe fetch that tolerates proxy cutoffs and malformed/empty JSON
-  const generateStory = async (conversation: any) => {
+  // Safe fetch with longer timeout for story generation
+  const generateStory = async (conversation: any, retryCount = 0) => {
     try {
+      // Longer timeout for complex story generation - 45 seconds
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25_000); // 25s client cutoff
+      const timeoutId = setTimeout(() => controller.abort(), 45_000); // Increased from 25s to 45s
 
       const res = await fetch('/api/generate-story', {
         method: 'POST',
@@ -107,7 +124,7 @@ export default function CreateBookPage() {
       }
 
       setStory(data.story);
-      // Removed: toast.success('Your magical story has been created!');
+      setGenerationProgress(100);
 
       // Delay before transitioning to story review
       setTimeout(() => {
@@ -116,12 +133,24 @@ export default function CreateBookPage() {
       }, 500);
     } catch (error: any) {
       console.error('Error generating story:', error?.message || error);
-      const msg =
-        error?.name === 'AbortError'
-          ? 'Generation took too long. Please try again.'
-          : 'Failed to generate story. Please try again.';
-      toast.error(msg); // Keep only error toasts
+      
+      // Handle timeout specifically
+      if (error?.name === 'AbortError') {
+        if (retryCount < 1) {
+          // Retry once on timeout
+          console.log('Story generation timed out, retrying...');
+          toast.loading('Taking a bit longer than expected... Please wait.');
+          generateStory(conversation, retryCount + 1);
+          return;
+        } else {
+          toast.error('Story generation is taking too long. Please try with a simpler memory.');
+        }
+      } else {
+        toast.error('Failed to generate story. Please try again.');
+      }
+      
       setIsGeneratingStory(false);
+      setGenerationProgress(0);
       setCurrentStep(2);
     }
   };
@@ -129,6 +158,7 @@ export default function CreateBookPage() {
   const handleStoryRegenerate = () => {
     const conversation = useBookStore.getState().conversation;
     setIsGeneratingStory(true);
+    setGenerationProgress(0);
     setTimeout(() => {
       generateStory(conversation);
     }, 500);
@@ -139,9 +169,7 @@ export default function CreateBookPage() {
   };
 
   const handleIllustrationsComplete = () => {
-    // Skip step 5 (Book Preview) and go directly to Book Layout
     setCurrentStep(5);
-    // Removed: toast.success('Beautiful illustrations created!');
   };
 
   const handleLayoutComplete = () => {
@@ -244,9 +272,36 @@ export default function CreateBookPage() {
                 <Wand2 className="h-20 w-20 text-purple-600" />
               </motion.div>
               <h2 className="text-4xl font-patrick mb-4 gradient-text">Creating Your Story...</h2>
-              <p className="text-xl text-gray-600">
+              <p className="text-xl text-gray-600 mb-6">
                 Our AI is crafting a beautiful tale for {babyProfile?.baby_name}
               </p>
+              
+              {/* Progress bar */}
+              <div className="max-w-md mx-auto">
+                <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
+                  <motion.div
+                    className="h-full bg-gradient-to-r from-purple-600 to-pink-600"
+                    initial={{ width: '0%' }}
+                    animate={{ width: `${generationProgress}%` }}
+                    transition={{ duration: 0.5 }}
+                  />
+                </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  {generationProgress < 30 
+                    ? 'Analyzing memory...' 
+                    : generationProgress < 60 
+                    ? 'Creating narrative arc...'
+                    : generationProgress < 90
+                    ? 'Adding emotional depth...'
+                    : 'Finalizing your story...'}
+                </p>
+              </div>
+              
+              {generationProgress > 60 && (
+                <p className="text-xs text-gray-400 mt-6">
+                  Creating emotionally engaging stories takes a moment...
+                </p>
+              )}
             </motion.div>
           ) : (
             <motion.div

@@ -1,4 +1,4 @@
-// app/api/generate-image-async/route.ts - Paper Collage Style with Gender Awareness
+// app/api/generate-image-async/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
@@ -10,9 +10,11 @@ import {
 } from '@/lib/camera/cinematicShots';
 import {
   buildPaperCollagePrompt,
-  enhanceWithPaperCollage,
+  buildIsolatedScenePrompt,
+  enhanceWithIsolatedPaperCollage,
   getGenderDescription,
-  PAPER_COLLAGE_ELEMENTS
+  extractSurface,
+  extractProps
 } from '@/lib/styles/paperCollage';
 
 export const runtime = 'nodejs';
@@ -53,14 +55,14 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 /**
- * Build Paper Collage prompt with cinematic shot and gender awareness
+ * Build Isolated Paper Collage prompt with white/transparent background
  */
-function buildEnhancedPaperCollagePrompt(
+function buildEnhancedIsolatedPrompt(
   pageData: any,
   pageNumber: number,
   babyGender: 'boy' | 'girl' | 'neutral'
 ): string {
-  // Determine the best shot based on context
+  // Determine the best isolated shot
   const shotId = pageData.shot_id || selectBestShot(
     pageData.visual_action || pageData.action_description,
     pageData.emotion,
@@ -68,77 +70,57 @@ function buildEnhancedPaperCollagePrompt(
     pageData.scene_type as 'opening' | 'action' | 'closing'
   );
   
-  // Get the cinematic shot details
+  // Build isolated scene prompt
+  const scenePrompt = buildIsolatedScenePrompt({
+    action: pageData.visual_action || pageData.action_description || 'sitting',
+    narration: pageData.narration || '',
+    mood: pageData.emotion || 'peaceful',
+    characters: [{ type: 'baby', gender: babyGender }]
+  });
+  
+  // Extract surface and props from narration
+  const surface = extractSurface(pageData.narration || '');
+  const props = extractProps(pageData.narration || '');
+  
+  // Build comprehensive isolated prompt - emphasize isolated subject
+  let fullPrompt = 'CRITICAL: CREATE ISOLATED CHARACTER ON WHITE/TRANSPARENT BACKGROUND\n';
+  fullPrompt += 'ISOLATED SUBJECT ONLY, NO SCENERY, NO SKY, NO BACKGROUND ELEMENTS, NO ENVIRONMENT\n';
+  fullPrompt += 'PRODUCT PHOTOGRAPHY STYLE - SUBJECT ON CLEAN WHITE OR TRANSPARENT BACKGROUND\n\n';
+  
+  fullPrompt += scenePrompt + '\n\n';
+  
+  // Add specific shot guidance
   const shot = CINEMATIC_SHOTS[shotId];
-  let basePrompt = shot ? shot.base_prompt : 'medium shot';
-  
-  // Add visual action/focus to the base prompt
-  if (pageData.visual_action) {
-    basePrompt += `, showing ${pageData.visual_action}`;
-  }
-  if (pageData.visual_focus && shot?.focus_template) {
-    basePrompt += `, ${shot.focus_template.replace('{visual_focus}', pageData.visual_focus)}`;
+  if (shot) {
+    fullPrompt += `Shot type: ${shot.isolation_prompt}\n`;
   }
   
-  // Build Paper Collage prompt with gender awareness
-  const paperCollagePrompt = buildPaperCollagePrompt(
-    basePrompt,
-    babyGender,
-    true // Include character details
-  );
-  
-  // Add specific Paper Collage elements based on scene
-  let sceneElements = '';
-  
-  // Add background elements
-  if (pageData.sensory_details) {
-    sceneElements += `, ${pageData.sensory_details} created with layered paper cutouts`;
+  // Add surface and props
+  fullPrompt += `Surface: ${surface}\n`;
+  if (props.length > 0) {
+    fullPrompt += `Props: ${props.join(', ')}\n`;
   }
   
-  // Add gender-appropriate props
-  const props = PAPER_COLLAGE_ELEMENTS.props[babyGender];
-  if (props && props.length > 0 && pageData.emotion) {
-    const propIndex = pageNumber % props.length;
-    sceneElements += `, featuring ${props[propIndex]}`;
-  }
+  // Strict isolation rules
+  fullPrompt += '\nSTRICT ISOLATION RULES:\n';
+  fullPrompt += '1. Character must be ISOLATED on WHITE or TRANSPARENT background\n';
+  fullPrompt += '2. Only show minimal ground/surface texture directly under character feet/body\n';
+  fullPrompt += '3. NO environmental elements, NO scenery, NO sky, NO background objects\n';
+  fullPrompt += '4. Paper collage cutout style with visible paper texture on character only\n';
+  fullPrompt += '5. Studio product photography style - clean isolated subject\n';
+  fullPrompt += '6. Character centered in frame with empty space around\n';
+  fullPrompt += '7. ' + (babyGender === 'girl' ? 'Clearly a paper cutout baby girl' : babyGender === 'boy' ? 'Obviously a paper cutout baby boy' : 'Adorable paper cutout baby') + '\n';
+  fullPrompt += '8. BACKGROUND MUST BE EMPTY - white or transparent, no details\n';
+  fullPrompt += '9. Surface indication should be minimal - just a thin line or small patch under character\n';
   
-  // Add emotion-based paper effects
-  if (pageData.emotion === 'joy') {
-    sceneElements += ', bright colored paper pieces arranged dynamically, paper confetti accents';
-  } else if (pageData.emotion === 'peaceful') {
-    sceneElements += ', soft pastel paper layers, gentle overlapping, tissue paper clouds';
-  } else if (pageData.emotion === 'curious') {
-    sceneElements += ', paper pieces at playful angles, pop-up book style depth';
-  } else if (pageData.emotion === 'wonder') {
-    sceneElements += ', magical paper sparkles, layered paper creating dreamy depth';
-  }
-  
-  // Additional rules for consistency
-  const rules = [
-    'IMPORTANT: Paper collage art style must be prominent throughout',
-    'Each element is a distinct paper cutout with visible texture',
-    'Clear gender distinction - ' + (babyGender === 'girl' ? 'obviously a baby girl' : babyGender === 'boy' ? 'clearly a baby boy' : 'adorable baby'),
-    'Maintain character consistency across all pages',
-    'Torn paper edges and layered depth visible',
-    'High contrast suitable for baby vision',
-    'No text or labels in the image'
-  ];
-  
-  // Special instructions for page 1 (style anchor)
+  // Special instructions for page 1
   if (pageNumber === 1) {
-    rules.unshift('CREATE PAPER COLLAGE STYLE: This is page 1 - establish the handcrafted paper cutout aesthetic');
+    fullPrompt += '\nPAGE 1: Establish the isolated paper cutout style on clean background for consistency';
   } else {
-    rules.unshift('MATCH PAPER COLLAGE STYLE: Continue the exact paper cutout style from page 1');
+    fullPrompt += '\nMATCH STYLE: Continue the isolated paper cutout style on clean background from page 1';
   }
   
-  const fullPrompt = [
-    paperCollagePrompt,
-    sceneElements,
-    '',
-    ...rules
-  ].filter(s => s.trim()).join('\n');
-  
-  console.log(`[Page ${pageNumber}] Paper Collage prompt with ${babyGender} baby:`, fullPrompt);
+  console.log(`[Page ${pageNumber}] Isolated prompt for ${babyGender} baby:`, fullPrompt);
   return fullPrompt;
 }
 
@@ -172,30 +154,26 @@ async function prepareImageFile(imageUrl: string, name: string = 'ref.png'): Pro
 }
 
 /**
- * Get ONE best reference for a character (cached)
+ * Get ONE best reference for a character
  */
 function getOneCharacterReference(
   characterId: PersonId,
   uploadedPhotos: UploadedPhoto[],
   bookId: string
 ): string | null {
-  // Check cache first
   const bookCache = characterReferences.get(bookId);
   if (bookCache?.has(characterId)) {
     return bookCache.get(characterId)!;
   }
   
-  // Find best photo (prefer solo shots)
   let bestPhoto: string | null = null;
   
-  // Priority 1: Solo photo of just this character
   const soloPhoto = uploadedPhotos.find(p => 
     p.people.length === 1 && p.people[0] === characterId
   );
   if (soloPhoto) {
     bestPhoto = soloPhoto.fileUrl;
   } else {
-    // Priority 2: Any photo with this character (prefer fewer people)
     const photosWithChar = uploadedPhotos
       .filter(p => p.people.includes(characterId))
       .sort((a, b) => a.people.length - b.people.length);
@@ -205,7 +183,6 @@ function getOneCharacterReference(
     }
   }
   
-  // Cache the result
   if (bestPhoto) {
     if (!bookCache) {
       characterReferences.set(bookId, new Map());
@@ -231,7 +208,6 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Get baby gender from profile
     const babyGender = babyProfile?.gender || 'neutral';
     
     const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
@@ -243,7 +219,7 @@ export async function POST(request: NextRequest) {
       startedAt: Date.now()
     });
     
-    processOptimalImageGeneration(jobId, { ...body, babyGender }).catch(error => {
+    processIsolatedImageGeneration(jobId, { ...body, babyGender }).catch(error => {
       console.error(`Job ${jobId} failed:`, error);
       const job = jobs.get(jobId);
       if (job) {
@@ -255,7 +231,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       jobId,
-      message: 'Paper Collage image generation started'
+      message: 'Isolated Paper Collage image generation started'
     });
     
   } catch (error: any) {
@@ -268,9 +244,9 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Process image generation with Paper Collage style and gender awareness
+ * Process isolated image generation
  */
-async function processOptimalImageGeneration(jobId: string, params: any) {
+async function processIsolatedImageGeneration(jobId: string, params: any) {
   const job = jobs.get(jobId);
   if (!job) return;
   
@@ -287,13 +263,12 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
       uploadedPhotos = []
     } = params;
     
-    console.log(`[Job ${jobId}] Page ${pageNumber}, Gender: ${babyGender}, Shot: ${pageData.shot_id || 'auto'}`);
+    console.log(`[Job ${jobId}] Page ${pageNumber}, Isolated ${babyGender} baby`);
     
     let imageFiles: any[] = [];
     let prompt: string;
     
     if (pageNumber === 1) {
-      // PAGE 1: Create Paper Collage style anchor with baby photo
       let babyReference = babyPhotoUrl;
       if (!babyReference && uploadedPhotos.length > 0) {
         babyReference = getOneCharacterReference('baby', uploadedPhotos, bookId);
@@ -303,15 +278,14 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
         throw new Error('No baby photo provided for Page 1');
       }
       
-      console.log(`[Job ${jobId}] Page 1: Creating Paper Collage style anchor for ${babyGender} baby`);
+      console.log(`[Job ${jobId}] Page 1: Creating Isolated Paper Collage style anchor`);
       
       const babyFile = await prepareImageFile(babyReference, 'baby.png');
       imageFiles = [babyFile];
       
-      prompt = buildEnhancedPaperCollagePrompt(pageData, 1, babyGender);
+      prompt = buildEnhancedIsolatedPrompt(pageData, 1, babyGender);
       
     } else {
-      // PAGES 2+: Style anchor + character references
       const styleAnchor = await waitForStyleAnchor(bookId);
       if (!styleAnchor) {
         throw new Error('Style anchor not available. Please generate Page 1 first.');
@@ -320,12 +294,10 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
       const references: { url: string; name: string }[] = [];
       references.push({ url: styleAnchor, name: 'style.png' });
       
-      // Get UNIQUE characters on this page
       const uniqueCharacters = new Set(pageData.characters_on_page || []);
       
-      // Add ONE reference per unique character
       for (const characterId of uniqueCharacters) {
-        if (references.length >= 4) break; // Max 4 total (style + 3 chars)
+        if (references.length >= 4) break;
         
         const charRef = getOneCharacterReference(characterId as PersonId, uploadedPhotos, bookId);
         if (charRef) {
@@ -336,19 +308,18 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
         }
       }
       
-      console.log(`[Job ${jobId}] Page ${pageNumber}: ${uniqueCharacters.size} characters, ${babyGender} baby`);
+      console.log(`[Job ${jobId}] Page ${pageNumber}: Isolated style with ${references.length} refs`);
       
       imageFiles = await Promise.all(
         references.map(ref => prepareImageFile(ref.url, ref.name))
       );
       
-      prompt = buildEnhancedPaperCollagePrompt(pageData, pageNumber, babyGender);
+      prompt = buildEnhancedIsolatedPrompt(pageData, pageNumber, babyGender);
     }
     
     job.progress = 30;
     
-    // Call OpenAI with Paper Collage prompt
-    console.log(`[Job ${jobId}] Calling OpenAI with Paper Collage style for ${babyGender} baby`);
+    console.log(`[Job ${jobId}] Calling OpenAI with Isolated Paper Collage prompt`);
     
     const response = await openai.images.edit({
       model: 'gpt-image-1',
@@ -369,7 +340,7 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
     
     if (pageNumber === 1) {
       styleAnchors.set(bookId, imageBase64);
-      console.log(`[Job ${jobId}] Paper Collage style anchor created for book ${bookId}`);
+      console.log(`[Job ${jobId}] Isolated style anchor created for book ${bookId}`);
     }
     
     job.progress = 90;
@@ -383,7 +354,7 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
       page_number: pageNumber,
       dataUrl,
       sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
-      style: 'paper-collage',
+      style: 'isolated-paper-collage',
       gender: babyGender,
       shot_id: pageData.shot_id,
       characters_on_page: pageData.characters_on_page,
@@ -391,7 +362,7 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
       elapsed_ms: Date.now() - job.startedAt
     };
     
-    console.log(`[Job ${jobId}] Completed with Paper Collage style for ${babyGender} baby`);
+    console.log(`[Job ${jobId}] Completed with Isolated Paper Collage style`);
     
   } catch (error: any) {
     console.error(`[Job ${jobId}] Failed:`, error);
@@ -438,7 +409,7 @@ async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<str
     }
     
     if (attempt === 0) {
-      console.log(`Waiting for Paper Collage style anchor for book ${bookId}...`);
+      console.log(`Waiting for Isolated Paper Collage style anchor for book ${bookId}...`);
     }
     
     await new Promise(resolve => setTimeout(resolve, 2000));

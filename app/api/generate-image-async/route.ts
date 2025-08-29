@@ -1,10 +1,19 @@
-// app/api/generate-image-async/route.ts - Fixed version with one ref per character
-// Key changes: Only send ONE reference per unique character, better styles
-
+// app/api/generate-image-async/route.ts - Paper Collage Style with Gender Awareness
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
 import { PersonId, CastMember, UploadedPhoto } from '@/lib/store/bookStore';
+import { 
+  CINEMATIC_SHOTS, 
+  buildCinematicPrompt, 
+  selectBestShot 
+} from '@/lib/camera/cinematicShots';
+import {
+  buildPaperCollagePrompt,
+  enhanceWithPaperCollage,
+  getGenderDescription,
+  PAPER_COLLAGE_ELEMENTS
+} from '@/lib/styles/paperCollage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,7 +39,7 @@ const jobs = new Map<string, {
 // Style anchor storage
 const styleAnchors = new Map<string, string>();
 
-// Character reference cache - store best reference per character per book
+// Character reference cache
 const characterReferences = new Map<string, Map<PersonId, string>>();
 
 // Cleanup interval
@@ -44,55 +53,93 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 /**
- * Build vibrant, high-contrast prompt for baby books
+ * Build Paper Collage prompt with cinematic shot and gender awareness
  */
-function buildVibrantPrompt(
+function buildEnhancedPaperCollagePrompt(
   pageData: any,
   pageNumber: number,
-  style: string
+  babyGender: 'boy' | 'girl' | 'neutral'
 ): string {
-  // Updated styles with high contrast and vibrant colors for babies
-  const styleMap: Record<string, string> = {
-    'bright-bold': 'BRIGHT BOLD illustration style: vivid saturated colors, thick black outlines, high contrast, cheerful and energetic, baby board book style',
-    'pop-art': 'POP ART baby book style: bold primary colors (red, blue, yellow), thick black outlines, high contrast shapes, playful and graphic',
-    'rainbow': 'RAINBOW BRIGHT style: vibrant multi-colored palette, bold shapes, high contrast, joyful and stimulating for babies, thick outlines',
-    
-    // Legacy styles (updated to be more vibrant)
-    wondrous: 'VIBRANT watercolor style: bright saturated colors, high contrast, thick outlines, cheerful atmosphere',
-    crayon: 'BOLD CRAYON style: bright waxy colors, thick black outlines, high contrast, playful texture',
-    vintage: 'RETRO BRIGHT style: vivid colors, high contrast, thick lines, nostalgic but energetic'
-  };
+  // Determine the best shot based on context
+  const shotId = pageData.shot_id || selectBestShot(
+    pageData.visual_action || pageData.action_description,
+    pageData.emotion,
+    pageData.visual_focus,
+    pageData.scene_type as 'opening' | 'action' | 'closing'
+  );
   
-  const charactersPresent = pageData.characters_on_page?.join(', ') || 'baby';
+  // Get the cinematic shot details
+  const shot = CINEMATIC_SHOTS[shotId];
+  let basePrompt = shot ? shot.base_prompt : 'medium shot';
   
-  const prompt = [
-    pageNumber === 1 ? 'CREATE STYLE:' : 'MATCH STYLE:',
-    pageNumber === 1 
-      ? `${styleMap[style] || styleMap['bright-bold']}` 
-      : 'Match image[0] style EXACTLY - same colors, same line thickness, same energy level',
-    '',
-    'IMPORTANT: Use BRIGHT, HIGH-CONTRAST colors suitable for baby vision',
-    'Thick black outlines on all elements',
-    'Bold, simple shapes',
-    '',
-    `SCENE (Page ${pageData.page_number}):`,
-    `- Characters: ${charactersPresent}`,
-    `- Action: ${pageData.visual_action || pageData.action_description || 'playing'}`,
-    `- Camera: ${pageData.camera_prompt || pageData.camera_angle || 'medium shot'}`,
-    '',
-    'RULES:',
-    '- Baby board book illustration (ages 0-3)',
-    '- HIGH CONTRAST and BRIGHT COLORS essential',
-    '- Thick, bold outlines on everything',
-    '- Simple, clear shapes',
-    '- Cheerful, energetic mood',
-    '- Keep characters consistent',
-    '- No text or labels',
-    '- Single frame composition'
-  ].filter(line => line !== undefined).join('\n');
+  // Add visual action/focus to the base prompt
+  if (pageData.visual_action) {
+    basePrompt += `, showing ${pageData.visual_action}`;
+  }
+  if (pageData.visual_focus && shot?.focus_template) {
+    basePrompt += `, ${shot.focus_template.replace('{visual_focus}', pageData.visual_focus)}`;
+  }
   
-  console.log(`[Page ${pageNumber}] Vibrant prompt:`, prompt);
-  return prompt;
+  // Build Paper Collage prompt with gender awareness
+  const paperCollagePrompt = buildPaperCollagePrompt(
+    basePrompt,
+    babyGender,
+    true // Include character details
+  );
+  
+  // Add specific Paper Collage elements based on scene
+  let sceneElements = '';
+  
+  // Add background elements
+  if (pageData.sensory_details) {
+    sceneElements += `, ${pageData.sensory_details} created with layered paper cutouts`;
+  }
+  
+  // Add gender-appropriate props
+  const props = PAPER_COLLAGE_ELEMENTS.props[babyGender];
+  if (props && props.length > 0 && pageData.emotion) {
+    const propIndex = pageNumber % props.length;
+    sceneElements += `, featuring ${props[propIndex]}`;
+  }
+  
+  // Add emotion-based paper effects
+  if (pageData.emotion === 'joy') {
+    sceneElements += ', bright colored paper pieces arranged dynamically, paper confetti accents';
+  } else if (pageData.emotion === 'peaceful') {
+    sceneElements += ', soft pastel paper layers, gentle overlapping, tissue paper clouds';
+  } else if (pageData.emotion === 'curious') {
+    sceneElements += ', paper pieces at playful angles, pop-up book style depth';
+  } else if (pageData.emotion === 'wonder') {
+    sceneElements += ', magical paper sparkles, layered paper creating dreamy depth';
+  }
+  
+  // Additional rules for consistency
+  const rules = [
+    'IMPORTANT: Paper collage art style must be prominent throughout',
+    'Each element is a distinct paper cutout with visible texture',
+    'Clear gender distinction - ' + (babyGender === 'girl' ? 'obviously a baby girl' : babyGender === 'boy' ? 'clearly a baby boy' : 'adorable baby'),
+    'Maintain character consistency across all pages',
+    'Torn paper edges and layered depth visible',
+    'High contrast suitable for baby vision',
+    'No text or labels in the image'
+  ];
+  
+  // Special instructions for page 1 (style anchor)
+  if (pageNumber === 1) {
+    rules.unshift('CREATE PAPER COLLAGE STYLE: This is page 1 - establish the handcrafted paper cutout aesthetic');
+  } else {
+    rules.unshift('MATCH PAPER COLLAGE STYLE: Continue the exact paper cutout style from page 1');
+  }
+  
+  const fullPrompt = [
+    paperCollagePrompt,
+    sceneElements,
+    '',
+    ...rules
+  ].filter(s => s.trim()).join('\n');
+  
+  console.log(`[Page ${pageNumber}] Paper Collage prompt with ${babyGender} baby:`, fullPrompt);
+  return fullPrompt;
 }
 
 /**
@@ -175,7 +222,7 @@ function getOneCharacterReference(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { bookId, pageNumber, pageData } = body;
+    const { bookId, pageNumber, pageData, babyProfile } = body;
     
     if (!bookId || !pageNumber || !pageData) {
       return NextResponse.json(
@@ -183,6 +230,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    
+    // Get baby gender from profile
+    const babyGender = babyProfile?.gender || 'neutral';
     
     const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
     
@@ -193,7 +243,7 @@ export async function POST(request: NextRequest) {
       startedAt: Date.now()
     });
     
-    processOptimalImageGeneration(jobId, body).catch(error => {
+    processOptimalImageGeneration(jobId, { ...body, babyGender }).catch(error => {
       console.error(`Job ${jobId} failed:`, error);
       const job = jobs.get(jobId);
       if (job) {
@@ -205,7 +255,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       jobId,
-      message: 'Image generation started'
+      message: 'Paper Collage image generation started'
     });
     
   } catch (error: any) {
@@ -218,7 +268,7 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Process image generation with ONE reference per character
+ * Process image generation with Paper Collage style and gender awareness
  */
 async function processOptimalImageGeneration(jobId: string, params: any) {
   const job = jobs.get(jobId);
@@ -233,17 +283,17 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
       pageNumber, 
       babyPhotoUrl,
       pageData, 
-      style = 'bright-bold', // Default to vibrant style
+      babyGender = 'neutral',
       uploadedPhotos = []
     } = params;
     
-    console.log(`[Job ${jobId}] Page ${pageNumber}, Characters: ${pageData.characters_on_page?.join(', ')}`);
+    console.log(`[Job ${jobId}] Page ${pageNumber}, Gender: ${babyGender}, Shot: ${pageData.shot_id || 'auto'}`);
     
     let imageFiles: any[] = [];
     let prompt: string;
     
     if (pageNumber === 1) {
-      // PAGE 1: Create style anchor with ONLY baby photo
+      // PAGE 1: Create Paper Collage style anchor with baby photo
       let babyReference = babyPhotoUrl;
       if (!babyReference && uploadedPhotos.length > 0) {
         babyReference = getOneCharacterReference('baby', uploadedPhotos, bookId);
@@ -253,15 +303,15 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
         throw new Error('No baby photo provided for Page 1');
       }
       
-      console.log(`[Job ${jobId}] Page 1: Creating vibrant style anchor`);
+      console.log(`[Job ${jobId}] Page 1: Creating Paper Collage style anchor for ${babyGender} baby`);
       
       const babyFile = await prepareImageFile(babyReference, 'baby.png');
       imageFiles = [babyFile];
       
-      prompt = buildVibrantPrompt(pageData, 1, style);
+      prompt = buildEnhancedPaperCollagePrompt(pageData, 1, babyGender);
       
     } else {
-      // PAGES 2+: Style anchor + ONE reference per unique character
+      // PAGES 2+: Style anchor + character references
       const styleAnchor = await waitForStyleAnchor(bookId);
       if (!styleAnchor) {
         throw new Error('Style anchor not available. Please generate Page 1 first.');
@@ -273,7 +323,7 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
       // Get UNIQUE characters on this page
       const uniqueCharacters = new Set(pageData.characters_on_page || []);
       
-      // Add ONE reference per unique character (max 3 characters typically)
+      // Add ONE reference per unique character
       for (const characterId of uniqueCharacters) {
         if (references.length >= 4) break; // Max 4 total (style + 3 chars)
         
@@ -286,19 +336,19 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
         }
       }
       
-      console.log(`[Job ${jobId}] Page ${pageNumber}: ${uniqueCharacters.size} unique characters, ${references.length} total refs`);
+      console.log(`[Job ${jobId}] Page ${pageNumber}: ${uniqueCharacters.size} characters, ${babyGender} baby`);
       
       imageFiles = await Promise.all(
         references.map(ref => prepareImageFile(ref.url, ref.name))
       );
       
-      prompt = buildVibrantPrompt(pageData, pageNumber, style);
+      prompt = buildEnhancedPaperCollagePrompt(pageData, pageNumber, babyGender);
     }
     
     job.progress = 30;
     
-    // Call OpenAI
-    console.log(`[Job ${jobId}] Calling OpenAI with ${imageFiles.length} reference(s)`);
+    // Call OpenAI with Paper Collage prompt
+    console.log(`[Job ${jobId}] Calling OpenAI with Paper Collage style for ${babyGender} baby`);
     
     const response = await openai.images.edit({
       model: 'gpt-image-1',
@@ -319,7 +369,7 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
     
     if (pageNumber === 1) {
       styleAnchors.set(bookId, imageBase64);
-      console.log(`[Job ${jobId}] Vibrant style anchor created for book ${bookId}`);
+      console.log(`[Job ${jobId}] Paper Collage style anchor created for book ${bookId}`);
     }
     
     job.progress = 90;
@@ -333,13 +383,15 @@ async function processOptimalImageGeneration(jobId: string, params: any) {
       page_number: pageNumber,
       dataUrl,
       sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
-      style,
+      style: 'paper-collage',
+      gender: babyGender,
+      shot_id: pageData.shot_id,
       characters_on_page: pageData.characters_on_page,
       reference_count: imageFiles.length,
       elapsed_ms: Date.now() - job.startedAt
     };
     
-    console.log(`[Job ${jobId}] Completed with ${imageFiles.length} reference(s)`);
+    console.log(`[Job ${jobId}] Completed with Paper Collage style for ${babyGender} baby`);
     
   } catch (error: any) {
     console.error(`[Job ${jobId}] Failed:`, error);
@@ -386,7 +438,7 @@ async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<str
     }
     
     if (attempt === 0) {
-      console.log(`Waiting for style anchor for book ${bookId}...`);
+      console.log(`Waiting for Paper Collage style anchor for book ${bookId}...`);
     }
     
     await new Promise(resolve => setTimeout(resolve, 2000));

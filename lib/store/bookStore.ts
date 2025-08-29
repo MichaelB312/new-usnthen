@@ -1,26 +1,26 @@
-// lib/store/bookStore.ts - Enhanced with cast management
+// lib/store/bookStore.ts - Updated with Paper Collage as single style
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-// Character types - Added export
+// Character types
 export type PersonId = 'baby' | 'mom' | 'dad' | 'grandma' | 'grandpa' | 'sibling' | 'aunt' | 'uncle' | 'friend';
 
 export interface CastMember {
   id: PersonId;
   displayName: string;
-  identityAnchorUrl?: string; // Stylized portrait in book style
-  fallbackPhotos: string[];  // Original photos
-  outfit_notes?: string;     // Lock outfits for continuity
-  features_lock?: string;    // Face/hair/skin/eyes descriptors
+  identityAnchorUrl?: string;
+  fallbackPhotos: string[];
+  outfit_notes?: string;
+  features_lock?: string;
 }
 
 export interface UploadedPhoto {
   id: string;
-  fileUrl: string;      // Base64 or URL
-  people: PersonId[];   // Who appears in this photo
+  fileUrl: string;
+  people: PersonId[];
   is_identity_anchor?: boolean;
   is_group_photo?: boolean;
-  notes?: string;       // Outfit/pose notes
+  notes?: string;
 }
 
 // Enhanced Page interface with character tracking
@@ -34,12 +34,14 @@ export interface Page {
   resolved_layout?: any;
   
   // Character management
-  characters_on_page: PersonId[];     // Who must be visible
-  background_extras?: PersonId[];     // Optional background cameos
+  characters_on_page: PersonId[];
+  background_extras?: PersonId[];
   
   // Camera and shot fields
   shot?: string;
+  shot_id?: string;  // Added for cinematic system
   shot_custom?: string;
+  shot_description?: string;  // Added for cinematic system
   closest_shot?: string;
   camera_angle?: string;
   camera_angle_description?: string;
@@ -72,9 +74,9 @@ interface BookStore {
   } | null;
   
   // Cast management
-  cast: Partial<Record<PersonId, CastMember>>; // Made partial - not all characters required
+  cast: Partial<Record<PersonId, CastMember>>;
   uploadedPhotos: UploadedPhoto[];
-  styleAnchorUrl?: string; // Page 1 rendered image as style anchor
+  styleAnchorUrl?: string;
   
   // Story data
   conversation: any[];
@@ -86,21 +88,23 @@ interface BookStore {
     style?: string;
     extracted_moments?: string[];
     camera_sequence?: string[];
-    cast_members?: PersonId[]; // Added cast_members
+    cast_members?: PersonId[];
+    cinematic_sequence?: string[];  // Added for cinematic system
   } | null;
   
-  // Illustrations - UPDATED to vibrant styles
+  // Illustrations - UPDATED to Paper Collage only
   illustrations: {
     page_number: number;
     url: string;
     style: string;
     seed?: number;
     shot?: string;
+    shot_id?: string;  // Added for cinematic system
     action_id?: string;
     prompt?: string;
     model?: string;
   }[];
-  illustrationStyle: 'bright-bold' | 'pop-art' | 'rainbow'; // UPDATED: New vibrant styles
+  illustrationStyle: 'paper-collage';  // UPDATED: Single style only
   
   // Layout
   layouts: {
@@ -113,7 +117,7 @@ interface BookStore {
   setConversation: (conversation: any[]) => void;
   setStory: (story: any) => void;
   setIllustrations: (illustrations: any[]) => void;
-  setIllustrationStyle: (style: 'bright-bold' | 'pop-art' | 'rainbow') => void; // UPDATED
+  setIllustrationStyle: (style: 'paper-collage') => void;  // UPDATED: Single style only
   setPageLayout: (pageNumber: number, layout: any) => void;
   
   // Cast management actions
@@ -164,7 +168,7 @@ const customStorage = createJSONStorage(() => {
               } : null,
               uploadedPhotos: value.state.uploadedPhotos?.map((p: UploadedPhoto) => ({
                 ...p,
-                fileUrl: undefined // Don't persist large URLs
+                fileUrl: undefined
               })) || []
             }
           };
@@ -209,13 +213,13 @@ export const useBookStore = create<BookStore>()(
     (set, get) => ({
       bookId: null,
       babyProfile: null,
-      cast: {}, // Empty object is valid for Partial<Record<PersonId, CastMember>>
+      cast: {},
       uploadedPhotos: [],
       styleAnchorUrl: undefined,
       conversation: [],
       storyData: null,
       illustrations: [],
-      illustrationStyle: 'bright-bold', // UPDATED: Default to vibrant style
+      illustrationStyle: 'paper-collage',  // UPDATED: Default and only style
       layouts: {},
       version: '',
       
@@ -224,7 +228,7 @@ export const useBookStore = create<BookStore>()(
       setConversation: (conversation) => set({ conversation }),
       setStory: (story) => set({ storyData: story }),
       setIllustrations: (illustrations) => set({ illustrations }),
-      setIllustrationStyle: (style) => set({ illustrationStyle: style }),
+      setIllustrationStyle: (style) => set({ illustrationStyle: style }),  // Now only accepts 'paper-collage'
       setPageLayout: (pageNumber, layout) => {
         set((state) => ({
           layouts: { ...state.layouts, [pageNumber]: layout }
@@ -292,7 +296,7 @@ export const useBookStore = create<BookStore>()(
       reset: () => set({
         bookId: null,
         babyProfile: null,
-        cast: {}, // Empty object for partial type
+        cast: {},
         uploadedPhotos: [],
         styleAnchorUrl: undefined,
         conversation: [],
@@ -300,7 +304,7 @@ export const useBookStore = create<BookStore>()(
         illustrations: [],
         layouts: {},
         version: '',
-        illustrationStyle: 'bright-bold' // UPDATED: Reset to default vibrant style
+        illustrationStyle: 'paper-collage'  // UPDATED: Reset to default single style
       })
     }),
     {
@@ -312,7 +316,7 @@ export const useBookStore = create<BookStore>()(
           ...state.babyProfile,
           baby_photo_url: undefined
         } : null,
-        cast: state.cast, // Save cast metadata
+        cast: state.cast,
         conversation: state.conversation,
         storyData: state.storyData,
         illustrationStyle: state.illustrationStyle,
@@ -324,7 +328,7 @@ export const useBookStore = create<BookStore>()(
 // Utility functions for character management
 export function selectImageReferences(
   page: Page,
-  cast: Partial<Record<PersonId, CastMember>>, // Updated to Partial
+  cast: Partial<Record<PersonId, CastMember>>,
   uploads: UploadedPhoto[],
   styleAnchorUrl: string
 ): string[] {
@@ -385,7 +389,7 @@ export function extractCharactersFromNarration(
     'aunt': [/\baunt\b/, /\bauntie\b/],
     'uncle': [/\buncle\b/],
     'baby': [/\bbaby\b/, /\blittle one\b/],
-    'friend': [/\bfriend\b/, /\bbuddy\b/, /\bpal\b/] // Added friend patterns
+    'friend': [/\bfriend\b/, /\bbuddy\b/, /\bpal\b/]
   };
   
   for (const [id, patterns] of Object.entries(characterPatterns)) {

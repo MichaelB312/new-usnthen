@@ -1,13 +1,14 @@
 {
   "name": "us-and-then",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "install-full": "npm install && npm install sharp konva react-konva"
+    "install-full": "npm install && npm install sharp konva react-konva",
+    "clean": "rm -rf node_modules .next && npm install"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.8.0",
@@ -46,5 +47,8 @@
     "@types/uuid": "^9.0.8",
     "eslint": "^8",
     "eslint-config-next": "14.2.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

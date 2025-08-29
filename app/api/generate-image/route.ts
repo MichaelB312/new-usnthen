@@ -1,6 +1,6 @@
 // app/api/generate-image/route.ts
 /**
- * Enhanced image generation with camera-first prompting
+ * Enhanced image generation with cinematic camera prompting
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,6 +9,11 @@ import { toFile } from 'openai/uploads';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { 
+  CINEMATIC_SHOTS, 
+  buildCinematicPrompt, 
+  selectBestShot 
+} from '@/lib/camera/cinematicShots';
 
 // Force Node runtime
 export const runtime = 'nodejs';
@@ -30,126 +35,59 @@ interface GenerateImageRequest {
   babyPhotoUrl?: string;
   pageData: {
     narration: string;
-    camera_angle?: string;
+    shot_id?: string;  // Enhanced: Using shot_id instead of camera_angle
+    camera_angle?: string;  // Fallback for backward compatibility
     camera_angle_description?: string;
-    action_id: string;
+    shot_description?: string;
+    action_id?: string;
     action_label?: string;
     visual_focus?: string;
     visual_action?: string;
     detail_prompt?: string;
     sensory_details?: string;
     pose_description?: string;
+    emotion?: string;
+    scene_type?: 'opening' | 'action' | 'closing';
   };
-  style: 'wondrous' | 'crayon' | 'vintage';
+  style: 'bright-bold' | 'pop-art' | 'rainbow';
   size?: 'preview' | 'print';
 }
 
-// Camera angle descriptions for prompts - MUST BE FIRST IN PROMPT
-const CAMERA_PROMPT_STARTERS = {
-  // Ultra close shots
-  extreme_closeup: 'extreme close-up',
-  closeup: 'close-up',
-  macro: 'macro shot',
-  detail_shot: 'detail shot',
-  medium_closeup: 'medium close-up',
-  
-  // Standard shots
-  medium: 'medium shot',
-  medium_wide: 'medium wide shot',
-  wide: 'wide shot',
-  
-  // POV shots
-  pov_baby: 'POV shot from baby perspective looking at own',
-  pov_parent: 'POV shot from parent perspective looking down',
-  pov_toy: 'POV from toy perspective',
-  
-  // Dynamic angles
-  birds_eye: "bird's-eye view",
-  low_angle: 'low angle shot',
-  high_angle: 'high angle shot',
-  worms_eye: "worm's eye view",
-  over_shoulder: 'over-the-shoulder shot',
-  dutch_angle: 'dutch angle tilted shot',
-  profile: 'profile shot from side',
-  three_quarter: 'three-quarter angle'
-} as const;
-
-const STYLE_DESCRIPTIONS = {
-  wondrous: 'Wondrous Illustration Style (magical, airy watercolor)',
-  crayon: 'Crayon Style (hand-drawn texture, waxy appearance)',
-  vintage: 'Vintage Style (muted colors, mid-century aesthetic)'
-} as const;
-
 /**
- * Build prompt with camera angle FIRST (like the working examples)
+ * Build cinematic prompt with emotional depth and visual variety
  */
-function buildCameraFirstPrompt(
+function buildEnhancedCinematicPrompt(
   page: GenerateImageRequest['pageData'],
-  style: keyof typeof STYLE_DESCRIPTIONS
+  style: string
 ): string {
-  const parts: string[] = [];
+  // Determine the best shot - use shot_id if available, otherwise select based on context
+  const shotId = page.shot_id || selectBestShot(
+    page.visual_action || page.action_label,
+    page.emotion,
+    page.visual_focus,
+    page.scene_type
+  );
   
-  // 1. CAMERA ANGLE FIRST (most important!)
-  const cameraAngle = page.camera_angle || 'medium';
-  const cameraStart = CAMERA_PROMPT_STARTERS[cameraAngle as keyof typeof CAMERA_PROMPT_STARTERS] || 'medium shot';
-  parts.push(cameraStart);
+  // Build the cinematic prompt with all available context
+  const cinematicPrompt = buildCinematicPrompt(shotId, {
+    visualFocus: page.visual_focus,
+    visualAction: page.visual_action || page.action_label,
+    sensoryDetails: page.sensory_details,
+    emotion: page.emotion,
+    style: style,
+    characters: [] // Characters handled separately in this route
+  });
   
-  // 2. Add specific visual focus based on camera type
-  if (cameraAngle === 'extreme_closeup' || cameraAngle === 'macro') {
-    // For close shots, be very specific about what we're zooming on
-    if (page.visual_focus === 'hands') {
-      parts.push('of tiny hands');
-    } else if (page.visual_focus === 'feet') {
-      parts.push('of baby feet');
-    } else if (page.visual_focus === 'face') {
-      parts.push('of baby face');
-    }
-    
-    // Add the specific action
-    if (page.visual_action) {
-      if (page.visual_action.includes('sand_falling')) {
-        parts.push('scooping sand and letting it fall in a soft sparkling arc');
-      } else if (page.visual_action.includes('grabbing')) {
-        parts.push('grabbing and exploring texture');
-      } else {
-        parts.push(page.visual_action.replace(/_/g, ' '));
-      }
-    }
-  } else if (cameraAngle === 'pov_baby') {
-    // POV shots need specific description
-    if (page.visual_focus === 'feet') {
-      parts.push('feet in sand');
-    } else if (page.visual_focus === 'hands') {
-      parts.push('hands playing');
-    }
-  } else if (cameraAngle === 'birds_eye') {
-    // Bird's eye needs scene description
-    parts.push('baby on beach blanket');
-    if (page.visual_action) {
-      parts.push(page.visual_action.replace(/_/g, ' '));
-    }
-  } else {
-    // For other shots, add the action
-    if (page.visual_action) {
-      parts.push('baby ' + page.visual_action.replace(/_/g, ' '));
+  // Log the selected shot for debugging
+  const shot = CINEMATIC_SHOTS[shotId];
+  if (shot) {
+    console.log(`Selected cinematic shot: ${shot.name} - ${shot.base_prompt}`);
+    if (shot.mood) {
+      console.log(`Shot mood: ${shot.mood.join(', ')}`);
     }
   }
   
-  // 3. Add environment/context if it's a wider shot
-  if (['wide', 'birds_eye', 'medium'].includes(cameraAngle)) {
-    if (page.sensory_details) {
-      parts.push(page.sensory_details);
-    } else {
-      parts.push('simple clean background');
-    }
-  }
-  
-  // 4. Always end with style and format
-  parts.push('picture-book ages 0-3');
-  parts.push(STYLE_DESCRIPTIONS[style]);
-  
-  // Join with commas for clean prompt
-  return parts.join(', ');
+  return cinematicPrompt;
 }
 
 /**
@@ -202,7 +140,7 @@ async function getOrCreatePlate(bookId: string, babyPhotoUrl?: string): Promise<
 }
 
 /**
- * Main POST handler with camera-first prompting
+ * Main POST handler with enhanced cinematic prompting
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -211,9 +149,15 @@ export async function POST(request: NextRequest) {
     const body: GenerateImageRequest = await request.json();
     const { bookId, pageNumber, babyPhotoUrl, pageData, style, size = 'preview' } = body;
     
+    // Log cinematic details
     console.log(`Generating page ${pageNumber} for book ${bookId}`);
-    console.log(`Camera angle: ${pageData.camera_angle}`);
-    console.log(`Visual focus: ${pageData.visual_focus}`);
+    if (pageData.shot_id) {
+      const shot = CINEMATIC_SHOTS[pageData.shot_id];
+      console.log(`Cinematic shot: ${shot?.name || pageData.shot_id}`);
+      console.log(`Emotion: ${pageData.emotion}, Visual focus: ${pageData.visual_focus}`);
+    } else {
+      console.log(`Legacy camera angle: ${pageData.camera_angle}`);
+    }
     console.log(`Action: ${pageData.visual_action}`);
     
     // Get processed plate
@@ -227,11 +171,11 @@ export async function POST(request: NextRequest) {
       { type: 'image/png' }
     );
     
-    // Build camera-first prompt (like the working examples)
-    const prompt = buildCameraFirstPrompt(pageData, style);
-    console.log(`Camera-first prompt: ${prompt}`);
+    // Build enhanced cinematic prompt
+    const prompt = buildEnhancedCinematicPrompt(pageData, style);
+    console.log(`Enhanced cinematic prompt: ${prompt}`);
     
-    // Call GPT-IMAGE-1 with the right parameters
+    // Call GPT-IMAGE-1 with the cinematic prompt
     let response;
     try {
       response = await openai.images.edit({
@@ -292,7 +236,17 @@ export async function POST(request: NextRequest) {
     const dataUrl = `data:${mimeType};base64,${finalBuffer.toString('base64')}`;
     
     const elapsedMs = Date.now() - startTime;
-    console.log(`Page ${pageNumber} completed in ${elapsedMs}ms with camera: ${pageData.camera_angle}`);
+    
+    // Get shot details for response
+    const shotId = pageData.shot_id || selectBestShot(
+      pageData.visual_action,
+      pageData.emotion,
+      pageData.visual_focus,
+      pageData.scene_type
+    );
+    const shot = CINEMATIC_SHOTS[shotId];
+    
+    console.log(`Page ${pageNumber} completed in ${elapsedMs}ms with cinematic shot: ${shot?.name || shotId}`);
     
     return NextResponse.json({ 
       success: true,
@@ -302,10 +256,14 @@ export async function POST(request: NextRequest) {
       sizeKB: Math.round(finalBuffer.length / 1024),
       prompt: prompt,
       style,
-      camera_angle: pageData.camera_angle,
+      shot_id: shotId,
+      shot_name: shot?.name,
+      shot_mood: shot?.mood,
+      camera_angle: pageData.camera_angle,  // Keep for backward compatibility
       action_id: pageData.action_id,
       visual_focus: pageData.visual_focus,
       visual_action: pageData.visual_action,
+      emotion: pageData.emotion,
       elapsed_ms: elapsedMs,
       model: 'gpt-image-1'
     }, {

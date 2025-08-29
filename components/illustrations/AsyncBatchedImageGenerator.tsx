@@ -1,11 +1,11 @@
-// components/illustrations/AsyncBatchedImageGenerator.tsx
+// components/illustrations/AsyncBatchedImageGenerator.tsx - Paper Collage Only
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Wand2, Camera, Sparkles, Brush, Book, RefreshCw, 
+  Wand2, Camera, Sparkles, Book, RefreshCw, 
   AlertCircle, Clock, Loader2, Home, Star, Heart, Palette,
-  Users, Plus, Check, Rainbow, Sun, Moon, Cloud, Baby
+  Users, Plus, Check, Baby, Scissors
 } from 'lucide-react';
 import { useBookStore, PersonId, selectImageReferences } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';
@@ -47,12 +47,10 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     cast,
     uploadedPhotos,
     setIllustrations,
-    illustrationStyle,
-    setIllustrationStyle,
     setStyleAnchor
   } = useBookStore();
   
-  const [phase, setPhase] = useState<'cast' | 'style' | 'generate' | 'complete'>('cast');
+  const [phase, setPhase] = useState<'cast' | 'generate' | 'complete'>('cast');
   const [generating, setGenerating] = useState(false);
   const [jobs, setJobs] = useState<ImageJob[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
@@ -67,16 +65,16 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   const visualProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const generatedImagesRef = useRef<GeneratedImage[]>([]);
   
-  // Elegant loading tips
+  // Paper Collage specific loading tips
   const loadingTips = [
-    "Adding a touch of magic...",
-    "Painting your story...",
-    "Creating something special...",
-    "Bringing characters to life...",
-    "Crafting beautiful moments...",
-    "Weaving dreams into pages...",
-    "Making memories shine...",
-    "Adding sparkles of joy..."
+    "Cutting paper pieces...",
+    "Layering colorful shapes...",
+    "Adding texture and depth...",
+    "Creating paper magic...",
+    "Arranging the collage...",
+    "Adding torn paper edges...",
+    "Building dimensional layers...",
+    "Crafting your story..."
   ];
   
   // Update ref whenever generatedImages changes
@@ -93,31 +91,6 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
       return () => clearInterval(interval);
     }
   }, [generating, loadingTips.length]);
-  
-  // NEW VIBRANT STYLES for baby books
-  const styles = [
-    { 
-      id: 'bright-bold', 
-      name: 'Bright & Bold', 
-      icon: Sparkles,
-      description: 'High contrast with vivid colors',
-      gradient: 'from-purple-400 to-pink-400'
-    },
-    { 
-      id: 'pop-art', 
-      name: 'Pop Art Baby', 
-      icon: Brush,
-      description: 'Bold primary colors & shapes',
-      gradient: 'from-red-400 to-blue-400'
-    },
-    { 
-      id: 'rainbow', 
-      name: 'Rainbow Bright', 
-      icon: Book,
-      description: 'Multi-colored, joyful & stimulating',
-      gradient: 'from-green-400 via-yellow-400 to-pink-400'
-    }
-  ];
 
   // Initialize images from story data
   useEffect(() => {
@@ -125,15 +98,15 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
       const initialImages: GeneratedImage[] = storyData.pages.map(page => ({
         page_number: page.page_number,
         dataUrl: '',
-        style: illustrationStyle,
-        camera_angle: page.camera_angle || 'wide',
+        style: 'paper-collage',
+        camera_angle: page.shot_id || page.camera_angle || 'wide',
         action: page.visual_action || page.action_label || '',
         characters_on_page: page.characters_on_page,
         status: 'pending'
       }));
       setGeneratedImages(initialImages);
     }
-  }, [storyData, illustrationStyle]);
+  }, [storyData]);
   
   // Cleanup on component unmount
   useEffect(() => {
@@ -166,9 +139,8 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
       
       visualProgressIntervalRef.current = setInterval(() => {
         const elapsed = Date.now() - startTime;
-        const targetProgress = Math.min((elapsed / MIN_LOADING_TIME) * 95, 95); // Max 95% until actual completion
+        const targetProgress = Math.min((elapsed / MIN_LOADING_TIME) * 95, 95);
         
-        // If generation is actually complete and we've passed minimum time
         if (actualGenerationComplete && elapsed >= MIN_LOADING_TIME) {
           setVisualProgress(100);
           clearInterval(visualProgressIntervalRef.current!);
@@ -177,7 +149,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         } else {
           setVisualProgress(targetProgress);
         }
-      }, 100); // Smooth updates
+      }, 100);
     } else if (!generating && visualProgressIntervalRef.current) {
       clearInterval(visualProgressIntervalRef.current);
       visualProgressIntervalRef.current = null;
@@ -214,33 +186,40 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     );
     
     if (missingPhotos.length > 0) {
-      // Only error for critical missing photos, no success toasts
       toast.error(`Missing photos for: ${missingPhotos.join(', ')}`);
       return;
     }
     
-    setPhase('style');
+    // Skip style selection, go directly to generate
+    setPhase('generate');
+    // Start generation automatically
+    setTimeout(() => generateAllAsync(), 100);
   };
 
   const startImageGeneration = async (page: any): Promise<string | null> => {
     try {
-      console.log(`Starting generation for page ${page.page_number}`);
+      console.log(`Starting Paper Collage generation for page ${page.page_number}`);
 
       const payload: any = {
         bookId,
         pageNumber: page.page_number,
+        babyProfile,  // Include full profile for gender info
         pageData: {
           ...page,
           narration: page.narration,
+          shot_id: page.shot_id,
+          shot_description: page.shot_description,
           camera_angle: page.camera_angle,
           camera_prompt: page.camera_prompt,
           visual_action: page.visual_action || page.action_description,
           action_label: page.action_label,
           sensory_details: page.sensory_details,
+          emotion: page.emotion,
+          visual_focus: page.visual_focus,
+          scene_type: page.scene_type,
           characters_on_page: page.characters_on_page,
           background_extras: page.background_extras
-        },
-        style: illustrationStyle
+        }
       };
 
       if (page.page_number === 1) {
@@ -259,7 +238,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           return null;
         }
         
-        console.log('Page 1: Sending single baby reference');
+        console.log(`Page 1: Creating Paper Collage style anchor for ${babyProfile?.gender} baby`);
       } else {
         const charactersOnPage = page.characters_on_page || [];
         const minimalPhotos = charactersOnPage.map((charId: PersonId) => {
@@ -280,7 +259,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         }).filter(Boolean);
         
         payload.uploadedPhotos = minimalPhotos;
-        console.log(`Page ${page.page_number}: Sending ${minimalPhotos.length} character refs`);
+        console.log(`Page ${page.page_number}: Paper Collage with ${minimalPhotos.length} character refs`);
       }
 
       const response = await fetch('/api/generate-image-async', {
@@ -444,7 +423,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         const illustrationsForStore = successful.map(img => ({
           page_number: img.page_number,
           url: img.dataUrl,
-          style: img.style,
+          style: 'paper-collage',
           shot: img.camera_angle,
           action_id: img.action,
           model: 'gpt-image-1'
@@ -453,16 +432,13 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         setIllustrations(illustrationsForStore);
       }
       
-      // Mark actual generation as complete
       setActualGenerationComplete(true);
       
-      // Check if minimum time has passed
       const elapsed = Date.now() - generationStartTime;
       if (elapsed >= MIN_LOADING_TIME) {
         setVisualProgress(100);
         handleFinalCompletion();
       }
-      // Otherwise, the interval will handle it when minimum time passes
     }
   };
 
@@ -489,7 +465,6 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     }
 
     setGenerating(true);
-    setPhase('generate');
     setJobs([]);
     setVisualProgress(0);
     setPage1Completed(false);
@@ -498,7 +473,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
 
     try {
       const page1 = storyData.pages[0];
-      console.log('Starting Page 1 generation to create style anchor...');
+      console.log('Starting Paper Collage Page 1 generation...');
 
       setGeneratedImages(prev =>
         prev.map(img =>
@@ -584,11 +559,11 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
       pollingIntervalsRef.current.clear();
       
       setGenerating(false);
-      setPhase('style');
+      setPhase('cast');
     }
   };
 
-  // Elegant, minimalist loading screen
+  // Elegant, Paper Collage themed loading screen
   if (generating) {
     return (
       <AnimatePresence mode="wait">
@@ -603,65 +578,65 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             animate={{ scale: 1, opacity: 1 }}
             className="text-center max-w-lg px-8"
           >
-            {/* Simple, elegant book animation */}
+            {/* Paper Collage animation */}
             <div className="mb-12">
               <motion.div
                 className="inline-block relative"
                 animate={{ 
-                  scale: [1, 1.05, 1],
+                  rotate: [0, 5, -5, 0],
                 }}
                 transition={{ 
-                  duration: 3,
+                  duration: 4,
                   repeat: Infinity,
                   ease: "easeInOut"
                 }}
               >
-                <Book className="h-24 w-24 text-purple-400 stroke-1" />
+                <Scissors className="h-24 w-24 text-purple-400 stroke-1" />
                 
-                {/* Subtle floating stars */}
+                {/* Paper pieces floating */}
                 <motion.div
                   className="absolute -top-2 -right-2"
                   animate={{ 
-                    opacity: [0, 1, 0],
-                    scale: [0.8, 1, 0.8],
+                    y: [-5, 5, -5],
+                    rotate: [0, 360],
                   }}
                   transition={{ 
-                    duration: 2,
+                    duration: 3,
                     repeat: Infinity,
                     ease: "easeInOut"
                   }}
                 >
-                  <Sparkles className="h-6 w-6 text-purple-300" />
+                  <div className="w-4 h-4 bg-pink-300 transform rotate-12" />
                 </motion.div>
                 
                 <motion.div
                   className="absolute -bottom-2 -left-2"
                   animate={{ 
-                    opacity: [0, 1, 0],
-                    scale: [0.8, 1, 0.8],
+                    y: [5, -5, 5],
+                    rotate: [0, -360],
                   }}
                   transition={{ 
-                    duration: 2,
+                    duration: 3,
                     repeat: Infinity,
                     ease: "easeInOut",
                     delay: 1
                   }}
                 >
-                  <Star className="h-5 w-5 text-pink-300" />
+                  <div className="w-3 h-3 bg-purple-300 transform -rotate-12" />
                 </motion.div>
               </motion.div>
             </div>
 
             {/* Clean typography */}
             <h2 className="text-4xl font-patrick text-gray-800 mb-3">
-              Creating Your Book
+              Creating Your Paper Collage Book
             </h2>
             
             <p className="text-lg text-gray-600 mb-2">
               for {babyProfile?.baby_name}
             </p>
             
-            {/* Rotating tips - subtle */}
+            {/* Rotating tips */}
             <motion.p 
               key={currentLoadingTip}
               initial={{ opacity: 0, y: 5 }}
@@ -672,11 +647,9 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               {loadingTips[currentLoadingTip]}
             </motion.p>
 
-            {/* Minimal progress bar */}
+            {/* Progress bar */}
             <div className="relative">
-              {/* Track */}
               <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                {/* Fill */}
                 <motion.div
                   className="h-full bg-gradient-to-r from-purple-400 to-pink-400 rounded-full"
                   style={{ width: `${visualProgress}%` }}
@@ -684,20 +657,19 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                 />
               </div>
               
-              {/* Progress text */}
               <div className="mt-6 text-sm text-gray-500">
                 {Math.round(visualProgress)}% complete
               </div>
             </div>
 
-            {/* Quality assurance message */}
+            {/* Quality message */}
             <motion.div
               className="mt-12 text-xs text-gray-400"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 2 }}
             >
-              Each illustration is carefully crafted with love
+              Each page is handcrafted with paper collage magic
             </motion.div>
           </motion.div>
         </motion.div>
@@ -705,7 +677,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     );
   }
 
-  // Simple, elegant completion screen
+  // Simple completion screen
   if (showCompletionScreen) {
     return (
       <AnimatePresence mode="wait">
@@ -721,7 +693,6 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             transition={{ type: "spring", duration: 0.6 }}
             className="text-center"
           >
-            {/* Simple checkmark */}
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
@@ -737,7 +708,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               transition={{ delay: 0.4 }}
               className="text-4xl font-patrick text-gray-800 mb-3"
             >
-              Your Book is Ready
+              Your Paper Collage Book is Ready
             </motion.h2>
 
             <motion.p
@@ -746,7 +717,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               transition={{ delay: 0.6 }}
               className="text-lg text-gray-600"
             >
-              Let's see how it looks!
+              Let's see your beautiful creation!
             </motion.p>
           </motion.div>
         </motion.div>
@@ -759,45 +730,25 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     return <CastManager onComplete={handleCastComplete} />;
   }
   
-  if (phase === 'style') {
+  if (phase === 'generate') {
+    // This shows briefly before auto-starting generation
     return (
-      <div className="max-w-6xl mx-auto space-y-8">
-        <motion.div className="card-magical">
-          <h2 className="text-3xl font-patrick gradient-text mb-6">
-            Choose Your Art Style
+      <div className="max-w-4xl mx-auto text-center py-20">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="card-magical"
+        >
+          <Scissors className="h-20 w-20 text-purple-600 mx-auto mb-6" />
+          <h2 className="text-3xl font-patrick gradient-text mb-4">
+            Ready to Create Your Paper Collage Book
           </h2>
-          
-          <div className="grid md:grid-cols-3 gap-6">
-            {styles.map((style) => {
-              const Icon = style.icon;
-              return (
-                <motion.button
-                  key={style.id}
-                  whileHover={{ scale: 1.03 }}
-                  onClick={() => setIllustrationStyle(style.id as 'bright-bold' | 'pop-art' | 'rainbow')}
-                  className={`p-8 rounded-2xl border-3 ${
-                    illustrationStyle === style.id
-                      ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
-                      : 'border-gray-200 hover:border-purple-300'
-                  }`}
-                >
-                  <Icon className="h-10 w-10 text-purple-600 mb-4 mx-auto" />
-                  <h3 className="text-xl font-semibold mb-2">{style.name}</h3>
-                  <p className="text-sm text-gray-600">{style.description}</p>
-                </motion.button>
-              );
-            })}
-          </div>
-          
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={generateAllAsync}
-            className="btn-primary w-full text-xl py-6 mt-8 flex items-center justify-center gap-3"
-          >
-            <Wand2 className="h-7 w-7" />
-            <span>Create Your Magical Book</span>
-          </motion.button>
+          <p className="text-lg text-gray-600 mb-2">
+            Our unique paper collage style will bring {babyProfile?.baby_name}'s story to life
+          </p>
+          <p className="text-sm text-purple-600">
+            Starting generation...
+          </p>
         </motion.div>
       </div>
     );
@@ -808,7 +759,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     return (
       <motion.div className="card-magical">
         <h3 className="text-2xl font-patrick gradient-text text-center mb-6">
-          Your Character-Consistent Illustrations!
+          Your Paper Collage Illustrations!
         </h3>
         
         <div className="grid md:grid-cols-3 gap-6">
@@ -829,7 +780,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                   />
                   <div className="mt-2 text-center">
                     <p className="text-sm font-medium">Page {image.page_number}</p>
-                    <p className="text-xs text-gray-500">{image.camera_angle}</p>
+                    <p className="text-xs text-gray-500">Paper Collage</p>
                     {image.characters_on_page && (
                       <p className="text-xs text-purple-600">
                         {image.characters_on_page.join(', ')}

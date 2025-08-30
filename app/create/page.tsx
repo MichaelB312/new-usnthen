@@ -1,7 +1,7 @@
 // app/create/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Home } from 'lucide-react';
@@ -25,6 +25,9 @@ const steps = [
   { id: 6, name: 'Order', icon: CreditCard }
 ];
 
+const POLL_INTERVAL = 2000; // Poll every 2 seconds
+const MAX_POLL_TIME = 120000; // Max 2 minutes
+
 export default function CreateBookPage() {
   const router = useRouter();
   const { width, height } = useWindowSize();
@@ -32,6 +35,11 @@ export default function CreateBookPage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [isGeneratingStory, setIsGeneratingStory] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationMessage, setGenerationMessage] = useState('');
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollStartTimeRef = useRef<number>(0);
 
   const {
     bookId,
@@ -52,20 +60,15 @@ export default function CreateBookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Progress animation during generation
+  // Cleanup polling on unmount
   useEffect(() => {
-    if (isGeneratingStory) {
-      const interval = setInterval(() => {
-        setGenerationProgress(prev => {
-          if (prev >= 90) return prev; // Cap at 90% until complete
-          return prev + 5; // Increment by 5% every second
-        });
-      }, 1000);
-      return () => clearInterval(interval);
-    } else {
-      setGenerationProgress(0);
-    }
-  }, [isGeneratingStory]);
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   const handleProfileComplete = (profile: any) => {
     setProfile(profile);
@@ -75,24 +78,21 @@ export default function CreateBookPage() {
   const handleChatComplete = async (conversation: any) => {
     setConversation(conversation);
     setIsGeneratingStory(true);
-
-    // Small delay to show the transition
-    setTimeout(() => {
-      generateStory(conversation);
-    }, 500);
+    setGenerationProgress(0);
+    setGenerationMessage('Starting story generation...');
+    
+    // Start async story generation
+    startStoryGeneration(conversation);
   };
 
-  // Safe fetch with longer timeout for story generation
-  const generateStory = async (conversation: any, retryCount = 0) => {
+  // Start story generation job
+  const startStoryGeneration = async (conversation: any) => {
     try {
       // Extract story length from conversation
       const storyLengthEntry = conversation.find((c: any) => c.question === 'story_length');
       const storyLength = storyLengthEntry?.answer || 'medium';
       
-      // Longer timeout for complex story generation - 45 seconds
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45_000);
-
+      // Start the job
       const res = await fetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,77 +100,135 @@ export default function CreateBookPage() {
           babyProfile,
           conversation,
           illustrationStyle,
-          storyLength // Pass the story length
-        }),
-        signal: controller.signal
+          storyLength
+        })
       });
 
-      clearTimeout(timeoutId);
-
-      // Read raw body first to avoid "Unexpected end of JSON input"
-      const text = await res.text();
-
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status} – ${text || 'No body'}`);
-      }
-      if (!text) {
-        throw new Error('Empty response body from /api/generate-story');
+        throw new Error(`Failed to start story generation: ${res.status}`);
       }
 
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error('Malformed JSON from /api/generate-story');
-      }
-
-      if (!data?.success || !data?.story) {
-        throw new Error('Malformed response payload from /api/generate-story');
-      }
-
-      setStory(data.story);
-      setGenerationProgress(100);
-
-      // Show page count in toast
-      const pageCount = data.story?.pages?.length || 10;
-      toast.success(`Created a ${pageCount}-page story for ${babyProfile?.baby_name}!`);
-
-      // Delay before transitioning to story review
-      setTimeout(() => {
-        setIsGeneratingStory(false);
-        setCurrentStep(3);
-      }, 500);
-    } catch (error: any) {
-      console.error('Error generating story:', error?.message || error);
+      const data = await res.json();
       
-      // Handle timeout specifically
-      if (error?.name === 'AbortError') {
-        if (retryCount < 1) {
-          // Retry once on timeout
-          console.log('Story generation timed out, retrying...');
-          toast.loading('Taking a bit longer than expected... Please wait.');
-          generateStory(conversation, retryCount + 1);
-          return;
-        } else {
-          toast.error('Story generation is taking too long. Please try with a simpler memory.');
-        }
+      if (data.success && data.jobId) {
+        setCurrentJobId(data.jobId);
+        pollStartTimeRef.current = Date.now();
+        startPollingForStory(data.jobId);
+      } else if (data.story) {
+        // Immediate response with story (fallback case)
+        handleStoryComplete(data.story);
       } else {
-        toast.error('Failed to generate story. Please try again.');
+        throw new Error('Invalid response from story generation');
       }
       
+    } catch (error: any) {
+      console.error('Error starting story generation:', error);
+      toast.error('Failed to start story generation. Please try again.');
       setIsGeneratingStory(false);
       setGenerationProgress(0);
       setCurrentStep(2);
     }
   };
 
+  // Poll for story completion
+  const startPollingForStory = (jobId: string) => {
+    // Clear any existing polling
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        // Check if we've exceeded max poll time
+        if (Date.now() - pollStartTimeRef.current > MAX_POLL_TIME) {
+          console.error('Story generation timed out');
+          clearInterval(pollingIntervalRef.current!);
+          pollingIntervalRef.current = null;
+          
+          toast.error('Story generation is taking too long. Please try with a simpler memory.');
+          setIsGeneratingStory(false);
+          setGenerationProgress(0);
+          setCurrentStep(2);
+          return;
+        }
+
+        // Check job status
+        const res = await fetch(`/api/generate-story?jobId=${jobId}`);
+        
+        if (!res.ok) {
+          if (res.status === 404) {
+            console.error('Story job not found');
+            clearInterval(pollingIntervalRef.current!);
+            pollingIntervalRef.current = null;
+            
+            toast.error('Story generation job was lost. Please try again.');
+            setIsGeneratingStory(false);
+            setGenerationProgress(0);
+            setCurrentStep(2);
+            return;
+          }
+          throw new Error(`Failed to check story status: ${res.status}`);
+        }
+
+        const data = await res.json();
+        
+        if (data.success && data.job) {
+          const { status, progress, message, result, error } = data.job;
+          
+          // Update progress and message
+          setGenerationProgress(progress || 0);
+          setGenerationMessage(message || 'Generating story...');
+          
+          if (status === 'completed' && result) {
+            // Story is ready!
+            clearInterval(pollingIntervalRef.current!);
+            pollingIntervalRef.current = null;
+            handleStoryComplete(result);
+          } else if (status === 'failed') {
+            // Job failed
+            clearInterval(pollingIntervalRef.current!);
+            pollingIntervalRef.current = null;
+            
+            console.error('Story generation failed:', error);
+            toast.error(error || 'Failed to generate story. Please try again.');
+            setIsGeneratingStory(false);
+            setGenerationProgress(0);
+            setCurrentStep(2);
+          }
+          // If status is 'pending' or 'processing', continue polling
+        }
+        
+      } catch (error: any) {
+        console.error('Error polling for story:', error);
+        // Don't stop polling on individual poll errors, just log them
+      }
+    }, POLL_INTERVAL);
+  };
+
+  // Handle story completion
+  const handleStoryComplete = (story: any) => {
+    setStory(story);
+    setGenerationProgress(100);
+    setGenerationMessage('Story complete!');
+    
+    // Show page count in toast
+    const pageCount = story?.pages?.length || 10;
+    toast.success(`Created a ${pageCount}-page story for ${babyProfile?.baby_name}!`);
+    
+    // Delay before transitioning to story review
+    setTimeout(() => {
+      setIsGeneratingStory(false);
+      setCurrentStep(3);
+      setCurrentJobId(null);
+    }, 500);
+  };
+
   const handleStoryRegenerate = () => {
     const conversation = useBookStore.getState().conversation;
     setIsGeneratingStory(true);
     setGenerationProgress(0);
-    setTimeout(() => {
-      generateStory(conversation);
-    }, 500);
+    setGenerationMessage('Regenerating story...');
+    startStoryGeneration(conversation);
   };
 
   const handleStoryContinue = () => {
@@ -296,19 +354,19 @@ export default function CreateBookPage() {
                   />
                 </div>
                 <p className="text-sm text-gray-500 mt-2">
-                  {generationProgress < 30 
-                    ? 'Analyzing memory...' 
-                    : generationProgress < 60 
-                    ? 'Creating narrative arc...'
-                    : generationProgress < 90
-                    ? 'Adding emotional depth...'
-                    : 'Finalizing your story...'}
+                  {generationMessage}
                 </p>
               </div>
               
               {generationProgress > 60 && (
                 <p className="text-xs text-gray-400 mt-6">
                   Creating emotionally engaging stories takes a moment...
+                </p>
+              )}
+              
+              {currentJobId && (
+                <p className="text-xs text-gray-300 mt-2">
+                  Job ID: {currentJobId}
                 </p>
               )}
             </motion.div>

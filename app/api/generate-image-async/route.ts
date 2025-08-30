@@ -1,9 +1,8 @@
 // app/api/generate-image-async/route.ts
 /**
- * Enhanced image generation with High-Contrast Shots
- * Handles both character and character-free pages
- */
-
+ * Enhanced image generation with High-Contrast Shots
+ * Handles both character and character-free pages
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
@@ -16,20 +15,20 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: 120000,
-  maxRetries: 2,
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 120000,
+  maxRetries: 2,
 });
 
 // Job storage
 const jobs = new Map<string, {
-  id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  progress: number;
-  result?: any;
-  error?: string;
-  startTime: number;
-  completedAt?: number;
+  id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  result?: any;
+  error?: string;
+  startTime: number;
+  completedAt?: number;
 }>();
 
 // Style anchor storage
@@ -40,436 +39,469 @@ const characterReferences = new Map<string, Map<PersonId, string>>();
 
 // Cleanup interval
 setInterval(() => {
-  const oneHourAgo = Date.now() - 60 * 60 * 1000;
-  for (const [id, job] of jobs.entries()) {
-    if (job.startTime < oneHourAgo) {
-      jobs.delete(id);
-    }
-  }
+  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  for (const [id, job] of jobs.entries()) {
+    if (job.startTime < oneHourAgo) {
+      jobs.delete(id);
+    }
+  }
 }, 10 * 60 * 1000);
 
 /**
- * Build High-Contrast Paper Collage prompt
- */
+ * Build High-Contrast Paper Collage prompt
+ */
 function buildEnhancedHighContrastPrompt(
-  pageData: any,
-  pageNumber: number,
-  babyGender: 'boy' | 'girl' | 'neutral'
+  pageData: any,
+  pageNumber: number,
+  babyGender: 'boy' | 'girl' | 'neutral'
 ): string {
-  const shotId = pageData.shot_id || 'establishing_wide';
-  const shot = HIGH_CONTRAST_SHOTS[shotId];
-  
-  if (!shot) {
-    console.error(`Unknown shot ID: ${shotId}`);
-    return 'Paper collage cutout on pure white background';
-  }
-  
-  // Check if this is a character-free page
-  const isCharacterFree = !shot.requires_character || pageData.is_character_free;
-  
-  if (isCharacterFree) {
-    // CHARACTER-FREE PAGE
-    let prompt = 'CRITICAL: NO PEOPLE, NO CHARACTERS IN THIS IMAGE\n';
-    prompt += shot.base_prompt + '\n';
-    prompt += shot.isolation_prompt + '\n';
-    prompt += 'This is an ATMOSPHERIC/OBJECT shot with NO baby, NO people\n';
-    
-    // Add object focus if specified
-    if (pageData.object_focus) {
-      prompt += `Focus on: paper collage ${pageData.object_focus}\n`;
-    } else if (pageData.narration) {
-      // Extract object from narration
-      const objects = ['ball', 'duck', 'toy', 'blanket', 'bottle', 'shoe', 'hat', 'book', 'flower', 'shell'];
-      const found = objects.find(obj => pageData.narration.toLowerCase().includes(obj));
-      if (found) {
-        prompt += `Focus on: paper collage ${found}\n`;
-      }
-    }
-    
-    prompt += 'Paper collage style object or scene detail\n';
-    prompt += 'Clean white background, no characters whatsoever\n';
-    prompt += 'Torn paper edges, layered paper texture\n';
-    
-    return prompt;
-  }
-  
-  // CHARACTER PAGE - Use the high-contrast shot
-  const prompt = buildHighContrastPrompt(shotId, {
-    includeCharacter: true,
-    action: pageData.visual_action || pageData.action_description,
-    emotion: pageData.emotion,
-    gender: babyGender,
-    narration: pageData.narration
-  });
-  
-  // Add paper collage style
-  return enhanceWithIsolatedPaperCollage(prompt, babyGender);
+  const shotId = pageData.shot_id || 'establishing_wide';
+  const shot = HIGH_CONTRAST_SHOTS[shotId];
+
+  if (!shot) {
+    console.error(`Unknown shot ID: ${shotId}`);
+    return 'Paper collage cutout on pure white background';
+  }
+
+  // Check if this is a character-free page
+  const isCharacterFree = !shot.requires_character || pageData.is_character_free;
+
+  if (isCharacterFree) {
+    // CHARACTER-FREE PAGE
+    let prompt = 'CRITICAL: NO PEOPLE, NO CHARACTERS IN THIS IMAGE\n';
+    prompt += shot.base_prompt + '\n';
+    prompt += shot.isolation_prompt + '\n';
+    prompt += 'This is an ATMOSPHERIC/OBJECT shot with NO baby, NO people\n';
+
+    // Add object focus if specified
+    if (pageData.object_focus) {
+      prompt += `Focus on: paper collage ${pageData.object_focus}\n`;
+    } else if (pageData.narration) {
+      // Extract object from narration
+      const objects = ['ball', 'duck', 'toy', 'blanket', 'bottle', 'shoe', 'hat', 'book', 'flower', 'shell'];
+      const found = objects.find(obj => pageData.narration.toLowerCase().includes(obj));
+      if (found) {
+        prompt += `Focus on: paper collage ${found}\n`;
+      }
+    }
+
+    prompt += 'Paper collage style object or scene detail\n';
+    prompt += 'Clean white background, no characters whatsoever\n';
+    prompt += 'Torn paper edges, layered paper texture\n';
+
+    return prompt;
+  }
+
+  // CHARACTER PAGE - Use the high-contrast shot
+  const prompt = buildHighContrastPrompt(shotId, {
+    includeCharacter: true,
+    action: pageData.visual_action || pageData.action_description,
+    emotion: pageData.emotion,
+    gender: babyGender,
+    narration: pageData.narration
+  });
+
+  // Add paper collage style
+  return enhanceWithIsolatedPaperCollage(prompt, babyGender);
 }
 
 /**
- * Convert base64/URL to file for OpenAI
- */
+ * Convert base64/URL to file for OpenAI
+ */
 async function prepareImageFile(imageUrl: string, name: string = 'ref.png'): Promise<any> {
-  let buffer: Buffer;
-  
-  try {
-    if (imageUrl.startsWith('data:')) {
-      const base64 = imageUrl.replace(/^data:image\/\w+;base64,/, '');
-      buffer = Buffer.from(base64, 'base64');
-    } else if (imageUrl.startsWith('http')) {
-      const response = await fetch(imageUrl);
-      const arrayBuffer = await response.arrayBuffer();
-      buffer = Buffer.from(arrayBuffer);
-    } else {
-      buffer = Buffer.from(imageUrl, 'base64');
-    }
-    
-    if (buffer.length > 50 * 1024 * 1024) {
-      throw new Error('Image exceeds 50MB limit');
-    }
-    
-    return await toFile(buffer, name, { type: 'image/png' });
-  } catch (error) {
-    console.error(`Failed to prepare image:`, error);
-    throw error;
-  }
+  let buffer: Buffer;
+
+  try {
+    if (imageUrl.startsWith('data:')) {
+      const base64 = imageUrl.replace(/^data:image\/\w+;base64,/, '');
+      buffer = Buffer.from(base64, 'base64');
+    } else if (imageUrl.startsWith('http')) {
+      const response = await fetch(imageUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      buffer = Buffer.from(arrayBuffer);
+    } else {
+      buffer = Buffer.from(imageUrl, 'base64');
+    }
+
+    if (buffer.length > 50 * 1024 * 1024) {
+      throw new Error('Image exceeds 50MB limit');
+    }
+
+    return await toFile(buffer, name, { type: 'image/png' });
+  } catch (error) {
+    console.error(`Failed to prepare image:`, error);
+    throw error;
+  }
 }
 
 /**
- * Get ONE best reference for a character
- */
+ * Get ONE best reference for a character
+ */
 function getOneCharacterReference(
-  characterId: PersonId,
-  uploadedPhotos: UploadedPhoto[],
-  bookId: string
+  characterId: PersonId,
+  uploadedPhotos: UploadedPhoto[],
+  bookId: string
 ): string | null {
-  const bookCache = characterReferences.get(bookId);
-  if (bookCache?.has(characterId)) {
-    return bookCache.get(characterId)!;
-  }
-  
-  let bestPhoto: string | null = null;
-  
-  const soloPhoto = uploadedPhotos.find(p => 
-    p.people.length === 1 && p.people[0] === characterId
-  );
-  if (soloPhoto) {
-    bestPhoto = soloPhoto.fileUrl;
-  } else {
-    const photosWithChar = uploadedPhotos
-      .filter(p => p.people.includes(characterId))
-      .sort((a, b) => a.people.length - b.people.length);
-    
-    if (photosWithChar.length > 0) {
-      bestPhoto = photosWithChar[0].fileUrl;
-    }
-  }
-  
-  if (bestPhoto) {
-    if (!bookCache) {
-      characterReferences.set(bookId, new Map());
-    }
-    characterReferences.get(bookId)!.set(characterId, bestPhoto);
-  }
-  
-  return bestPhoto;
+  const bookCache = characterReferences.get(bookId);
+  if (bookCache?.has(characterId)) {
+    return bookCache.get(characterId)!;
+  }
+
+  let bestPhoto: string | null = null;
+
+  const soloPhoto = uploadedPhotos.find(p =>
+    p.people.length === 1 && p.people[0] === characterId
+  );
+  if (soloPhoto) {
+    bestPhoto = soloPhoto.fileUrl;
+  } else {
+    const photosWithChar = uploadedPhotos
+      .filter(p => p.people.includes(characterId))
+      .sort((a, b) => a.people.length - b.people.length);
+
+    if (photosWithChar.length > 0) {
+      bestPhoto = photosWithChar[0].fileUrl;
+    }
+  }
+
+  if (bestPhoto) {
+    if (!bookCache) {
+      characterReferences.set(bookId, new Map());
+    }
+    characterReferences.get(bookId)!.set(characterId, bestPhoto);
+  }
+
+  return bestPhoto;
 }
 
 /**
- * POST - Start image generation job
- */
+ * POST - Start image generation job
+ */
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { bookId, pageNumber, pageData, babyProfile } = body;
-    
-    if (!bookId || !pageNumber || !pageData) {
-      return NextResponse.json(
-        { success: false, error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-    
-    const babyGender = babyProfile?.gender || 'neutral';
-    const shotId = pageData.shot_id || 'establishing_wide';
-    const shot = HIGH_CONTRAST_SHOTS[shotId];
-    const isCharacterFree = !shot?.requires_character || pageData.is_character_free;
-    
-    const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
-    
-    jobs.set(jobId, {
-      id: jobId,
-      status: 'pending',
-      progress: 0,
-      startTime: Date.now()
-    });
-    
-    console.log(`Starting job ${jobId}: Page ${pageNumber}, Shot: ${shotId}, Character-free: ${isCharacterFree}`);
-    
-    processHighContrastImageGeneration(jobId, { ...body, babyGender, isCharacterFree }).catch(error => {
-      console.error(`Job ${jobId} failed:`, error);
-      const job = jobs.get(jobId);
-      if (job) {
-        job.status = 'failed';
-        job.error = error.message;
-      }
-    });
-    
-    return NextResponse.json({
-      success: true,
-      jobId,
-      message: `High-Contrast ${isCharacterFree ? 'character-free' : 'character'} image generation started`
-    });
-    
-  } catch (error: any) {
-    console.error('Failed to start job:', error);
-    return NextResponse.json(
-      { success: false, error: error.message || 'Failed to start job' },
-      { status: 500 }
-    );
-  }
+  try {
+    const body = await request.json();
+    const { bookId, pageNumber, pageData, babyProfile } = body;
+
+    if (!bookId || !pageNumber || !pageData) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    const babyGender = babyProfile?.gender || 'neutral';
+    const shotId = pageData.shot_id || 'establishing_wide';
+    const shot = HIGH_CONTRAST_SHOTS[shotId];
+    const isCharacterFree = !shot?.requires_character || pageData.is_character_free;
+
+    const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
+
+    jobs.set(jobId, {
+      id: jobId,
+      status: 'pending',
+      progress: 0,
+      startTime: Date.now()
+    });
+
+    console.log(`Starting job ${jobId}: Page ${pageNumber}, Shot: ${shotId}, Character-free: ${isCharacterFree}`);
+
+    processHighContrastImageGeneration(jobId, { ...body, babyGender, isCharacterFree }).catch(error => {
+      console.error(`Job ${jobId} failed:`, error);
+      const job = jobs.get(jobId);
+      if (job) {
+        job.status = 'failed';
+        job.error = error.message;
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      jobId,
+      message: `High-Contrast ${isCharacterFree ? 'character-free' : 'character'} image generation started`
+    });
+
+  } catch (error: any) {
+    console.error('Failed to start job:', error);
+    return NextResponse.json(
+      { success: false, error: error.message || 'Failed to start job' },
+      { status: 500 }
+    );
+  }
 }
 
 /**
- * Process high-contrast image generation
- */
+ * Process high-contrast image generation
+ */
 async function processHighContrastImageGeneration(jobId: string, params: any) {
-  const job = jobs.get(jobId);
-  if (!job) return;
-  
-  try {
-    job.status = 'processing';
-    job.progress = 10;
-    
-    const { 
-      bookId, 
-      pageNumber, 
-      babyPhotoUrl,
-      pageData, 
-      babyGender = 'neutral',
-      uploadedPhotos = [],
-      isCharacterFree
-    } = params;
-    
-    console.log(`[Job ${jobId}] Page ${pageNumber}, ${isCharacterFree ? 'Character-free' : 'Character'} ${babyGender} shot: ${pageData.shot_id}`);
-    
-    let imageFiles: any[] = [];
-    let prompt: string;
-    
-    if (isCharacterFree) {
-      // CHARACTER-FREE PAGE - No references needed
-      console.log(`[Job ${jobId}] Character-free page - no character references`);
-      
-      // Use a simple white background as base
-      const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
-      const baseFile = await prepareImageFile(whiteBase, 'white.png');
-      imageFiles = [baseFile];
-      
-      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender);
-      
-    } else if (pageNumber === 1 && !isCharacterFree) {
-      // Page 1 with character - create style anchor
-      let babyReference = babyPhotoUrl;
-      if (!babyReference && uploadedPhotos.length > 0) {
-        babyReference = getOneCharacterReference('baby', uploadedPhotos, bookId);
-      }
-      
-      if (!babyReference) {
-        throw new Error('No baby photo provided for Page 1');
-      }
-      
-      console.log(`[Job ${jobId}] Page 1: Creating High-Contrast Paper Collage style anchor`);
-      
-      const babyFile = await prepareImageFile(babyReference, 'baby.png');
-      imageFiles = [babyFile];
-      
-      prompt = buildEnhancedHighContrastPrompt(pageData, 1, babyGender);
-      
+  const job = jobs.get(jobId);
+  if (!job) return;
+
+  try {
+    job.status = 'processing';
+    job.progress = 10;
+
+    const {
+      bookId,
+      pageNumber,
+      babyPhotoUrl,
+      pageData,
+      babyProfile,
+      babyGender = 'neutral',
+      uploadedPhotos = [],
+      cast = {},
+      isCharacterFree
+    } = params;
+
+    console.log(`[Job ${jobId}] Page ${pageNumber}, ${isCharacterFree ? 'Character-free' : 'Character'} ${babyGender} shot: ${pageData.shot_id}`);
+
+    let imageFiles: any[] = [];
+    let prompt: string;
+
+    if (isCharacterFree) {
+      // CHARACTER-FREE PAGE - No references needed
+      console.log(`[Job ${jobId}] Character-free page - no character references`);
+
+      // Use a simple white background as base
+      const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+      const baseFile = await prepareImageFile(whiteBase, 'white.png');
+      imageFiles = [baseFile];
+
+      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender);
+
+    } else if (pageNumber === 1 && !isCharacterFree) {
+        // Page 1 with character - create style anchor
+        let babyReference = babyPhotoUrl;
+        let babyDescription = params.babyDescription || params.cast?.baby?.features_lock;
+
+        if (!babyReference && uploadedPhotos.length > 0) {
+            babyReference = getOneCharacterReference('baby', uploadedPhotos, bookId);
+        }
+
+        // Check we have either photo or description
+        if (!babyReference && !babyDescription) {
+            throw new Error('No baby photo or description provided for Page 1');
+        }
+
+        console.log(`[Job ${jobId}] Page 1: Creating High-Contrast Paper Collage style anchor for ${babyGender} baby`);
+
+        if (babyReference) {
+            const babyFile = await prepareImageFile(babyReference, 'baby.png');
+            imageFiles = [babyFile];
+        } else {
+            // Use white base for description-only
+            const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+            const baseFile = await prepareImageFile(whiteBase, 'white.png');
+            imageFiles = [baseFile];
+        }
+
+        prompt = buildEnhancedHighContrastPrompt(pageData, 1, babyGender);
+
+        // Add description to prompt if no photo
+        if (!babyReference && babyDescription) {
+            prompt += `\n\nBaby character description: ${babyDescription}\n`;
+            prompt += 'Create paper collage baby matching this exact description.\n';
+        }
     } else {
-      // Other character pages
-      const styleAnchor = await waitForStyleAnchor(bookId);
-      if (!styleAnchor) {
-        throw new Error('Style anchor not available. Please generate Page 1 first.');
-      }
-      
-      const references: { url: string; name: string }[] = [];
-      references.push({ url: styleAnchor, name: 'style.png' });
-      
-      const uniqueCharacters = new Set(pageData.characters_on_page || []);
-      
-      for (const characterId of uniqueCharacters) {
-        if (references.length >= 4) break;
-        
-        const charRef = getOneCharacterReference(characterId as PersonId, uploadedPhotos, bookId);
-        if (charRef) {
-          references.push({ 
-            url: charRef, 
-            name: `${characterId}.png` 
-          });
+      // Other character pages
+      const styleAnchor = await waitForStyleAnchor(bookId);
+      if (!styleAnchor) {
+        throw new Error('Style anchor not available. Please generate Page 1 first.');
+      }
+
+      const references: { url: string; name: string }[] = [];
+      references.push({ url: styleAnchor, name: 'style.png' });
+
+      const uniqueCharacters = new Set(pageData.characters_on_page || []);
+
+      for (const characterId of uniqueCharacters) {
+        if (references.length >= 4) break;
+
+        const charRef = getOneCharacterReference(characterId as PersonId, uploadedPhotos, bookId);
+        if (charRef) {
+          references.push({
+            url: charRef,
+            name: `${characterId}.png`
+          });
+        }
+      }
+
+      console.log(`[Job ${jobId}] Page ${pageNumber}: High-Contrast with ${references.length} refs`);
+
+      imageFiles = await Promise.all(
+        references.map(ref => prepareImageFile(ref.url, ref.name))
+      );
+
+      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender);
+      // Add character descriptions for this page.
+      if (pageData.characters_on_page && cast) {
+        let descriptionsSection = '';
+        for (const charId of pageData.characters_on_page) {
+            const castMember = cast[charId as PersonId];
+            if (castMember?.features_lock) {
+              const charName = charId === 'baby' ? babyProfile?.baby_name : charId;
+              descriptionsSection += `${charName}: ${castMember.features_lock}\n`;
+            }
+        }
+        if(descriptionsSection) {
+            prompt += '\nCHARACTER DESCRIPTIONS:\n';
+            prompt += descriptionsSection;
+            prompt += 'Create paper collage characters that match these descriptions exactly.\n';
         }
       }
-      
-      console.log(`[Job ${jobId}] Page ${pageNumber}: High-Contrast with ${references.length} refs`);
-      
-      imageFiles = await Promise.all(
-        references.map(ref => prepareImageFile(ref.url, ref.name))
-      );
-      
-      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender);
-    }
-    
-    job.progress = 30;
-    
-    console.log(`[Job ${jobId}] Calling OpenAI with High-Contrast prompt:`, prompt.substring(0, 200));
-    
-    const response = await openai.images.edit({
-      model: 'gpt-image-1',
-      image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-      prompt,
-      n: 1,
-      size: '1024x1024',
-      quality: 'high',
-      input_fidelity: 'high',
-      background: 'transparent',
-      // @ts-expect-error: moderation exists but not in SDK types
-      moderation: 'low',
-    });
-    
-    job.progress = 80;
-    
-    const imageBase64 = await handleOpenAIResponse(response);
-    
-    if (pageNumber === 1 && !isCharacterFree) {
-      styleAnchors.set(bookId, imageBase64);
-      console.log(`[Job ${jobId}] Style anchor created for book ${bookId}`);
-    }
-    
-    job.progress = 90;
-    
-    const dataUrl = `data:image/png;base64,${imageBase64}`;
-    
-    job.progress = 100;
-    job.status = 'completed';
-    job.completedAt = Date.now();
-    job.result = {
-      page_number: pageNumber,
-      dataUrl,
-      sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
-      style: 'high-contrast-paper-collage',
-      gender: babyGender,
-      shot_id: pageData.shot_id,
-      shot_name: HIGH_CONTRAST_SHOTS[pageData.shot_id]?.name,
-      is_character_free: isCharacterFree,
-      characters_on_page: isCharacterFree ? [] : pageData.characters_on_page,
-      reference_count: imageFiles.length,
-      elapsed_ms: Date.now() - job.startTime
-    };
-    
-    console.log(`[Job ${jobId}] Completed: ${isCharacterFree ? 'Character-free' : 'Character'} ${HIGH_CONTRAST_SHOTS[pageData.shot_id]?.name} shot`);
-    
-  } catch (error: any) {
-    console.error(`[Job ${jobId}] Failed:`, error);
-    job.status = 'failed';
-    job.error = error.message;
-    job.completedAt = Date.now();
-  }
+    }
+
+    job.progress = 30;
+
+    console.log(`[Job ${jobId}] Calling OpenAI with High-Contrast prompt:`, prompt.substring(0, 200));
+
+    const response = await openai.images.edit({
+      model: 'gpt-image-1',
+      image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+      prompt,
+      n: 1,
+      size: '1024x1024',
+      quality: 'high',
+      input_fidelity: 'high',
+      background: 'transparent',
+      // @ts-expect-error: moderation exists but not in SDK types
+      moderation: 'low',
+    });
+
+    job.progress = 80;
+
+    const imageBase64 = await handleOpenAIResponse(response);
+
+    if (pageNumber === 1 && !isCharacterFree) {
+      styleAnchors.set(bookId, imageBase64);
+      console.log(`[Job ${jobId}] Style anchor created for book ${bookId}`);
+    }
+
+    job.progress = 90;
+
+    const dataUrl = `data:image/png;base64,${imageBase64}`;
+
+    job.progress = 100;
+    job.status = 'completed';
+    job.completedAt = Date.now();
+    job.result = {
+      page_number: pageNumber,
+      dataUrl,
+      sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
+      style: 'high-contrast-paper-collage',
+      gender: babyGender,
+      shot_id: pageData.shot_id,
+      shot_name: HIGH_CONTRAST_SHOTS[pageData.shot_id]?.name,
+      is_character_free: isCharacterFree,
+      characters_on_page: isCharacterFree ? [] : pageData.characters_on_page,
+      reference_count: imageFiles.length,
+      elapsed_ms: Date.now() - job.startTime
+    };
+
+    console.log(`[Job ${jobId}] Completed: ${isCharacterFree ? 'Character-free' : 'Character'} ${HIGH_CONTRAST_SHOTS[pageData.shot_id]?.name} shot`);
+
+  } catch (error: any) {
+    console.error(`[Job ${jobId}] Failed:`, error);
+    job.status = 'failed';
+    job.error = error.message;
+    job.completedAt = Date.now();
+  }
 }
 
 /**
- * Handle OpenAI response
- */
+ * Handle OpenAI response
+ */
 async function handleOpenAIResponse(response: any): Promise<string> {
-  if (!response.data || !response.data[0]) {
-    throw new Error('No image data in response');
-  }
-  
-  const imageData = response.data[0];
-  
-  if ('b64_json' in imageData && imageData.b64_json) {
-    return imageData.b64_json;
-  }
-  
-  if ('url' in imageData && imageData.url) {
-    const imgResponse = await fetch(imageData.url);
-    if (!imgResponse.ok) {
-      throw new Error(`Failed to fetch image: ${imgResponse.status}`);
-    }
-    const arrayBuffer = await imgResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer).toString('base64');
-  }
-  
-  throw new Error('Unknown response format from OpenAI');
+  if (!response.data || !response.data[0]) {
+    throw new Error('No image data in response');
+  }
+
+  const imageData = response.data[0];
+
+  if ('b64_json' in imageData && imageData.b64_json) {
+    return imageData.b64_json;
+  }
+
+  if ('url' in imageData && imageData.url) {
+    const imgResponse = await fetch(imageData.url);
+    if (!imgResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imgResponse.status}`);
+    }
+    const arrayBuffer = await imgResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
+  }
+
+  throw new Error('Unknown response format from OpenAI');
 }
 
 /**
- * Wait for style anchor
- */
+ * Wait for style anchor
+ */
 async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<string | null> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const anchor = styleAnchors.get(bookId);
-    if (anchor) {
-      return anchor;
-    }
-    
-    if (attempt === 0) {
-      console.log(`Waiting for High-Contrast style anchor for book ${bookId}...`);
-    }
-    
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-  
-  return null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const anchor = styleAnchors.get(bookId);
+    if (anchor) {
+      return anchor;
+    }
+
+    if (attempt === 0) {
+      console.log(`Waiting for High-Contrast style anchor for book ${bookId}...`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+
+  return null;
 }
 
 /**
- * GET - Check job status
- */
+ * GET - Check job status
+ */
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const jobId = searchParams.get('jobId');
-  
-  if (!jobId) {
-    return NextResponse.json({ error: 'Job ID required' }, { status: 400 });
-  }
-  
-  const job = jobs.get(jobId);
-  
-  if (!job) {
-    return NextResponse.json({ error: 'Job not found' }, { status: 404 });
-  }
-  
-  return NextResponse.json({
-    success: true,
-    job: {
-      id: job.id,
-      status: job.status,
-      progress: job.progress,
-      result: job.result,
-      error: job.error,
-      duration: job.completedAt 
-        ? job.completedAt - job.startTime 
-        : Date.now() - job.startTime
-    }
-  });
+  const { searchParams } = new URL(request.url);
+  const jobId = searchParams.get('jobId');
+
+  if (!jobId) {
+    return NextResponse.json({ error: 'Job ID required' }, { status: 400 });
+  }
+
+  const job = jobs.get(jobId);
+
+  if (!job) {
+    return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    success: true,
+    job: {
+      id: job.id,
+      status: job.status,
+      progress: job.progress,
+      result: job.result,
+      error: job.error,
+      duration: job.completedAt
+        ? job.completedAt - job.startTime
+        : Date.now() - job.startTime
+    }
+  });
 }
 
 /**
- * DELETE - Clean up
- */
+ * DELETE - Clean up
+ */
 export async function DELETE() {
-  try {
-    jobs.clear();
-    styleAnchors.clear();
-    characterReferences.clear();
-    
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Cleaned up temporary data'
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { success: false, error: 'Cleanup failed' },
-      { status: 500 }
-    );
-  }
+  try {
+    jobs.clear();
+    styleAnchors.clear();
+    characterReferences.clear();
+
+    return NextResponse.json({
+      success: true,
+      message: 'Cleaned up temporary data'
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: 'Cleanup failed' },
+      { status: 500 }
+    );
+  }
 }

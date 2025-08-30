@@ -11,6 +11,8 @@
     "clean": "rm -rf node_modules .next && npm install"
   },
   "dependencies": {
+    "@dicebear/collection": "^9.2.4",
+    "@dicebear/core": "^9.2.4",
     "@supabase/auth-helpers-nextjs": "^0.8.0",
     "@supabase/supabase-js": "^2.39.0",
     "autoprefixer": "^10",

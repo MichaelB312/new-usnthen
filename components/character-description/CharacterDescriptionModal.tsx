@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Sparkles, Check, X, ChevronDown, 
-  User, Baby, Eye, Palette, Scissors
+  User, Baby, Eye, Palette, Scissors, Shirt
 } from 'lucide-react';
 import { PersonId } from '@/lib/store/bookStore';
 
@@ -38,7 +38,26 @@ const ATTRIBUTE_OPTIONS = {
     child: ['small', 'average', 'tall for age', 'sturdy'],
     adult: ['petite', 'average', 'athletic', 'tall', 'plus-size']
   },
-  specialFeatures: ['dimples', 'freckles', 'birthmark', 'glasses', 'big smile', 'rosy cheeks', 'none']
+  specialFeatures: [
+    'dimples', 
+    'freckles', 
+    'birthmark', 
+    'glasses', 
+    'big smile', 
+    'rosy cheeks',
+    'long eyelashes',
+    'button nose',
+    'round face',
+    'oval face',
+    'chubby arms',
+    'tiny hands',
+    'bright eyes',
+    'toothless grin',
+    'one tooth showing',
+    'gap between teeth',
+    'mole',
+    'none'
+  ]
 };
 
 interface CharacterAttributes {
@@ -49,6 +68,8 @@ interface CharacterAttributes {
   hairStyle: string;
   build: string;
   specialFeatures: string[];
+  clothing: string;
+  customNotes: string;
 }
 
 // Parse existing description back to attributes
@@ -180,7 +201,9 @@ export function CharacterDescriptionModal({
         hairColor: parsed.hairColor || '',
         hairStyle: parsed.hairStyle || '',
         build: parsed.build || '',
-        specialFeatures: parsed.specialFeatures || []
+        specialFeatures: parsed.specialFeatures || [],
+        clothing: '',
+        customNotes: ''
       };
     }
     
@@ -191,7 +214,9 @@ export function CharacterDescriptionModal({
       hairColor: '',
       hairStyle: '',
       build: '',
-      specialFeatures: []
+      specialFeatures: [],
+      clothing: '',
+      customNotes: ''
     };
   });
   
@@ -230,8 +255,11 @@ export function CharacterDescriptionModal({
       parts.push(`with ${attributes.specialFeatures.join(' and ')}`);
     }
     
-    // Gender-specific additions for babies
-    if (isBaby) {
+    // Clothing
+    if (attributes.clothing) {
+      parts.push(`wearing ${attributes.clothing}`);
+    } else if (isBaby) {
+      // Default clothing if not specified
       if (gender === 'girl') {
         parts.push('wearing a pink outfit');
       } else if (gender === 'boy') {
@@ -241,7 +269,12 @@ export function CharacterDescriptionModal({
       }
     }
     
-    return parts.join(', ') + '.';
+    // Custom notes
+    if (attributes.customNotes) {
+      parts.push(`. ${attributes.customNotes}`);
+    }
+    
+    return parts.join(', ').replace(', .', '.') + (attributes.customNotes ? '' : '.');
   };
   
   // Validate if minimum attributes are selected
@@ -265,7 +298,8 @@ export function CharacterDescriptionModal({
     { title: 'Basic Info', fields: ['age', 'build'] },
     { title: 'Appearance', fields: ['skinTone', 'eyeColor'] },
     { title: 'Hair', fields: ['hairColor', 'hairStyle'] },
-    { title: 'Special Features', fields: ['specialFeatures'] }
+    { title: 'Features', fields: ['specialFeatures'] },
+    { title: 'Clothing & Details', fields: ['clothing', 'customNotes'] }
   ];
   
   return (
@@ -391,9 +425,9 @@ export function CharacterDescriptionModal({
               {currentStep === 3 && (
                 <div>
                   <label className="text-sm font-medium text-gray-700 mb-2 block">
-                    Special Features (optional)
+                    Special Features (select all that apply)
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
                     {ATTRIBUTE_OPTIONS.specialFeatures.map(feature => (
                       <button
                         key={feature}
@@ -408,7 +442,7 @@ export function CharacterDescriptionModal({
                             return { ...prev, specialFeatures: features };
                           });
                         }}
-                        className={`px-4 py-2 rounded-lg border-2 transition-all ${
+                        className={`px-3 py-2 rounded-lg border-2 transition-all text-sm ${
                           attributes.specialFeatures.includes(feature)
                             ? 'border-purple-500 bg-purple-50 text-purple-700'
                             : 'border-gray-200 hover:border-purple-300'
@@ -417,6 +451,51 @@ export function CharacterDescriptionModal({
                         {feature}
                       </button>
                     ))}
+                  </div>
+                </div>
+              )}
+              
+              {currentStep === 4 && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <Shirt className="h-4 w-4" />
+                      What was {characterName} wearing?
+                    </label>
+                    <input
+                      type="text"
+                      value={attributes.clothing}
+                      onChange={(e) => setAttributes(prev => ({ ...prev, clothing: e.target.value }))}
+                      placeholder={
+                        isBaby 
+                          ? "e.g., yellow onesie with ducks, striped pajamas, favorite dinosaur shirt"
+                          : "e.g., blue dress, jeans and t-shirt, floral sundress"
+                      }
+                      className="w-full px-4 py-2 border-2 border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Describe the outfit from that special memory
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">
+                      Any other special details? (optional)
+                    </label>
+                    <textarea
+                      value={attributes.customNotes}
+                      onChange={(e) => setAttributes(prev => ({ ...prev, customNotes: e.target.value }))}
+                      placeholder={
+                        isBaby
+                          ? "e.g., Holding favorite teddy bear, Had just learned to sit up, Making a funny face"
+                          : "e.g., Wearing grandmother's necklace, Had paint on hands from art project"
+                      }
+                      className="w-full px-4 py-2 border-2 border-purple-200 rounded-lg focus:outline-none focus:border-purple-500 resize-none"
+                      rows={3}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Add any unique details you want to remember from this moment
+                    </p>
                   </div>
                 </div>
               )}

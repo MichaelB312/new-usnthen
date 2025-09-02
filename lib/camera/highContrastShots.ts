@@ -223,6 +223,9 @@ export const HIGH_CONTRAST_SHOTS: Record<string, ShotDefinition> = {
  * Generate a high-contrast shot sequence with guaranteed variety
  * Includes strategic character-free shots for pacing
  */
+// lib/camera/highContrastShots.ts
+// Update the generateHighContrastSequence function
+
 export function generateHighContrastSequence(
   pageCount: number,
   includeCharacterFree: boolean = true
@@ -230,18 +233,10 @@ export function generateHighContrastSequence(
   const sequence: string[] = [];
   const usedCategories = new Set<string>();
   
-  // For 6-page book: 1 opening, 3-4 character action, 1-2 transitions/atmosphere, 1 closing
-  // For 8-page book: 1 opening, 5 character action, 1-2 transitions, 1 closing
-  // For 10-page book: 1 opening, 6-7 character action, 2-3 transitions, 1 closing
-  
-  // Page 1: Always start with establishing or object of desire
-  if (includeCharacterFree && Math.random() > 0.5) {
-    sequence.push('object_of_desire');
-    usedCategories.add('object');
-  } else {
-    sequence.push('establishing_wide');
-    usedCategories.add('wide');
-  }
+  // Page 1: MUST ALWAYS be a character shot to create style anchor
+  // Never use character-free shots for Page 1
+  sequence.push('establishing_wide'); // Always use establishing_wide for Page 1
+  usedCategories.add('wide');
   
   // Character action shots - use most distinct ones
   const characterShots = [
@@ -264,7 +259,12 @@ export function generateHighContrastSequence(
   for (let i = 1; i < pageCount - 1; i++) {
     // Insert character-free shot for pacing (roughly every 3 pages)
     if (includeCharacterFree && i > 0 && i % 3 === 0 && i < pageCount - 2) {
-      const atmosphericShots = ['aftermath_quiet', 'atmospheric_detail', 'nature_wonder'];
+      const atmosphericShots = [
+        'object_of_desire', // Can use this for later pages, just not Page 1
+        'aftermath_quiet', 
+        'atmospheric_detail', 
+        'nature_wonder'
+      ];
       const atmospheric = atmosphericShots[Math.floor(Math.random() * atmosphericShots.length)];
       sequence.push(atmospheric);
     } else {
@@ -285,7 +285,7 @@ export function generateHighContrastSequence(
     sequence.push('transition_portal');
   } else {
     // Use a calm character shot for closing
-    const closingShots = ['establishing_wide', 'perfect_profile_side', 'reflection_surface'];
+    const closingShots = ['perfect_profile_side', 'reflection_surface'];
     sequence.push(closingShots[Math.floor(Math.random() * closingShots.length)]);
   }
   
@@ -330,9 +330,6 @@ export function selectHighContrastShot(
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-/**
- * Build prompt for high-contrast shot
- */
 export function buildHighContrastPrompt(
   shotId: string,
   context: {
@@ -341,7 +338,7 @@ export function buildHighContrastPrompt(
     action?: string;
     emotion?: string;
     gender?: 'boy' | 'girl' | 'neutral';
-    narration?: string;
+    narration?: string;  // Add narration to context
   }
 ): string {
   const shot = HIGH_CONTRAST_SHOTS[shotId];
@@ -349,40 +346,108 @@ export function buildHighContrastPrompt(
     return 'paper collage cutout on white background';
   }
   
-  // Start with the specific camera angle - MOST IMPORTANT
+  // Start with the specific camera angle
   let prompt = `${shot.base_prompt}\n`;
   prompt += `${shot.isolation_prompt}\n`;
   
   // For character-free shots
   if (!shot.requires_character) {
     prompt += 'NO PEOPLE, NO CHARACTERS in this shot\n';
-    if (context.objectDescription) {
-      prompt += `Focus on: ${context.objectDescription}\n`;
+    
+    // Extract objects from narration for character-free pages
+    if (context.narration) {
+      const narrationLower = context.narration.toLowerCase();
+      
+      // Try to find specific objects in the narration
+      const objectMap: Record<string, string> = {
+        'duck': 'yellow rubber duck',
+        'ball': 'colorful bouncing ball',
+        'teddy': 'soft teddy bear',
+        'bear': 'cuddly teddy bear',
+        'toy': 'bright children\'s toy',
+        'bottle': 'baby bottle',
+        'blanket': 'soft baby blanket',
+        'book': 'colorful picture book',
+        'blocks': 'wooden alphabet blocks',
+        'flower': 'bright paper flower',
+        'butterfly': 'colorful paper butterfly',
+        'star': 'shimmering paper star',
+        'moon': 'crescent paper moon',
+        'sun': 'bright paper sun',
+        'cloud': 'fluffy paper cloud'
+      };
+      
+      for (const [keyword, description] of Object.entries(objectMap)) {
+        if (narrationLower.includes(keyword)) {
+          prompt += `Focus on: paper collage ${description}\n`;
+          prompt += `This object relates to the story: "${context.narration}"\n`;
+          break;
+        }
+      }
     }
+    
+    if (context.objectDescription) {
+      prompt += `Main object: ${context.objectDescription}\n`;
+    }
+    
     prompt += 'Paper collage style object or scene, clean white background\n';
     return prompt;
   }
   
-  // For character shots
+  // For character shots - incorporate the story narration
   prompt += 'Paper collage cutout baby, isolated on pure white\n';
+  
+  // Parse the narration for specific actions and context
+  if (context.narration) {
+    const narrationLower = context.narration.toLowerCase();
+    
+    // Extract and add specific body positions
+    if (narrationLower.includes('hands')) {
+      prompt += 'Focus on baby\'s hands in the shot\n';
+    } else if (narrationLower.includes('feet') || narrationLower.includes('toes')) {
+      prompt += 'Show baby\'s feet or toes prominently\n';
+    } else if (narrationLower.includes('face') || narrationLower.includes('smile')) {
+      prompt += 'Focus on baby\'s face and expression\n';
+    }
+    
+    // Add context-specific details
+    if (narrationLower.includes('first')) {
+      prompt += 'This is a milestone moment - baby\'s first time\n';
+    }
+    if (narrationLower.includes('discover')) {
+      prompt += 'Baby is discovering something new with wonder\n';
+    }
+    if (narrationLower.includes('reach')) {
+      prompt += 'Baby reaching or stretching toward something\n';
+    }
+  }
   
   // Add gender clarity
   if (context.gender) {
     if (context.gender === 'girl') {
-      prompt += 'Clearly a paper cutout baby GIRL\n';
+      prompt += 'Clearly a paper cutout baby GIRL with feminine outfit\n';
     } else if (context.gender === 'boy') {
-      prompt += 'Obviously a paper cutout baby BOY\n';
+      prompt += 'Obviously a paper cutout baby BOY with boyish outfit\n';
     }
   }
   
-  // Add action if relevant
+  // Add the specific action from the story
   if (context.action) {
-    prompt += `Action: ${context.action}\n`;
+    prompt += `Story action: ${context.action}\n`;
   }
   
-  // Add emotion
+  // Add emotion that matches the narration
   if (context.emotion) {
-    prompt += `Expression: ${context.emotion}\n`;
+    prompt += `Emotional expression: ${context.emotion}\n`;
+  }
+  
+  // Include a reference to what's happening in the story
+  if (context.narration) {
+    // Truncate if too long
+    const shortNarration = context.narration.length > 100 
+      ? context.narration.substring(0, 100) + '...'
+      : context.narration;
+    prompt += `\nThis image illustrates: "${shortNarration}"\n`;
   }
   
   // Final emphasis on the specific angle

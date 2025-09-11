@@ -10,20 +10,12 @@ import {
 import { useBookStore } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';
 
-interface SpreadLayout {
-  spreadNumber: number;
-  leftPage: PageLayout | null;
-  rightPage: PageLayout | null;
-  characterPlacement: 'left' | 'right' | 'center';
-}
-
 interface PageLayout {
   pageNumber: number;
   hasCharacter: boolean;
-  characterBounds: { x: number; y: number; width: number; height: number };
+  characterBounds?: { x: number; y: number; width: number; height: number };
   captionBounds: { x: number; y: number; width: number; height: number };
   sfxBounds?: { x: number; y: number; width: number; height: number };
-  decorations: any[];
 }
 
 export function BookPreviewSpreads({ onComplete }: { onComplete: () => void }) {
@@ -37,214 +29,171 @@ export function BookPreviewSpreads({ onComplete }: { onComplete: () => void }) {
   const [currentSpread, setCurrentSpread] = useState(0);
   const [viewMode, setViewMode] = useState<'spread' | 'grid'>('spread');
   const [showSafeAreas, setShowSafeAreas] = useState(false);
-  const [spreadLayouts, setSpreadLayouts] = useState<SpreadLayout[]>([]);
+  const [pageLayouts, setPageLayouts] = useState<PageLayout[]>([]);
   
-  // Calculate spreads from pages
+  // Initialize page layouts
   useEffect(() => {
     if (!storyData?.pages) return;
     
-    const spreads: SpreadLayout[] = [];
-    const pages = storyData.pages;
+    const layouts: PageLayout[] = storyData.pages.map(page => {
+      const hasCharacter = page.characters_on_page?.length > 0;
+      
+      return {
+        pageNumber: page.page_number,
+        hasCharacter,
+        characterBounds: hasCharacter ? {
+          x: 50,
+          y: 50,
+          width: 300,
+          height: 200
+        } : undefined,
+        captionBounds: {
+          x: 20,
+          y: 280,
+          width: 360,
+          height: 80
+        },
+        sfxBounds: page.has_sfx ? {
+          x: 280,
+          y: 100,
+          width: 100,
+          height: 40
+        } : undefined
+      };
+    });
     
-    for (let i = 0; i < pages.length; i += 2) {
-      const spreadNum = Math.floor(i / 2);
-      const leftPage = pages[i];
-      const rightPage = pages[i + 1];
-      
-      // Determine character placement (alternating by default)
-      let placement: 'left' | 'right' | 'center' = 'left';
-      if (spreadNum % 2 === 0) {
-        placement = 'left';
-      } else {
-        placement = 'right';
-      }
-      
-      // Check if centered placement makes sense
-      const isBigReveal = leftPage?.scene_type === 'opening' || 
-                          rightPage?.scene_type === 'closing';
-      if (isBigReveal) {
-        placement = 'center';
-      }
-      
-      const leftLayout = createPageLayout(leftPage, placement === 'left');
-      const rightLayout = rightPage ? createPageLayout(rightPage, placement === 'right') : null;
-      
-      spreads.push({
-        spreadNumber: spreadNum + 1,
-        leftPage: leftLayout,
-        rightPage: rightLayout,
-        characterPlacement: placement
-      });
-    }
-    
-    setSpreadLayouts(spreads);
+    setPageLayouts(layouts);
   }, [storyData]);
   
-  const createPageLayout = (page: any, hasCharacter: boolean): PageLayout | null => {
-    if (!page) return null;
+  // Calculate spreads
+  const spreads = Math.ceil((storyData?.pages.length || 0) / 2);
+  
+  const renderSpread = (spreadIndex: number) => {
+    const leftPageIndex = spreadIndex * 2;
+    const rightPageIndex = leftPageIndex + 1;
+    const leftPage = storyData?.pages[leftPageIndex];
+    const rightPage = storyData?.pages[rightPageIndex];
+    const leftLayout = pageLayouts[leftPageIndex];
+    const rightLayout = pageLayouts[rightPageIndex];
     
-    const PAGE_WIDTH = 400; // 1:1 square pages
-    const PAGE_HEIGHT = 400;
-    const SAFE_MARGIN = 20;
-    const INNER_PADDING = 30;
+    // Determine where character should appear (only one side!)
+    let characterSide: 'left' | 'right' | 'none' = 'none';
+    let characterIllustration = null;
     
-    const layout: PageLayout = {
-      pageNumber: page.page_number,
-      hasCharacter: hasCharacter && page.characters_on_page?.length > 0,
-      characterBounds: { x: 0, y: 0, width: 0, height: 0 },
-      captionBounds: { x: 0, y: 0, width: 0, height: 0 },
-      decorations: []
-    };
-    
-    // Calculate character bounds
-    if (layout.hasCharacter) {
-      layout.characterBounds = {
-        x: SAFE_MARGIN + INNER_PADDING,
-        y: SAFE_MARGIN + INNER_PADDING,
-        width: PAGE_WIDTH - (2 * SAFE_MARGIN) - (2 * INNER_PADDING),
-        height: PAGE_HEIGHT * 0.6
-      };
+    if (leftPage && leftPage.characters_on_page && leftPage.characters_on_page.length > 0) {
+      characterSide = 'left';
+      characterIllustration = illustrations?.find(ill => ill.page_number === leftPage.page_number);
+    } else if (rightPage && rightPage.characters_on_page && rightPage.characters_on_page.length > 0) {
+      characterSide = 'right';
+      characterIllustration = illustrations?.find(ill => ill.page_number === rightPage.page_number);
     }
     
-    // Calculate caption bounds
-    const captionHeight = 80;
-    layout.captionBounds = {
-      x: SAFE_MARGIN,
-      y: PAGE_HEIGHT - SAFE_MARGIN - captionHeight,
-      width: PAGE_WIDTH - (2 * SAFE_MARGIN),
-      height: captionHeight
-    };
-    
-    // Add SFX bounds if needed
-    if (page.has_sfx && page.sfx_text) {
-      layout.sfxBounds = {
-        x: PAGE_WIDTH * 0.6,
-        y: PAGE_HEIGHT * 0.3,
-        width: 100,
-        height: 40
-      };
-    }
-    
-    return layout;
-  };
-  
-  const renderPageContent = (
-    page: any, 
-    layout: PageLayout | null,
-    isLeftPage: boolean
-  ) => {
-    if (!page || !layout) return null;
-    
-    const illustration = illustrations?.find(ill => ill.page_number === page.page_number);
-    
     return (
-      <div className="relative w-[400px] h-[400px] bg-white rounded-lg shadow-inner overflow-hidden">
-        {/* Safe area guides */}
-        {showSafeAreas && (
-          <div className="absolute inset-4 border-2 border-green-400 border-dashed opacity-30 pointer-events-none" />
-        )}
-        
-        {/* Character illustration */}
-        {layout.hasCharacter && illustration?.url && (
-          <div 
-            className="absolute"
-            style={{
-              left: `${layout.characterBounds.x}px`,
-              top: `${layout.characterBounds.y}px`,
-              width: `${layout.characterBounds.width}px`,
-              height: `${layout.characterBounds.height}px`
-            }}
-          >
-            <img 
-              src={illustration.url}
-              alt={`Page ${page.page_number}`}
-              className="w-full h-full object-contain"
-            />
+      <div className="bg-white rounded-2xl shadow-2xl overflow-hidden" style={{ aspectRatio: '2/1' }}>
+        <div className="flex h-full">
+          {/* Left Page */}
+          <div className="relative w-1/2 h-full bg-white p-8">
+            {showSafeAreas && (
+              <div className="absolute inset-4 border-2 border-green-400 border-dashed opacity-30 pointer-events-none" />
+            )}
+            
+            {leftPage && (
+              <>
+                {/* Character on left side only */}
+                {characterSide === 'left' && characterIllustration?.url && (
+                  <div className="absolute inset-8 flex items-center justify-center">
+                    <img 
+                      src={characterIllustration.url}
+                      alt={`Page ${leftPage.page_number}`}
+                      className="max-w-full max-h-[60%] object-contain"
+                    />
+                  </div>
+                )}
+                
+                {/* Caption */}
+                <div className="absolute bottom-8 left-8 right-8">
+                  <p className="text-center text-lg font-patrick text-gray-800">
+                    {leftPage.narration}
+                  </p>
+                </div>
+                
+                {/* SFX */}
+                {leftPage.has_sfx && leftPage.sfx_text && (
+                  <div 
+                    className="absolute"
+                    style={{
+                      right: '20px',
+                      top: '80px',
+                      transform: 'rotate(-15deg)'
+                    }}
+                  >
+                    <span className="text-2xl font-bold text-purple-600 font-patrick">
+                      {leftPage.sfx_text}
+                    </span>
+                  </div>
+                )}
+                
+                {/* Page number */}
+                <div className="absolute bottom-2 left-2 text-xs text-gray-400">
+                  {leftPage.page_number}
+                </div>
+              </>
+            )}
           </div>
-        )}
-        
-        {/* Caption */}
-        <div 
-          className="absolute flex items-center justify-center"
-          style={{
-            left: `${layout.captionBounds.x}px`,
-            top: `${layout.captionBounds.y}px`,
-            width: `${layout.captionBounds.width}px`,
-            height: `${layout.captionBounds.height}px`
-          }}
-        >
-          <p className="text-center text-lg font-patrick text-gray-800 px-4">
-            {page.narration}
-          </p>
+          
+          {/* Center spine */}
+          <div className="w-px bg-gradient-to-b from-gray-200 via-gray-300 to-gray-200" />
+          
+          {/* Right Page */}
+          <div className="relative w-1/2 h-full bg-white p-8">
+            {showSafeAreas && (
+              <div className="absolute inset-4 border-2 border-green-400 border-dashed opacity-30 pointer-events-none" />
+            )}
+            
+            {rightPage && (
+              <>
+                {/* Character on right side only */}
+                {characterSide === 'right' && characterIllustration?.url && (
+                  <div className="absolute inset-8 flex items-center justify-center">
+                    <img 
+                      src={characterIllustration.url}
+                      alt={`Page ${rightPage.page_number}`}
+                      className="max-w-full max-h-[60%] object-contain"
+                    />
+                  </div>
+                )}
+                
+                {/* Caption */}
+                <div className="absolute bottom-8 left-8 right-8">
+                  <p className="text-center text-lg font-patrick text-gray-800">
+                    {rightPage.narration}
+                  </p>
+                </div>
+                
+                {/* SFX */}
+                {rightPage.has_sfx && rightPage.sfx_text && (
+                  <div 
+                    className="absolute"
+                    style={{
+                      left: '20px',
+                      top: '80px',
+                      transform: 'rotate(15deg)'
+                    }}
+                  >
+                    <span className="text-2xl font-bold text-purple-600 font-patrick">
+                      {rightPage.sfx_text}
+                    </span>
+                  </div>
+                )}
+                
+                {/* Page number */}
+                <div className="absolute bottom-2 right-2 text-xs text-gray-400">
+                  {rightPage.page_number}
+                </div>
+              </>
+            )}
+          </div>
         </div>
-        
-        {/* SFX */}
-        {layout.sfxBounds && page.sfx_text && (
-          <div 
-            className="absolute flex items-center justify-center"
-            style={{
-              left: `${layout.sfxBounds.x}px`,
-              top: `${layout.sfxBounds.y}px`,
-              width: `${layout.sfxBounds.width}px`,
-              height: `${layout.sfxBounds.height}px`,
-              transform: 'rotate(-15deg)'
-            }}
-          >
-            <span className="text-2xl font-bold text-purple-600 font-patrick">
-              {page.sfx_text}
-            </span>
-          </div>
-        )}
-        
-        {/* Page number */}
-        <div className="absolute bottom-2 right-2 text-xs text-gray-400">
-          {page.page_number}
-        </div>
-      </div>
-    );
-  };
-  
-  const renderCenteredSpread = (spread: SpreadLayout) => {
-    const leftPage = storyData?.pages[(spread.spreadNumber - 1) * 2];
-    const rightPage = storyData?.pages[(spread.spreadNumber - 1) * 2 + 1];
-    const illustration = illustrations?.find(ill => 
-      ill.page_number === leftPage?.page_number || 
-      ill.page_number === rightPage?.page_number
-    );
-    
-    return (
-      <div className="relative w-[800px] h-[400px] bg-white rounded-lg shadow-inner overflow-hidden flex">
-        {/* Centered character across spread */}
-        {illustration?.url && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <img 
-              src={illustration.url}
-              alt={`Spread ${spread.spreadNumber}`}
-              className="max-w-[60%] max-h-[70%] object-contain"
-            />
-          </div>
-        )}
-        
-        {/* Left caption */}
-        {leftPage && (
-          <div className="absolute bottom-8 left-8 max-w-[300px]">
-            <p className="text-lg font-patrick text-gray-800">
-              {leftPage.narration}
-            </p>
-          </div>
-        )}
-        
-        {/* Right caption */}
-        {rightPage && (
-          <div className="absolute bottom-8 right-8 max-w-[300px] text-right">
-            <p className="text-lg font-patrick text-gray-800">
-              {rightPage.narration}
-            </p>
-          </div>
-        )}
-        
-        {/* Center binding */}
-        <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-gradient-to-b from-gray-200 via-gray-300 to-gray-200 transform -translate-x-1/2" />
       </div>
     );
   };
@@ -255,7 +204,7 @@ export function BookPreviewSpreads({ onComplete }: { onComplete: () => void }) {
       <div className="card-magical">
         <div className="flex items-center justify-between">
           <h2 className="text-3xl font-patrick gradient-text">
-            Book Layout Viewer
+            Book Preview
           </h2>
           
           <div className="flex items-center gap-4">
@@ -308,41 +257,13 @@ export function BookPreviewSpreads({ onComplete }: { onComplete: () => void }) {
             >
               {/* Book Spread */}
               <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl shadow-2xl overflow-hidden p-8">
-                {spreadLayouts[currentSpread] && (
-                  spreadLayouts[currentSpread].characterPlacement === 'center' ? (
-                    renderCenteredSpread(spreadLayouts[currentSpread])
-                  ) : (
-                    <div className="flex gap-4">
-                      {/* Left Page */}
-                      {renderPageContent(
-                        storyData?.pages[(currentSpread * 2)],
-                        spreadLayouts[currentSpread].leftPage,
-                        true
-                      )}
-                      
-                      {/* Right Page */}
-                      {renderPageContent(
-                        storyData?.pages[(currentSpread * 2) + 1],
-                        spreadLayouts[currentSpread].rightPage,
-                        false
-                      )}
-                    </div>
-                  )
-                )}
-                
-                {/* Center binding line */}
-                {spreadLayouts[currentSpread]?.characterPlacement !== 'center' && (
-                  <div className="absolute left-1/2 top-8 bottom-8 w-1 bg-gradient-to-b from-gray-300 via-gray-400 to-gray-300 transform -translate-x-1/2 shadow-inner" />
-                )}
+                {renderSpread(currentSpread)}
               </div>
               
               {/* Info Bar */}
               <div className="flex items-center justify-between mt-4 p-4 bg-gray-50 rounded-lg">
                 <span className="font-medium">
-                  Spread {currentSpread + 1} of {spreadLayouts.length}
-                </span>
-                <span className="text-sm text-gray-600">
-                  Character: {spreadLayouts[currentSpread]?.characterPlacement}
+                  Pages {currentSpread * 2 + 1}–{Math.min((currentSpread + 1) * 2, storyData?.pages.length || 0)}
                 </span>
               </div>
             </motion.div>
@@ -361,7 +282,7 @@ export function BookPreviewSpreads({ onComplete }: { onComplete: () => void }) {
             
             {/* Page Dots */}
             <div className="flex gap-2">
-              {spreadLayouts.map((_, index) => (
+              {Array.from({ length: spreads }).map((_, index) => (
                 <button
                   key={index}
                   onClick={() => setCurrentSpread(index)}
@@ -375,8 +296,8 @@ export function BookPreviewSpreads({ onComplete }: { onComplete: () => void }) {
             </div>
             
             <button
-              onClick={() => setCurrentSpread(Math.min(spreadLayouts.length - 1, currentSpread + 1))}
-              disabled={currentSpread >= spreadLayouts.length - 1}
+              onClick={() => setCurrentSpread(Math.min(spreads - 1, currentSpread + 1))}
+              disabled={currentSpread >= spreads - 1}
               className="btn-secondary flex items-center gap-2"
             >
               Next
@@ -390,7 +311,7 @@ export function BookPreviewSpreads({ onComplete }: { onComplete: () => void }) {
       {viewMode === 'grid' && (
         <div className="card-magical">
           <div className="grid md:grid-cols-2 gap-8">
-            {spreadLayouts.map((spread, index) => (
+            {Array.from({ length: spreads }).map((_, index) => (
               <motion.div
                 key={index}
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -402,16 +323,12 @@ export function BookPreviewSpreads({ onComplete }: { onComplete: () => void }) {
                   setViewMode('spread');
                 }}
               >
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                  <div className="flex">
-                    <div className="w-32 h-32 bg-gradient-to-br from-purple-100 to-pink-100" />
-                    <div className="w-32 h-32 bg-gradient-to-br from-pink-100 to-purple-100" />
+                <div className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+                  <div className="aspect-[2/1] bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center">
+                    <BookOpen className="h-12 w-12 text-purple-400" />
                   </div>
                   <div className="p-2 text-center bg-gray-50">
-                    <p className="text-sm font-medium">Spread {spread.spreadNumber}</p>
-                    <p className="text-xs text-gray-500">
-                      Pages {(index * 2) + 1}–{(index * 2) + 2}
-                    </p>
+                    <p className="text-sm font-medium">Pages {index * 2 + 1}–{Math.min((index + 1) * 2, storyData?.pages.length || 0)}</p>
                   </div>
                 </div>
               </motion.div>

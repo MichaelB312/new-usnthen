@@ -1,10 +1,8 @@
 // components/book-preview/SFXRenderer.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
-import { Volume2 } from 'lucide-react';
-import { useBookStore } from '@/lib/store/bookStore';
 
 export interface SFXConfig {
   text: string;
@@ -110,70 +108,107 @@ export function SFXRenderer({
   );
 }
 
-// SFX Detection and Generation
+// Enhanced SFX Detection and Generation
 export class SFXGenerator {
   private static SFX_PATTERNS = {
     // Movement sounds
-    'run|dash|race': ['ZOOM!', 'WHOOSH!', 'DASH!'],
-    'jump|hop|bounce': ['BOING!', 'HOP!', 'BOUNCE!'],
-    'fall|tumble|drop': ['THUMP!', 'TUMBLE!', 'OOF!'],
-    'crawl|creep': ['SHUFFLE!', 'CREEP!'],
+    'run|running|dash|race|racing': ['ZOOM!', 'WHOOSH!', 'DASH!'],
+    'jump|jumping|hop|hopping|bounce|bouncing': ['BOING!', 'HOP!', 'BOUNCE!'],
+    'fall|falling|tumble|tumbling|drop|dropping': ['THUMP!', 'TUMBLE!', 'OOF!'],
+    'crawl|crawling|creep|creeping': ['SHUFFLE!', 'CREEP!'],
+    'walk|walking|step|stepping': ['STEP STEP!', 'TAP TAP!'],
     
     // Water sounds
-    'splash|swim|water': ['SPLASH!', 'SPLISH!', 'SWOOSH!'],
-    'drip|drop': ['DRIP!', 'PLOP!'],
-    'bath|wash': ['SPLISH SPLASH!', 'BUBBLE!'],
+    'splash|splashing|swim|swimming|water': ['SPLASH!', 'SPLISH SPLASH!', 'SWOOSH!'],
+    'drip|dripping|drop': ['DRIP!', 'PLOP!'],
+    'bath|bathing|wash|washing': ['SPLISH SPLASH!', 'BUBBLE!'],
     
     // Emotional sounds
-    'laugh|giggle': ['GIGGLE!', 'HA HA!', 'TEE HEE!'],
-    'cry|wail': ['WAAH!', 'SOB!'],
-    'sleep|snore': ['ZZZ...', 'SNORE!'],
-    'yawn': ['YAAAWN!'],
+    'laugh|laughing|giggle|giggling': ['GIGGLE!', 'HA HA!', 'TEE HEE!'],
+    'cry|crying|wail|wailing': ['WAAH!', 'SOB!'],
+    'sleep|sleeping|snore|snoring': ['ZZZ...', 'SNORE!'],
+    'yawn|yawning': ['YAAAWN!'],
+    'happy|joy|joyful': ['YAY!', 'WHEEE!'],
     
     // Action sounds
-    'eat|munch|chew': ['MUNCH!', 'YUM!', 'CHOMP!'],
-    'clap|applaud': ['CLAP CLAP!', 'YAY!'],
-    'knock|tap': ['KNOCK!', 'TAP TAP!'],
-    'bang|crash': ['BANG!', 'CRASH!', 'BOOM!'],
+    'eat|eating|munch|munching|chew|chewing': ['MUNCH!', 'YUM!', 'CHOMP!'],
+    'clap|clapping|applaud': ['CLAP CLAP!', 'YAY!'],
+    'knock|knocking|tap|tapping': ['KNOCK!', 'TAP TAP!'],
+    'bang|crash|crashing': ['BANG!', 'CRASH!', 'BOOM!'],
     
     // Animal/Toy sounds
     'quack|duck': ['QUACK!'],
-    'beep|car': ['BEEP BEEP!', 'VROOM!'],
-    'ring|bell': ['RING!', 'DING!'],
-    'squeak|toy': ['SQUEAK!'],
+    'beep|car|truck': ['BEEP BEEP!', 'VROOM!'],
+    'ring|ringing|bell': ['RING!', 'DING!'],
+    'squeak|squeaking|toy': ['SQUEAK!'],
+    'meow|cat|kitty': ['MEOW!'],
+    'woof|dog|puppy': ['WOOF!'],
+    'moo|cow': ['MOO!'],
     
     // Discovery sounds
-    'pop|bubble': ['POP!'],
-    'surprise|wow': ['WOW!', 'OH!'],
-    'find|discover': ['AHA!', 'TADA!']
+    'pop|popping|bubble': ['POP!'],
+    'surprise|surprised|wow': ['WOW!', 'OH!'],
+    'find|finding|discover|discovering': ['AHA!', 'TADA!'],
+    'peek|peeking': ['PEEK-A-BOO!'],
+    
+    // Nature sounds
+    'wind|windy': ['WHOOSH!'],
+    'thunder': ['BOOM!', 'RUMBLE!'],
+    'rain|raining': ['PITTER PATTER!']
   };
   
   /**
-   * Detect if narration suggests sound effects
+   * Automatically detect if narration suggests sound effects
    */
   static detectSFX(narration: string): {
     hasSFX: boolean;
     suggestedSFX: string;
     confidence: number;
+    style: 'comic' | 'playful' | 'dramatic' | 'soft';
   } {
     const lowerText = narration.toLowerCase();
     
+    // Check each pattern
     for (const [pattern, sfxOptions] of Object.entries(this.SFX_PATTERNS)) {
-      const regex = new RegExp(pattern);
+      const regex = new RegExp(`\\b(${pattern})\\b`);
       if (regex.test(lowerText)) {
         // Pick a random SFX from options
         const sfx = sfxOptions[Math.floor(Math.random() * sfxOptions.length)];
         
+        // Determine style based on the SFX and context
+        let style: SFXConfig['style'] = 'playful';
+        
+        // Dramatic sounds
+        if (sfx.includes('BOOM') || sfx.includes('CRASH') || sfx.includes('BANG')) {
+          style = 'dramatic';
+        }
+        // Soft sounds
+        else if (sfx.includes('ZZZ') || sfx.includes('shh') || sfx.includes('...')) {
+          style = 'soft';
+        }
+        // Comic sounds
+        else if (sfx.includes('!') && (sfx.includes('BOING') || sfx.includes('ZOOM'))) {
+          style = 'comic';
+        }
+        
         // Calculate confidence based on how clear the sound indication is
         let confidence = 0.8;
-        if (lowerText.includes('!') || lowerText.includes('loud')) {
+        
+        // Higher confidence for exclamation marks in narration
+        if (lowerText.includes('!')) {
           confidence = 0.95;
+        }
+        
+        // Higher confidence for onomatopoeia already in text
+        if (lowerText.includes('splash') || lowerText.includes('boom') || lowerText.includes('giggle')) {
+          confidence = 0.9;
         }
         
         return {
           hasSFX: true,
           suggestedSFX: sfx,
-          confidence
+          confidence,
+          style
         };
       }
     }
@@ -181,21 +216,23 @@ export class SFXGenerator {
     return {
       hasSFX: false,
       suggestedSFX: '',
-      confidence: 0
+      confidence: 0,
+      style: 'playful'
     };
   }
   
   /**
-   * Generate SFX configuration based on page layout
+   * Generate optimal SFX configuration based on page layout
    */
   static generateSFXConfig(
     sfxText: string,
-    pageLayout: any,
+    pageLayout: { width: number; height: number },
     characterPosition?: 'left' | 'right' | 'center'
   ): SFXConfig {
     // Determine style based on text
     let style: SFXConfig['style'] = 'playful';
-    if (sfxText.includes('BOOM') || sfxText.includes('CRASH')) {
+    
+    if (sfxText.includes('BOOM') || sfxText.includes('CRASH') || sfxText.includes('BANG')) {
       style = 'dramatic';
     } else if (sfxText.includes('ZZZ') || sfxText.includes('shh')) {
       style = 'soft';
@@ -203,7 +240,7 @@ export class SFXGenerator {
       style = 'comic';
     }
     
-    // Calculate position based on character placement
+    // Calculate position to avoid character overlap
     let position = { x: 200, y: 150 };
     
     if (characterPosition === 'left') {
@@ -212,89 +249,65 @@ export class SFXGenerator {
     } else if (characterPosition === 'right') {
       // Place SFX on left side
       position = { x: pageLayout.width * 0.3, y: pageLayout.height * 0.3 };
+    } else if (characterPosition === 'center') {
+      // Place SFX in top corner
+      position = { x: pageLayout.width * 0.75, y: pageLayout.height * 0.15 };
     } else {
-      // Center or no character - place top right
-      position = { x: pageLayout.width * 0.75, y: pageLayout.height * 0.2 };
+      // No character - place anywhere interesting
+      position = { 
+        x: pageLayout.width * (0.5 + Math.random() * 0.3), 
+        y: pageLayout.height * (0.2 + Math.random() * 0.3) 
+      };
     }
     
     // Add some randomness for natural feel
-    position.x += (Math.random() - 0.5) * 50;
-    position.y += (Math.random() - 0.5) * 30;
+    position.x += (Math.random() - 0.5) * 30;
+    position.y += (Math.random() - 0.5) * 20;
     
     // Random rotation for playful effect
     const rotation = -15 + Math.random() * 30;
+    
+    // Scale based on importance
+    let scale = 1;
+    if (style === 'dramatic') {
+      scale = 1.2;
+    } else if (style === 'soft') {
+      scale = 0.9;
+    }
     
     return {
       text: sfxText,
       style,
       position,
       rotation,
-      scale: 1,
+      scale,
       color: undefined // Use default from style
     };
   }
-}
-
-// Integration Component
-export function BookPreviewWithSFX() {
-  const { storyData } = useBookStore();
-  const [sfxEnabled, setSfxEnabled] = useState<Record<number, boolean>>({});
-  const [sfxTexts, setSfxTexts] = useState<Record<number, string>>({});
   
-  // Auto-detect SFX opportunities
-  useEffect(() => {
-    if (!storyData?.pages) return;
+  /**
+   * Batch process all pages for SFX opportunities
+   */
+  static processStoryForSFX(pages: any[]): Map<number, SFXConfig> {
+    const sfxMap = new Map<number, SFXConfig>();
     
-    const detectedSFX: Record<number, string> = {};
-    
-    storyData.pages.forEach((page: any) => {
-      const detection = SFXGenerator.detectSFX(page.narration);
+    pages.forEach((page) => {
+      const detection = this.detectSFX(page.narration);
+      
       if (detection.hasSFX && detection.confidence > 0.7) {
-        detectedSFX[page.page_number] = detection.suggestedSFX;
+        const config = this.generateSFXConfig(
+          detection.suggestedSFX,
+          { width: 400, height: 400 }, // Standard page size
+          page.characters_on_page?.length > 0 ? 'center' : undefined
+        );
+        
+        sfxMap.set(page.page_number, {
+          ...config,
+          style: detection.style
+        });
       }
     });
     
-    setSfxTexts(detectedSFX);
-  }, [storyData]);
-  
-  return (
-    <div className="space-y-4">
-      {/* SFX Controls */}
-      <div className="card-magical">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Volume2 className="h-5 w-5" />
-          Sound Effects
-        </h3>
-        
-        <div className="space-y-2">
-          {Object.entries(sfxTexts).map(([pageNum, sfx]) => (
-            <div key={pageNum} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-              <span className="text-sm">
-                Page {pageNum}: {sfx}
-              </span>
-              <button
-                onClick={() => setSfxEnabled((prev: Record<number, boolean>) => ({
-                  ...prev,
-                  [Number(pageNum)]: !prev[Number(pageNum)]
-                }))}
-                className={`px-3 py-1 rounded-lg text-sm transition-all ${
-                  sfxEnabled[Number(pageNum)]
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'bg-gray-200 text-gray-600'
-                }`}
-              >
-                {sfxEnabled[Number(pageNum)] ? 'Enabled' : 'Disabled'}
-              </button>
-            </div>
-          ))}
-        </div>
-        
-        {Object.keys(sfxTexts).length === 0 && (
-          <p className="text-sm text-gray-500 text-center py-4">
-            No sound effects detected in this story
-          </p>
-        )}
-      </div>
-    </div>
-  );
+    return sfxMap;
+  }
 }

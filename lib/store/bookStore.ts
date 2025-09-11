@@ -23,7 +23,7 @@ export interface UploadedPhoto {
   notes?: string;
 }
 
-// Enhanced Page interface with character tracking
+// Enhanced Page interface with SFX support
 export interface Page {
   page_number: number;
   scene_type: string;
@@ -60,6 +60,12 @@ export interface Page {
   detail_prompt?: string;
   sensory_details?: string;
   pose_description?: string;
+
+    // SFX fields (ADDED)
+  has_sfx?: boolean;
+  sfx_text?: string;
+  sfx_style?: 'comic' | 'playful' | 'dramatic' | 'soft';
+  sfx_position?: { x: number; y: number };
 }
 
 interface BookStore {

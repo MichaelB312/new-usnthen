@@ -1,4 +1,4 @@
-// app/create/page.tsx
+// app/create/page.tsx - Updated with all batches
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -7,9 +7,9 @@ import { useRouter } from 'next/navigation';
 import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Home } from 'lucide-react';
 import { ChatInterface } from '@/components/story-wizard/ChatInterface';
 import { ProfileForm } from '@/components/baby-profile/ProfileForm';
-import { StoryReview } from '@/components/story-review/StoryReview';
+import { StoryReviewSpreads } from '@/components/story-review/StoryReviewSpreads';
+import { IntegratedBookPreview } from '@/components/book-preview/IntegratedBookPreview';
 import { AsyncBatchedImageGenerator as ImageGenerator } from '@/components/illustrations/AsyncBatchedImageGenerator';
-import { EnhancedBookPreview as BookPreview } from '@/components/book-preview/BookPreview';
 import { useBookStore } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';
 import Confetti from 'react-confetti';
@@ -25,8 +25,8 @@ const steps = [
   { id: 6, name: 'Order', icon: CreditCard }
 ];
 
-const POLL_INTERVAL = 2000; // Poll every 2 seconds
-const MAX_POLL_TIME = 120000; // Max 2 minutes
+const POLL_INTERVAL = 2000;
+const MAX_POLL_TIME = 120000;
 
 export default function CreateBookPage() {
   const router = useRouter();
@@ -57,10 +57,8 @@ export default function CreateBookPage() {
     if (!bookId) {
       setBookId(uuidv4());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [bookId, setBookId]);
 
-  // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollingIntervalRef.current) {
@@ -80,19 +78,14 @@ export default function CreateBookPage() {
     setIsGeneratingStory(true);
     setGenerationProgress(0);
     setGenerationMessage('Starting story generation...');
-    
-    // Start async story generation
     startStoryGeneration(conversation);
   };
 
-  // Start story generation job
   const startStoryGeneration = async (conversation: any) => {
     try {
-      // Extract story length from conversation
       const storyLengthEntry = conversation.find((c: any) => c.question === 'story_length');
       const storyLength = storyLengthEntry?.answer || 'medium';
       
-      // Start the job
       const res = await fetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,7 +108,6 @@ export default function CreateBookPage() {
         pollStartTimeRef.current = Date.now();
         startPollingForStory(data.jobId);
       } else if (data.story) {
-        // Immediate response with story (fallback case)
         handleStoryComplete(data.story);
       } else {
         throw new Error('Invalid response from story generation');
@@ -130,16 +122,13 @@ export default function CreateBookPage() {
     }
   };
 
-  // Poll for story completion
   const startPollingForStory = (jobId: string) => {
-    // Clear any existing polling
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
     }
 
     pollingIntervalRef.current = setInterval(async () => {
       try {
-        // Check if we've exceeded max poll time
         if (Date.now() - pollStartTimeRef.current > MAX_POLL_TIME) {
           console.error('Story generation timed out');
           clearInterval(pollingIntervalRef.current!);
@@ -152,7 +141,6 @@ export default function CreateBookPage() {
           return;
         }
 
-        // Check job status
         const res = await fetch(`/api/generate-story?jobId=${jobId}`);
         
         if (!res.ok) {
@@ -175,17 +163,14 @@ export default function CreateBookPage() {
         if (data.success && data.job) {
           const { status, progress, message, result, error } = data.job;
           
-          // Update progress and message
           setGenerationProgress(progress || 0);
           setGenerationMessage(message || 'Generating story...');
           
           if (status === 'completed' && result) {
-            // Story is ready!
             clearInterval(pollingIntervalRef.current!);
             pollingIntervalRef.current = null;
             handleStoryComplete(result);
           } else if (status === 'failed') {
-            // Job failed
             clearInterval(pollingIntervalRef.current!);
             pollingIntervalRef.current = null;
             
@@ -195,27 +180,22 @@ export default function CreateBookPage() {
             setGenerationProgress(0);
             setCurrentStep(2);
           }
-          // If status is 'pending' or 'processing', continue polling
         }
         
       } catch (error: any) {
         console.error('Error polling for story:', error);
-        // Don't stop polling on individual poll errors, just log them
       }
     }, POLL_INTERVAL);
   };
 
-  // Handle story completion
   const handleStoryComplete = (story: any) => {
     setStory(story);
     setGenerationProgress(100);
     setGenerationMessage('Story complete!');
     
-    // Show page count in toast
     const pageCount = story?.pages?.length || 10;
     toast.success(`Created a ${pageCount}-page story for ${babyProfile?.baby_name}!`);
     
-    // Delay before transitioning to story review
     setTimeout(() => {
       setIsGeneratingStory(false);
       setCurrentStep(3);
@@ -262,7 +242,7 @@ export default function CreateBookPage() {
           <div className="w-20" />
         </div>
 
-        {/* Progress Bar - Hide during story generation */}
+        {/* Progress Bar */}
         {!isGeneratingStory && (
           <div className="mb-12">
             <div className="card-magical">
@@ -284,8 +264,7 @@ export default function CreateBookPage() {
                         <motion.div
                           initial={{ scale: 0.8 }}
                           animate={{
-                            scale:
-                              currentStep === step.id ? 1.2 : currentStep > step.id ? 1 : 0.9
+                            scale: currentStep === step.id ? 1.2 : currentStep > step.id ? 1 : 0.9
                           }}
                           className={`w-16 h-16 rounded-full flex items-center justify-center bg-white border-4 transition-all ${
                             currentStep === step.id
@@ -343,7 +322,6 @@ export default function CreateBookPage() {
                 Our AI is crafting a beautiful tale for {babyProfile?.baby_name}
               </p>
               
-              {/* Progress bar */}
               <div className="max-w-md mx-auto">
                 <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
                   <motion.div
@@ -357,18 +335,6 @@ export default function CreateBookPage() {
                   {generationMessage}
                 </p>
               </div>
-              
-              {generationProgress > 60 && (
-                <p className="text-xs text-gray-400 mt-6">
-                  Creating emotionally engaging stories takes a moment...
-                </p>
-              )}
-              
-              {currentJobId && (
-                <p className="text-xs text-gray-300 mt-2">
-                  Job ID: {currentJobId}
-                </p>
-              )}
             </motion.div>
           ) : (
             <motion.div
@@ -384,14 +350,19 @@ export default function CreateBookPage() {
               )}
 
               {currentStep === 3 && storyData && (
-                <StoryReview onContinue={handleStoryContinue} onRegenerate={handleStoryRegenerate} />
+                <StoryReviewSpreads 
+                  onContinue={handleStoryContinue} 
+                  onRegenerate={handleStoryRegenerate} 
+                />
               )}
 
               {currentStep === 4 && storyData && (
                 <ImageGenerator onComplete={handleIllustrationsComplete} />
               )}
 
-              {currentStep === 5 && <BookPreview onComplete={handleLayoutComplete} />}
+              {currentStep === 5 && (
+                <IntegratedBookPreview onComplete={handleLayoutComplete} />
+              )}
 
               {currentStep === 6 && (
                 <div className="card-magical text-center py-20">
@@ -407,9 +378,19 @@ export default function CreateBookPage() {
                   </motion.div>
                   <h2 className="text-4xl font-patrick mb-4 gradient-text">Your Book is Ready!</h2>
                   <p className="text-xl text-gray-600 mb-4">
-                    {storyData?.pages?.length || 0} beautiful pages featuring {babyProfile?.baby_name}
+                    {Math.ceil((storyData?.pages?.length || 0) / 2)} beautiful spreads featuring {babyProfile?.baby_name}
                   </p>
-                  <p className="text-lg text-gray-600">Download your PDF or order a printed copy</p>
+                  <p className="text-lg text-gray-600">
+                    With story-relevant decorations and sound effects!
+                  </p>
+                  <div className="mt-8 flex gap-4 justify-center">
+                    <button className="btn-secondary">
+                      Download PDF
+                    </button>
+                    <button className="btn-primary">
+                      Order Printed Copy
+                    </button>
+                  </div>
                 </div>
               )}
             </motion.div>

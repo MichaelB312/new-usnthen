@@ -5,10 +5,9 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ChevronLeft, ChevronRight, BookOpen, Grid, Eye,
-  Check, Download, Volume2
+  Check, Volume2
 } from 'lucide-react';
 import { useBookStore } from '@/lib/store/bookStore';
-import { DecorationGenerator, generateDecorationPlaceholder, type SpreadDecorations } from '@/lib/decorations/DecorationGenerator';
 import toast from 'react-hot-toast';
 
 interface PageSFX {
@@ -29,9 +28,6 @@ export function IntegratedBookPreview({ onComplete }: { onComplete: () => void }
   const [viewMode, setViewMode] = useState<'spread' | 'grid'>('spread');
   const [showSafeAreas, setShowSafeAreas] = useState(false);
   const [pageSFX, setPageSFX] = useState<Record<number, PageSFX>>({});
-  const [spreadDecorations, setSpreadDecorations] = useState<SpreadDecorations[]>([]);
-  
-  const decorationGenerator = new DecorationGenerator();
   
   // Generate SFX positions that don't overlap with character
   const generateSFXPosition = (hasCharacter: boolean, characterSide?: 'left' | 'right'): PageSFX['position'] => {
@@ -54,12 +50,11 @@ export function IntegratedBookPreview({ onComplete }: { onComplete: () => void }
     }
   };
   
-  // Initialize SFX and decorations
+  // Initialize SFX
   useEffect(() => {
     if (!storyData?.pages) return;
     
     const sfxMap: Record<number, PageSFX> = {};
-    const decorations: SpreadDecorations[] = [];
     
     // Process spreads
     for (let i = 0; i < storyData.pages.length; i += 2) {
@@ -95,21 +90,9 @@ export function IntegratedBookPreview({ onComplete }: { onComplete: () => void }
           style: rightPage.sfx_style || 'playful'
         };
       }
-      
-      // Generate proper decorations for this spread
-      const spreadDecoration = decorationGenerator.generateSpreadDecorations(
-        spreadNum + 1,
-        leftPage?.narration || '',
-        rightPage?.narration || '',
-        characterSide === 'left',
-        characterSide === 'right'
-      );
-      
-      decorations.push(spreadDecoration);
     }
     
     setPageSFX(sfxMap);
-    setSpreadDecorations(decorations);
   }, [storyData]);
   
   // Calculate spreads
@@ -118,7 +101,6 @@ export function IntegratedBookPreview({ onComplete }: { onComplete: () => void }
   const renderSpread = (spreadIndex: number) => {
     const leftPage = storyData?.pages[spreadIndex * 2];
     const rightPage = storyData?.pages[spreadIndex * 2 + 1];
-    const decoration = spreadDecorations[spreadIndex];
     
     // Determine character placement - only ONE per spread!
     let characterSide: 'left' | 'right' | 'none' = 'none';
@@ -151,27 +133,6 @@ export function IntegratedBookPreview({ onComplete }: { onComplete: () => void }
             {/* Safe area guides */}
             {showSafeAreas && (
               <div className="absolute inset-10 border-2 border-green-400/30 border-dashed pointer-events-none" />
-            )}
-            
-            {/* Decoration (behind everything) */}
-            {decoration?.leftPageDecoration && (
-              <div
-                className="absolute"
-                style={{
-                  left: `${decoration.leftPageDecoration.x}px`,
-                  top: `${decoration.leftPageDecoration.y}px`,
-                  width: `${decoration.leftPageDecoration.width}px`,
-                  height: `${decoration.leftPageDecoration.height}px`,
-                  zIndex: 1,
-                  opacity: 0.6
-                }}
-              >
-                <img 
-                  src={generateDecorationPlaceholder(decoration.leftPageDecoration)}
-                  alt="decoration"
-                  className="w-full h-full object-contain"
-                />
-              </div>
             )}
             
             {/* Character illustration - only if on left */}
@@ -250,27 +211,6 @@ export function IntegratedBookPreview({ onComplete }: { onComplete: () => void }
             {/* Safe area guides */}
             {showSafeAreas && (
               <div className="absolute inset-10 border-2 border-green-400/30 border-dashed pointer-events-none" />
-            )}
-            
-            {/* Decoration */}
-            {decoration?.rightPageDecoration && (
-              <div
-                className="absolute"
-                style={{
-                  left: `${decoration.rightPageDecoration.x}px`,
-                  top: `${decoration.rightPageDecoration.y}px`,
-                  width: `${decoration.rightPageDecoration.width}px`,
-                  height: `${decoration.rightPageDecoration.height}px`,
-                  zIndex: 1,
-                  opacity: 0.6
-                }}
-              >
-                <img 
-                  src={generateDecorationPlaceholder(decoration.rightPageDecoration)}
-                  alt="decoration"
-                  className="w-full h-full object-contain"
-                />
-              </div>
             )}
             
             {/* Character illustration - only if on right */}
@@ -486,13 +426,6 @@ export function IntegratedBookPreview({ onComplete }: { onComplete: () => void }
 
       {/* Action Buttons */}
       <div className="card-magical flex justify-center gap-4">
-        <button
-          onClick={() => toast.success('Export functionality coming soon!')}
-          className="btn-secondary flex items-center gap-2"
-        >
-          <Download className="h-5 w-5" />
-          Export PDF
-        </button>
         
         <button
           onClick={onComplete}

@@ -381,12 +381,9 @@ export default function CreateBookPage() {
                     {Math.ceil((storyData?.pages?.length || 0) / 2)} beautiful spreads featuring {babyProfile?.baby_name}
                   </p>
                   <p className="text-lg text-gray-600">
-                    With story-relevant decorations and sound effects!
+                    With sound effects and beautiful illustrations!
                   </p>
                   <div className="mt-8 flex gap-4 justify-center">
-                    <button className="btn-secondary">
-                      Download PDF
-                    </button>
                     <button className="btn-primary">
                       Order Printed Copy
                     </button>

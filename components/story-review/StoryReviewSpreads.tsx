@@ -19,6 +19,72 @@ interface PageData {
   pageNumber: number;
 }
 
+/**
+ * Detect and highlight onomatopoeia (sound words) in text
+ */
+function highlightOnomatopoeia(text: string): JSX.Element[] {
+  // Common onomatopoeia patterns
+  const soundWords = [
+    'splash', 'woosh', 'thump', 'bang', 'crash', 'pop', 'boom', 'zip',
+    'giggle', 'laugh', 'cry', 'wah', 'haha', 'heehee', 'giggle',
+    'swoosh', 'swish', 'whoosh', 'whizz', 'zoom',
+    'munch', 'crunch', 'chomp', 'slurp', 'gulp',
+    'knock', 'tap', 'click', 'clack', 'tick', 'tock',
+    'beep', 'honk', 'vroom', 'choo', 'quack', 'moo', 'woof', 'meow',
+    'squelch', 'squish', 'splat', 'plop', 'drip',
+    'rustle', 'crackle', 'snap', 'crinkle',
+    'pitter', 'patter', 'flutter', 'whisper'
+  ];
+
+  // Pattern 1: Uppercase words (e.g., SPLASH, WOOSH)
+  // Pattern 2: Repeated words (e.g., splash, splash)
+  // Pattern 3: Known sound words with punctuation (e.g., Splash!)
+
+  const parts: JSX.Element[] = [];
+  const regex = /\b([A-Z]{2,}(?:,?\s+[A-Z]{2,})*!?)|(\b\w+,\s*\w+!?)|(Splash!|Woosh!|Bang!|Thump!|Giggle!|Pop!|Boom!)/g;
+
+  let lastIndex = 0;
+  let match;
+  let keyIndex = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    const matchedText = match[0];
+    const matchStart = match.index;
+
+    // Check if it's uppercase or a known sound word
+    const isUppercase = /^[A-Z]/.test(matchedText);
+    const lowerMatch = matchedText.toLowerCase().replace(/[!,.\s]+/g, '');
+    const isKnownSound = soundWords.some(word => lowerMatch.includes(word));
+    const isRepeated = /(\w+),\s*\1/i.test(matchedText); // e.g., "splash, splash"
+
+    if (isUppercase || isKnownSound || isRepeated) {
+      // Add text before the match
+      if (matchStart > lastIndex) {
+        parts.push(<span key={`text-${keyIndex++}`}>{text.slice(lastIndex, matchStart)}</span>);
+      }
+
+      // Add highlighted sound word
+      parts.push(
+        <span
+          key={`sound-${keyIndex++}`}
+          className="onomatopoeia font-bold bg-gradient-to-r from-yellow-100 to-yellow-200 px-1.5 py-0.5 rounded-md inline-block mx-0.5"
+        >
+          {matchedText}
+        </span>
+      );
+
+      lastIndex = matchStart + matchedText.length;
+    }
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(<span key={`text-${keyIndex++}`}>{text.slice(lastIndex)}</span>);
+  }
+
+  return parts.length > 0 ? parts : [<span key="all">{text}</span>];
+}
+
 export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProps) {
   const { storyData, babyProfile } = useBookStore();
   const [editingPage, setEditingPage] = useState<number | null>(null);
@@ -145,7 +211,7 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
-                    {pages[currentPage].text}
+                    {highlightOnomatopoeia(pages[currentPage].text)}
                   </motion.p>
 
                   <button

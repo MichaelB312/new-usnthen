@@ -41,6 +41,7 @@ export interface SpreadSequenceMetadata {
   continuity_from_prev?: string;
   lead_to_next?: string;
   avoid: string[];
+  special_object?: string;  // Added for MacGuffin support
 }
 
 // Spread interface for landscape rendering

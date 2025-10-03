@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
 import { PersonId, CastMember, UploadedPhoto, Page } from '@/lib/store/bookStore';
-import { HIGH_CONTRAST_SHOTS, buildHighContrastPrompt } from '@/lib/camera/highContrastShots';
+import { CAMERA_ANGLES } from '@/lib/camera/highContrastShots';
 import { enhanceWithIsolatedPaperCollage, getGenderDescription } from '@/lib/styles/paperCollage';
 import { buildLandscapePagePrompt } from '@/lib/prompts/landscapePagePrompt';
 
@@ -73,25 +73,26 @@ function buildEnhancedHighContrastPrompt(
     return buildLandscapePagePrompt(pageData);
   }
 
-  console.log(`[buildPrompt] ⚠️  Falling back to generic HIGH CONTRAST prompt for Page ${pageNumber}`);
+  console.log(`[buildPrompt] ⚠️  Falling back to generic CAMERA ANGLE prompt for Page ${pageNumber}`);
 
   // Fallback to original prompt builder
   const shotId = pageData.shot_id || 'establishing_wide';
-  const shot = HIGH_CONTRAST_SHOTS[shotId];
+  const shot = CAMERA_ANGLES[shotId];
 
   if (!shot) {
     console.error(`Unknown shot ID: ${shotId}`);
     return 'Paper collage cutout on pure white background';
   }
 
-  // Check if this is a character-free page
-  const isCharacterFree = !shot.requires_character || pageData.is_character_free;
+  // Check if this is a character-free page (camera angles don't have requires_character field)
+  const isCharacterFree = pageData.is_character_free;
 
   if (isCharacterFree) {
     // CHARACTER-FREE PAGE - Make it relate to the story!
-    let prompt = 'CRITICAL: NO PEOPLE, NO CHARACTERS IN THIS IMAGE\n';
-    prompt += shot.base_prompt + '\n';
-    prompt += shot.isolation_prompt + '\n';
+    let prompt = 'Soft paper collage style. CRITICAL: NO PEOPLE, NO CHARACTERS IN THIS IMAGE\n';
+    prompt += `Camera angle: ${shot.description}\n`;
+    prompt += 'Light pastel colors with cheerful bright accents. NOT dark colors.\n';
+    prompt += 'White background visible between paper cutout elements. Cute, gentle aesthetic.\n';
     
     // Extract objects and themes from the narration
     const narration = pageData.narration?.toLowerCase() || '';
@@ -142,16 +143,21 @@ function buildEnhancedHighContrastPrompt(
   }
 
   // CHARACTER PAGE - Include story context
-  const prompt = buildHighContrastPrompt(shotId, {
-    includeCharacter: true,
-    action: pageData.visual_action || pageData.action_description,
-    emotion: pageData.emotion,
-    gender: babyGender,
-    narration: pageData.narration
-  });
+  let enhancedPrompt = `Soft paper collage style. 1536×1024 landscape.\n`;
+  enhancedPrompt += `Camera angle: ${shot.description}\n`;
+  enhancedPrompt += 'Light pastel colors with cheerful bright accents. NOT dark colors. Soft, cute aesthetic.\n';
+  enhancedPrompt += 'White background visible between paper elements. Gentle torn paper edges.\n';
+
+  // Add action and emotion
+  if (pageData.visual_action || pageData.action_description) {
+    enhancedPrompt += `Action: ${pageData.visual_action || pageData.action_description}\n`;
+  }
+  if (pageData.emotion) {
+    enhancedPrompt += `Emotion: ${pageData.emotion}\n`;
+  }
 
   // Add story-specific details
-  let enhancedPrompt = prompt + '\n';
+  enhancedPrompt += '\n';
   
   // Add specific actions from narration
   const narration = pageData.narration?.toLowerCase() || '';
@@ -313,10 +319,10 @@ export async function POST(request: NextRequest) {
 
     const babyGender = babyProfile?.gender || 'neutral';
     const shotId = pageData.shot_id || 'establishing_wide';
-    const shot = HIGH_CONTRAST_SHOTS[shotId];
+    const shot = CAMERA_ANGLES[shotId];
     const isCharacterFree = pageNumber === 1
       ? false  // Force Page 1 to always have character
-      : (!shot?.requires_character || pageData.is_character_free);
+      : pageData.is_character_free;
 
     const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
     jobs.set(jobId, {
@@ -420,12 +426,13 @@ async function processHighContrastImageGeneration(jobId: string, params: any) {
             imageFiles = [baseFile];
         }
 
-        // Enhanced character anchor prompt - request cute, adorable baby
+        // Enhanced character anchor prompt - request cute, adorable baby with soft colors
         const genderText = babyGender === 'boy' ? 'boy' : babyGender === 'girl' ? 'girl' : 'baby';
-        prompt = `Paper collage style. 1536×1024 landscape. Full bleed edge-to-edge, no white padding or borders.
+        prompt = `Soft paper collage style. 1536×1024 landscape. Full bleed edge-to-edge composition, NO white borders.
 Adorable, cute ${genderText} baby with sweet, charming features and lovely expression.
 Baby standing or sitting, centered. Use reference image for all character features and appearance.
-Paper cutout aesthetic with torn edges. Full bleed composition.`;
+Light pastel colors with cheerful bright accents. NOT dark colors. Soft, gentle aesthetic.
+White background visible between paper cutout elements. Gentle torn paper edges. Cute children's book style.`;
 
         if (!babyReference && babyDescription) {
             prompt += `\n\nBaby character description: ${babyDescription}\n`;
@@ -524,14 +531,14 @@ Paper cutout aesthetic with torn edges. Full bleed composition.`;
       style: 'high-contrast-paper-collage',
       gender: babyGender,
       shot_id: pageData.shot_id,
-      shot_name: HIGH_CONTRAST_SHOTS[pageData.shot_id]?.name,
+      shot_name: CAMERA_ANGLES[pageData.shot_id]?.name,
       is_character_free: isCharacterFree,
       characters_on_page: isCharacterFree ? [] : pageData.characters_on_page,
       reference_count: imageFiles.length,
       elapsed_ms: Date.now() - job.startTime
     };
 
-    console.log(`[Job ${jobId}] Completed: ${isCharacterFree ? 'Character-free' : 'Character'} ${HIGH_CONTRAST_SHOTS[pageData.shot_id]?.name} shot`);
+    console.log(`[Job ${jobId}] Completed: ${isCharacterFree ? 'Character-free' : 'Character'} ${CAMERA_ANGLES[pageData.shot_id]?.name} shot`);
 
   } catch (error: any) {
     console.error(`[Job ${jobId}] Failed:`, error);

@@ -1,12 +1,36 @@
 # 4-Page System: Complete Documentation
 
 **Date**: January 2, 2025
-**Last Updated**: January 2, 2025 (Visual Quality & Camera Diversity Update)
+**Last Updated**: January 3, 2025 (Enhanced Memory Chat & Multi-Character Support)
 **Status**: ✅ 100% Complete and Verified
 
 ---
 
-## 🆕 Latest Updates (January 2, 2025)
+## 🆕 Latest Updates (January 3, 2025)
+
+### Enhanced Memory Chat & Multi-Character Story System
+
+**Major Features Added:**
+1. ✅ **Enhanced Question Tree** - 10 detailed questions (from 4) with conditional branching
+2. ✅ **Age-Appropriate Story Guidelines** - 4 age brackets with specific storytelling rules
+3. ✅ **Auto-Cast Detection** - Automatically extracts supporting characters from chat
+4. ✅ **Onomatopoeia System** - Sound words (SPLASH, WOOSH!) with visual highlighting
+5. ✅ **Multi-Character Image Prompts** - Proper descriptions for baby + family member scenes
+6. ✅ **Character Page Assignment UI** - Modal to manually assign characters to specific pages
+7. ✅ **Story Arc Structure** - Beginning/Middle/End guidance for better narratives
+8. ✅ **Special Object Support** - MacGuffin/object tracking (red bucket, birthday cake, etc.)
+
+**Files Modified:**
+- `components/story-wizard/ChatInterface.tsx` - Complete rewrite with 10-question tree
+- `app/api/generate-story/route.ts` - Age-based guidelines, cast extraction, onomatopoeia
+- `components/story-review/StoryReviewSpreads.tsx` - Sound word highlighting
+- `lib/prompts/landscapePagePrompt.ts` - Multi-character support with interaction detection
+- `components/cast-management/CharacterPageAssignment.tsx` - NEW: Page assignment modal
+- `lib/store/bookStore.ts` - Added `special_object` to SpreadSequenceMetadata
+
+---
+
+## 🆕 Previous Updates (January 2, 2025)
 
 ### Visual Quality & Camera Diversity Improvements
 
@@ -373,3 +397,510 @@ All spread references removed from codebase. The entire system now works with th
 **Status**: READY FOR PRODUCTION ✅
 **Date**: January 2, 2025
 **Impact**: Major simplification, bug fixes, improved character consistency
+
+---
+
+## Enhanced Memory Chat System (January 3, 2025)
+
+### Overview
+
+Complete redesign of the memory chat wizard to capture rich story details through an intelligent question tree. The system now extracts comprehensive information including location, supporting characters, special objects, milestones, and story arc structure.
+
+### 1. Enhanced Question Tree
+
+**File**: `/components/story-wizard/ChatInterface.tsx`
+
+**Question Flow** (10 questions total):
+
+1. **Memory Anchor** - "What special memory would you like to capture?"
+   - Base question, always asked
+   - Examples provided: "First time at the beach", "Playing with grandma"
+
+2. **Location** - "Where did this happen?"
+   - NEW - Extracts setting information
+   - Auto-maps to: beach, park, home, backyard, pool, etc.
+   - Used in image generation prompts
+
+3. **Who Was There** - "Who was there with {name}?"
+   - NEW - Detects supporting characters
+   - Auto-extracts: mom, dad, grandma, grandpa, sibling, aunt, uncle, friend
+   - Populates `cast_members` array
+   - Examples: "Just mom and me", "The whole family"
+
+4. **Special Object** - "Was there a special toy, food, or object?"
+   - NEW - Captures MacGuffin/important object
+   - Examples: "A red bucket", "Birthday cake", "Daddy's hat"
+   - Included in visual prompts if relevant
+
+5. **Milestone Check** - "Was this a special milestone or first time?"
+   - NEW - Conditional branching question
+   - Button choices: "Yes, first time!", "Yes, a milestone!", "No, just beautiful"
+   - Triggers next question if yes
+
+6. **Milestone Detail** - "What was the first time or milestone?"
+   - NEW - Conditional (only if Q5 = yes)
+   - Adds celebratory context to story
+   - Examples: "First steps", "First time in water"
+
+7. **Why Special** - "What made this moment so special for you?"
+   - Emotional significance
+   - Original question, kept from v1
+
+8. **Story Beginning** - "How did this moment START?"
+   - NEW - Story arc structure
+   - Guides opening page (Page 1)
+   - Examples: "She saw the waves", "Grandma called her over"
+
+9. **Story Middle** - "What was the EXCITING part in the middle?"
+   - NEW - Story arc structure with "small challenge" prompt
+   - Guides middle pages (Pages 2-3)
+   - Examples: "Scared at first but crawled forward", "Tried to reach the toy"
+
+10. **Story End** - "How did it END?"
+    - NEW - Story arc structure
+    - Guides closing page (Page 4)
+    - Examples: "Fell asleep happy", "Gave grandma a hug"
+
+11. **Sensory Details** - "What sounds, smells, or feelings do you remember?"
+    - NEW - Enriches atmosphere
+    - Examples: "Warm sand, sound of waves", "Sweet smell of cake"
+
+**Features**:
+- Conditional branching (milestone questions skip if not applicable)
+- Button choices for milestone question
+- Examples shown for each question
+- Smooth animations between questions
+- 6 different encouraging responses
+
+### 2. Age-Appropriate Story Guidelines
+
+**File**: `/app/api/generate-story/route.ts`
+
+**Four Age Brackets**:
+
+| Age | Word Count/Page | Sentence Structure | Narrative Arc | Key Devices |
+|-----|-----------------|-------------------|---------------|-------------|
+| **0-12 months** | 1 word or phrase | Single nouns/adjective pairs | No plot - naming objects | Onomatopoeia, rhythm |
+| **12-24 months** | 1 simple sentence | Simple S-V-O | Linear sequence, no conflict | Repetition, sound words |
+| **24-48 months** | 1-3 sentences | Simple + compound | Beginning → Problem → Resolution | Rhyme, simple conflict |
+| **48-72 months** | 2-5 sentences | Complex with dialogue | Full story arc with climax | Humor, dialogue, growth |
+
+**Implementation**:
+```typescript
+function getStoryGuidelines(ageInMonths: number): string {
+  if (ageInMonths < 12) {
+    return `LITTLEST LISTENERS (0-12 months):
+    - Focus on sensory experiences
+    - Rhythmic, musical language with repetition
+    - Onomatopoeia (boom!, splash!, whoosh!)
+    - Simple cause-and-effect
+    - Use baby's name frequently`;
+  }
+  // ... additional age brackets
+}
+```
+
+### 3. Auto-Cast Detection System
+
+**File**: `/app/api/generate-story/route.ts`
+
+**Functions Added**:
+
+```typescript
+// Extracts setting from location answer
+function extractSetting(location: string): string {
+  // Maps user input to standardized settings
+  // "at the beach" → "beach"
+  // "in our backyard" → "backyard"
+}
+
+// Extracts cast members from "who was there" answer
+function extractCastMembers(whoWasThere: string, babyName: string): PersonId[] {
+  // Detects phrases like "mom", "grandma and grandpa", "whole family"
+  // Returns: ['baby', 'mom', 'grandma']
+}
+```
+
+**Character Mapping**:
+- mom/mommy/mama/mother → 'mom'
+- dad/daddy/papa/father → 'dad'
+- grandma/granny/nana/grandmother → 'grandma'
+- grandpa/granddad/grandfather → 'grandpa'
+- brother/sister → 'sibling'
+- aunt/auntie → 'aunt'
+- uncle → 'uncle'
+- friend → 'friend'
+
+**Character Assignment to Pages**:
+- GPT receives cast list and assigns strategically
+- Page 1: Usually baby alone (establishing)
+- Pages 2-3: Baby + supporting characters during action
+- Page 4: Often baby + family for resolution
+
+### 4. Onomatopoeia (Sound Words) System
+
+**Detection** (`/components/story-review/StoryReviewSpreads.tsx`):
+
+```typescript
+function highlightOnomatopoeia(text: string): JSX.Element[] {
+  // Detects 3 patterns:
+  // 1. Uppercase words: SPLASH, WOOSH
+  // 2. Repeated words: splash, splash
+  // 3. Known sound words: 40+ word library
+
+  // Returns JSX with highlighted spans
+}
+```
+
+**Visual Highlighting**:
+- Bold text
+- Yellow gradient background (`from-yellow-100 to-yellow-200`)
+- Rounded corners with padding
+- Smooth animations
+
+**Age-Based Generation Rules**:
+- **0-12 months**: "Splash!", "Woof!", "Beep!" (simple, standalone)
+- **12-24 months**: "The duck says, Quack, quack!" (integrated with repetition)
+- **24-48 months**: "He jumped. SPLASH, SPLASH!" (punctuates action)
+- **48+ months**: "...with a satisfying squelch" (smooth integration)
+
+**GPT Instructions**:
+```typescript
+const prompt = `
+🔊 ONOMATOPOEIA RULES:
+- Add sound words naturally based on actions
+- Format in UPPERCASE for emphasis
+- Examples: SPLASH, WOOSH, GIGGLE, THUMP
+- Age ${ageInMonths} months: ${ageSpecificRules}
+`;
+```
+
+### 5. Multi-Character Image Prompts
+
+**File**: `/lib/prompts/landscapePagePrompt.ts`
+
+**New Functions**:
+
+```typescript
+// Maps PersonId to readable names
+function getCharacterName(personId: PersonId): string {
+  // 'mom' → 'mom'
+  // 'grandma' → 'grandma'
+}
+
+// Builds natural descriptions for multiple characters
+function buildCharacterDescription(
+  characters: PersonId[],
+  action: string,
+  narration: string
+): string {
+  // 1 character: "Baby crawling"
+  // 2 characters: "Baby and mom holding hands while splashing"
+  // 3+ characters: "Baby with family members playing"
+}
+```
+
+**Interaction Detection**:
+- Analyzes narration text for interactions
+- "hold" + "hand" → "Baby and grandma holding hands"
+- "hug" → "Baby and mom hugging"
+- "watch" → "Baby playing, mom watching nearby"
+- "together" → "Baby and dad splashing together"
+
+**Example Prompts**:
+
+**Single Character**:
+```
+"Soft paper collage. Bird's-eye view: Baby crawling in beach.
+Light pastel colors. Use reference image for character appearance."
+```
+
+**Multiple Characters**:
+```
+"Soft paper collage. Over-shoulder view: Baby and grandma holding hands
+while splashing in beach. Light pastel colors.
+Use reference images for ALL character appearances."
+```
+
+**With Special Object**:
+```
+"Soft paper collage. Profile view: Baby crawling with red bucket in beach.
+Light pastel colors. Use reference images for character appearance."
+```
+
+### 6. Character Page Assignment UI
+
+**File**: `/components/cast-management/CharacterPageAssignment.tsx` (NEW)
+
+**Features**:
+- Modal interface overlaying generation screen
+- Shows all 4 story pages with narration text
+- Checkbox grid: each character × each page
+- Auto-detected assignments marked with ✨
+- Warning badges (⚠️) for characters without photos
+- Save updates `storyData.pages[n].characters_on_page`
+
+**UI Structure**:
+```
+┌─────────────────────────────────────────┐
+│ Assign Characters to Pages              │
+├─────────────────────────────────────────┤
+│ Page 1: "Yara sees the big waves!"      │
+│ ☑ Yara (Baby)  ☐ Mom  ☐ Grandma        │
+│                                          │
+│ Page 2: "She crawls closer..."          │
+│ ☑ Yara (Baby)  ☐ Mom  ☐ Grandma        │
+│                                          │
+│ Page 3: "Grandma holds her hand..."     │
+│ ☑ Yara (Baby)  ☐ Mom  ☑ Grandma ✨     │
+│                                          │
+│ Page 4: "Together they splash!"         │
+│ ☑ Yara (Baby)  ☐ Mom  ☑ Grandma ✨     │
+└─────────────────────────────────────────┘
+```
+
+**Integration**:
+- Button in image generation phase: "Review Character Assignments"
+- Opens modal before auto-starting generation
+- Can override GPT's automatic assignments
+
+### 7. Story Arc Structure
+
+**Enhanced GPT Prompt**:
+
+```typescript
+📋 STORY STRUCTURE GUIDE:
+- Page 1 (Opening): ${storyBeginning || 'How the moment started'}
+- Pages 2-3 (Middle): ${storyMiddle || 'The exciting part, small challenge'}
+- Page 4 (Closing): ${storyEnd || 'Sweet conclusion'}
+
+👥 CHARACTER ASSIGNMENT GUIDELINES:
+- Page 1: Usually baby alone (establishing shot)
+- Pages 2-3: Baby + supporting characters during action
+- Page 4: Baby + parent/family for emotional resolution
+```
+
+**Benefits**:
+- Clearer narrative flow
+- Better pacing across 4 pages
+- Emotional arc from setup → challenge → resolution
+- Natural character entrances/exits
+
+### 8. Special Object (MacGuffin) Support
+
+**TypeScript Type Update**:
+```typescript
+// lib/store/bookStore.ts
+export interface SpreadSequenceMetadata {
+  // ... existing fields
+  special_object?: string;  // NEW
+}
+```
+
+**Integration**:
+- Captured in Q4 of chat wizard
+- Stored in `spread_metadata.special_object`
+- Passed to GPT in story generation
+- Included in image prompts if relevant
+- Examples: "red bucket", "birthday cake", "daddy's hat"
+
+**Usage in Prompts**:
+```typescript
+const objectMention = specialObject && specialObject !== 'no'
+  ? ` with ${specialObject}`
+  : '';
+
+// "Baby crawling with red bucket in beach"
+```
+
+---
+
+## Complete Data Flow Example (New System)
+
+### Input (Memory Chat):
+```javascript
+{
+  memory_anchor: "First time at the beach with grandma",
+  location: "At the beach",
+  who_was_there: "Me, my mom, and grandma",
+  special_object: "A red bucket",
+  milestone_check: "Yes, first time!",
+  milestone_detail: "First time seeing the ocean",
+  why_special: "She was so brave and curious",
+  story_beginning: "We arrived and Yara saw the big waves",
+  story_middle: "She was scared at first but crawled toward the water holding the bucket",
+  story_end: "Grandma held her hand and she splashed happily",
+  sensory_details: "Warm sand, sound of waves crashing, salty air"
+}
+```
+
+### Processing:
+```javascript
+// Auto-extraction
+setting = extractSetting("At the beach") // → "beach"
+cast = extractCastMembers("Me, my mom, and grandma") // → ['baby', 'mom', 'grandma']
+isMilestone = true
+```
+
+### Generated Story (Age 24 months):
+```javascript
+{
+  title: "Yara's First Beach Day",
+  refrain: "Brave Yara!",
+  cast_members: ['baby', 'mom', 'grandma'],
+  pages: [
+    {
+      page_number: 1,
+      narration: "Yara sees the big waves. WOOSH, WOOSH! Brave Yara!",
+      characters_on_page: ['baby'],
+      visual_action: "sitting on sand looking at ocean waves",
+      camera_angle: "establishing_wide",
+      spread_metadata: {
+        setting: "beach",
+        special_object: "red bucket"
+      }
+    },
+    {
+      page_number: 2,
+      narration: "She grabs her red bucket. Closer, closer she crawls...",
+      characters_on_page: ['baby'],
+      visual_action: "crawling toward water holding red bucket"
+    },
+    {
+      page_number: 3,
+      narration: "Grandma holds her hand. 'You're safe!' Brave Yara!",
+      characters_on_page: ['baby', 'grandma'],
+      visual_action: "holding grandma's hand near water edge"
+    },
+    {
+      page_number: 4,
+      narration: "SPLASH, SPLASH! Water everywhere! Yara laughs. Brave Yara!",
+      characters_on_page: ['baby', 'grandma'],
+      visual_action: "splashing in shallow water together"
+    }
+  ]
+}
+```
+
+### Image Prompts Generated:
+```javascript
+// Page 1
+"Soft paper collage. Establishing wide shot: Baby sitting on sand looking at
+ocean waves with red bucket in beach. Light pastel colors."
+
+// Page 2
+"Soft paper collage. Following behind: Baby crawling toward water holding red
+bucket in beach. Light pastel colors."
+
+// Page 3
+"Soft paper collage. Over-shoulder: Baby and grandma holding hands near water
+edge in beach. Light pastel colors. Use reference images for ALL characters."
+
+// Page 4
+"Soft paper collage. Perfect profile: Baby and grandma splashing together in
+beach. Light pastel colors. Use reference images for ALL characters."
+```
+
+### Display (Story Review):
+```
+Page 1:
+Yara sees the big waves. [WOOSH, WOOSH!] Brave Yara!
+                          ↑ highlighted in yellow
+
+Page 4:
+[SPLASH, SPLASH!] Water everywhere! Yara laughs. Brave Yara!
+↑ highlighted in yellow
+```
+
+---
+
+## Testing Checklist (Updated)
+
+### Enhanced Memory Chat
+- [ ] All 10 questions display correctly
+- [ ] Examples show for each question
+- [ ] Milestone conditional branching works
+- [ ] Button choices work for milestone question
+- [ ] Conversation data captured correctly
+
+### Age-Appropriate Stories
+- [ ] 0-12 months: Simple words, onomatopoeia
+- [ ] 12-24 months: Simple sentences, repetition
+- [ ] 24-48 months: Problem-resolution structure
+- [ ] 48-72 months: Complex sentences, dialogue
+
+### Cast Detection & Assignment
+- [ ] Characters extracted from "who was there" answer
+- [ ] Cast members auto-assigned to pages
+- [ ] Character Page Assignment modal opens
+- [ ] Manual overrides work correctly
+- [ ] Characters without photos show ⚠️ warning
+
+### Onomatopoeia
+- [ ] Sound words appear in generated stories
+- [ ] Uppercase format (SPLASH, WOOSH)
+- [ ] Visual highlighting in Story Review
+- [ ] Yellow gradient background displays
+- [ ] Age-appropriate usage
+
+### Multi-Character Images
+- [ ] Single character prompts: "Baby crawling"
+- [ ] Two characters: "Baby and mom holding hands"
+- [ ] Character photos passed correctly
+- [ ] Interactions detected from narration
+
+### Special Objects
+- [ ] Object captured in Q4
+- [ ] Stored in spread_metadata
+- [ ] Included in image prompts when relevant
+- [ ] Not added when answer is "no" or "none"
+
+### Story Arc
+- [ ] Page 1 uses story_beginning
+- [ ] Pages 2-3 use story_middle
+- [ ] Page 4 uses story_end
+- [ ] Clear narrative progression
+
+### Build & Integration
+- [ ] Build completes successfully
+- [ ] No TypeScript errors
+- [ ] All components load correctly
+- [ ] End-to-end flow works
+
+---
+
+## Files Modified Summary (January 3, 2025)
+
+### New Files Created:
+1. `/components/cast-management/CharacterPageAssignment.tsx` - Character page assignment modal
+
+### Files Modified:
+1. `/components/story-wizard/ChatInterface.tsx` - Enhanced 10-question tree
+2. `/app/api/generate-story/route.ts` - Age guidelines, cast extraction, onomatopoeia, story arc
+3. `/components/story-review/StoryReviewSpreads.tsx` - Onomatopoeia highlighting
+4. `/lib/prompts/landscapePagePrompt.tsx` - Multi-character support with interaction detection
+5. `/components/illustrations/AsyncBatchedImageGenerator.tsx` - Character assignment modal integration
+6. `/lib/store/bookStore.ts` - Added `special_object` field to SpreadSequenceMetadata
+
+---
+
+## System Status (Updated)
+
+**100% COMPLETE** ✅
+
+**Production Ready Features**:
+- ✅ Enhanced 10-question memory chat with conditional branching
+- ✅ Age-appropriate story generation (4 age brackets)
+- ✅ Auto-cast detection from natural language
+- ✅ Onomatopoeia generation and visual highlighting
+- ✅ Multi-character image prompts with interaction detection
+- ✅ Character page assignment UI for manual overrides
+- ✅ Story arc structure (beginning/middle/end)
+- ✅ Special object/MacGuffin tracking
+- ✅ Soft, light paper collage style with white backgrounds
+- ✅ Full-bleed images with camera angle diversity
+- ✅ 4-page simple system with no spread complexity
+
+**Status**: READY FOR PRODUCTION ✅
+**Last Updated**: January 3, 2025
+**Impact**: Comprehensive story capture, richer narratives, multi-character support, engaging sound words

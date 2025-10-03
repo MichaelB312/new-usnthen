@@ -162,6 +162,58 @@ function mapToPersonId(character: string, babyName: string): PersonId | null {
   return mapping[normalized] || null;
 }
 
+/**
+ * Extract setting from location answer
+ */
+function extractSetting(location: string): string {
+  const loc = location.toLowerCase();
+  if (loc.includes('beach') || loc.includes('ocean') || loc.includes('sea')) return 'beach';
+  if (loc.includes('park')) return 'park';
+  if (loc.includes('home') || loc.includes('house') || loc.includes('room')) return 'home';
+  if (loc.includes('backyard') || loc.includes('garden')) return 'backyard';
+  if (loc.includes('pool') || loc.includes('water')) return 'pool';
+  if (loc.includes('grandma') || loc.includes('grandpa')) return 'grandparents house';
+  return location || 'outdoor setting';
+}
+
+/**
+ * Extract cast members from "who was there" answer
+ */
+function extractCastMembers(whoWasThere: string, babyName: string): PersonId[] {
+  const cast: PersonId[] = ['baby']; // Baby is always included
+  const text = whoWasThere.toLowerCase();
+
+  // Map common phrases to PersonId
+  if (text.includes('mom') || text.includes('mommy') || text.includes('mama') || text.includes('mother')) {
+    cast.push('mom');
+  }
+  if (text.includes('dad') || text.includes('daddy') || text.includes('papa') || text.includes('father')) {
+    cast.push('dad');
+  }
+  if (text.includes('grandma') || text.includes('granny') || text.includes('nana') || text.includes('grandmother')) {
+    cast.push('grandma');
+  }
+  if (text.includes('grandpa') || text.includes('granddad') || text.includes('grandfather') || text.includes('papa')) {
+    if (!cast.includes('dad')) { // Only add if not already added as dad
+      cast.push('grandpa');
+    }
+  }
+  if (text.includes('brother') || text.includes('sister') || text.includes('sibling')) {
+    cast.push('sibling');
+  }
+  if (text.includes('aunt') || text.includes('auntie')) {
+    cast.push('aunt');
+  }
+  if (text.includes('uncle')) {
+    cast.push('uncle');
+  }
+  if (text.includes('friend')) {
+    cast.push('friend');
+  }
+
+  return cast;
+}
+
 function createEngagingFallbackStory(
   babyName: string,
   ageInMonths: number,
@@ -251,11 +303,27 @@ async function processStoryGeneration(jobId: string, params: any) {
 
     const { babyProfile, conversation, illustrationStyle, storyLength } = params;
 
-    // Extract memory details
+    // Extract memory details - ENHANCED with new fields
     const memory = conversation.find((c: any) => c.question === 'memory_anchor')?.answer || '';
+    const location = conversation.find((c: any) => c.question === 'location')?.answer || '';
+    const whoWasThere = conversation.find((c: any) => c.question === 'who_was_there')?.answer || '';
+    const specialObject = conversation.find((c: any) => c.question === 'special_object')?.answer || '';
+    const milestoneCheck = conversation.find((c: any) => c.question === 'milestone_check')?.answer || '';
+    const milestoneDetail = conversation.find((c: any) => c.question === 'milestone_detail')?.answer || '';
     const whySpecial = conversation.find((c: any) => c.question === 'why_special')?.answer || '';
-    const babyActions = conversation.find((c: any) => c.question === 'baby_action')?.answer || '';
-    const babyReaction = conversation.find((c: any) => c.question === 'baby_reaction')?.answer || '';
+    const storyBeginning = conversation.find((c: any) => c.question === 'story_beginning')?.answer || '';
+    const storyMiddle = conversation.find((c: any) => c.question === 'story_middle')?.answer || '';
+    const storyEnd = conversation.find((c: any) => c.question === 'story_end')?.answer || '';
+    const sensoryDetails = conversation.find((c: any) => c.question === 'sensory_details')?.answer || '';
+
+    // Extract setting from location
+    const setting = extractSetting(location);
+
+    // Extract cast members from "who was there" answer
+    const extractedCast = extractCastMembers(whoWasThere, babyProfile.baby_name);
+
+    // Detect if this is a milestone moment
+    const isMilestone = milestoneCheck.toLowerCase().includes('yes') || milestoneCheck.toLowerCase().includes('first') || milestoneCheck.toLowerCase().includes('milestone');
 
     const ageInMonths = calculateAgeInMonths(babyProfile.birthdate);
     const pageCount = getPageCount(ageInMonths);
@@ -284,19 +352,37 @@ async function processStoryGeneration(jobId: string, params: any) {
       ? 'Baby boy with boyish energy and playfulness'
       : 'Baby with joyful, curious spirit';
 
-    // Enhanced story generation prompt with camera diversity
+    // Enhanced story generation prompt with all context + onomatopoeia
     const prompt = `You are creating an emotionally engaging children's book with MAXIMUM VISUAL VARIETY using different camera angles for each page.
 
 CREATE A STORY FOR: ${babyProfile.baby_name}, a ${babyGender === 'girl' ? 'baby girl' : babyGender === 'boy' ? 'baby boy' : 'baby'}, age ${ageInMonths} months.
 
 MEMORY CONTEXT:
-- What happened: ${memory}
-- Why it was special: ${whySpecial}
-- What ${babyProfile.baby_name} did: ${babyActions}
-- How ${babyProfile.baby_name} felt: ${babyReaction}
+- Core memory: ${memory}
+- Location/Setting: ${location || 'outdoor setting'}
+- Who was there: ${whoWasThere || 'Just baby'}
+- Special object: ${specialObject || 'None'}
+- Milestone: ${isMilestone ? `Yes - ${milestoneDetail || milestoneCheck}` : 'No'}
+- Why special: ${whySpecial}
+- Story beginning: ${storyBeginning}
+- Story middle: ${storyMiddle}
+- Story ending: ${storyEnd}
+- Sensory details: ${sensoryDetails}
+
+CAST MEMBERS DETECTED: ${extractedCast.join(', ')}
 
 AGE-APPROPRIATE GUIDELINES:
 ${storyGuidelines}
+
+🔊 ONOMATOPOEIA RULES (Sound Words):
+${ageInMonths < 12 ? `Ages 0-12 months: Use simple sound words as main text elements. Examples: "Splash!", "Woof!", "Beep!"` :
+  ageInMonths < 24 ? `Ages 12-24 months: Integrate sounds into simple sentences with repetition. Examples: "The duck says, Quack, quack!", "Knock, knock!"` :
+  ageInMonths < 48 ? `Ages 24-48 months: Use sounds to punctuate actions. Examples: "He jumped. SPLASH, SPLASH!", "Swoosh went the leaves."` :
+  `Ages 48+ months: Integrate sounds smoothly into complex sentences. Examples: "...with a satisfying squelch", "Pop, pop, pop went the popcorn"`}
+- Add onomatopoeia (sound words) naturally based on actions
+- Sound words should match the age guidelines above
+- Format sound words in UPPERCASE for emphasis
+- Examples: SPLASH, WOOSH, GIGGLE, THUMP, SWOOSH, MUNCH, POP
 
 WORD LIMIT: ${wordLimits.min}-${wordLimits.max} words per page (STRICT)
 PAGE COUNT: ${pageCount} pages
@@ -323,31 +409,45 @@ OUTPUT JSON (exact structure):
   "refrain": "2-4 word rhythmic refrain",
   "emotional_core": "The heart of this story in one sentence",
   "story_arc": "The emotional journey",
-  "cast_members": ["baby", ...],
+  "cast_members": [${extractedCast.map(c => `"${c}"`).join(', ')}],
   "pages": [
     {
       "page_number": 1,
-      "narration": "${wordLimits.min}-${wordLimits.max} words",
+      "narration": "${wordLimits.min}-${wordLimits.max} words with ONOMATOPOEIA in UPPERCASE",
       "page_goal": "What this page achieves narratively",
       "camera_angle": "CHOOSE from available camera angles - MUST be different for each page",
       "shot_description": "Copy the name of the chosen camera angle",
       "visual_action": "SPECIFIC action - MUST be different from other pages",
       "action_description": "How this action serves the story",
-      "visual_focus": "Key visual element",
+      "visual_focus": "Key visual element${specialObject ? ` (include ${specialObject} if relevant)` : ''}",
       "emotion": "joy/wonder/peaceful/curious/proud/excited",
-      "sensory_details": "What can be felt/heard/seen",
-      "characters_on_page": ["baby", ...],
+      "sensory_details": "${sensoryDetails || 'What can be felt/heard/seen'}",
+      "characters_on_page": ["baby"${extractedCast.length > 1 ? `, "mom/dad/grandma/etc" - assign supporting characters strategically` : ''}],
       "scene_type": "opening/action/closing/transition"
     }
   ]
 }
+
+📋 STORY STRUCTURE GUIDE (use the provided story arc):
+- Page 1 (Opening): ${storyBeginning || 'How the moment started'}
+- Pages 2-3 (Middle): ${storyMiddle || 'The exciting part, include small challenge if mentioned'}
+- Page 4 (Closing): ${storyEnd || 'Sweet conclusion'}
+
+👥 CHARACTER ASSIGNMENT GUIDELINES:
+- Page 1: Usually baby alone (establishing shot)
+- Pages 2-3: Can include baby + supporting characters during action
+- Page 4: Often baby + parent/family for emotional resolution
+- Assign characters based on who would naturally be in each scene moment
 
 🎯 CRITICAL REMINDERS:
 - Each page MUST have a DIFFERENT camera_angle
 - Each page MUST show a DIFFERENT action
 - NO repeated camera angles across pages
 - NO repeated actions across pages
-- Maximum visual variety = better book!`;
+- Maximum visual variety = better book!
+- Include onomatopoeia (sound words) in UPPERCASE
+- Use the story beginning/middle/end to structure pages
+- Assign characters to pages where they fit the narrative`;
 
     job.progress = 50;
     job.message = `Writing ${babyProfile.baby_name}'s story...`;
@@ -358,7 +458,7 @@ OUTPUT JSON (exact structure):
       messages: [
         {
           role: 'system',
-          content: "You are a master children's book author who understands visual storytelling and the power of pacing through character-free atmospheric pages."
+          content: "You are a master children's book author who understands age-appropriate storytelling, visual variety through camera angles, and the engaging power of onomatopoeia (sound words). You know how to structure stories with clear beginning-middle-end arcs and assign supporting characters to appropriate pages for emotional impact."
         },
         { role: 'user', content: prompt }
       ],
@@ -427,12 +527,16 @@ OUTPUT JSON (exact structure):
     // Generate landscape spread sequence metadata
     const spreadSequences = generateSpreadSequence(enhancedPages, storyData.metadata);
 
-    // Attach sequence metadata to pages (spreads)
+    // Attach sequence metadata to pages (spreads) + setting
     const pagesWithSequence = enhancedPages.map((page, index) => {
       const spreadIndex = Math.floor(index / 2);
       return {
         ...page,
-        spread_metadata: spreadSequences[spreadIndex]
+        spread_metadata: {
+          ...spreadSequences[spreadIndex],
+          setting: setting, // Add extracted setting
+          special_object: specialObject || undefined
+        }
       };
     });
 

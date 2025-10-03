@@ -7,12 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "install-full": "npm install && npm install sharp konva react-konva",
+    "install-full": "npm install && npm install sharp",
     "clean": "rm -rf node_modules .next && npm install"
   },
   "dependencies": {
-    "@dicebear/collection": "^9.2.4",
-    "@dicebear/core": "^9.2.4",
     "@supabase/auth-helpers-nextjs": "^0.8.0",
     "@supabase/supabase-js": "^2.39.0",
     "autoprefixer": "^10",
@@ -37,8 +35,6 @@
     "zustand": "^4.4.7"
   },
   "optionalDependencies": {
-    "konva": "^9.3.22",
-    "react-konva": "^18.2.12",
     "sharp": "^0.33.5"
   },
   "devDependencies": {

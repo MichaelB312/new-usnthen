@@ -23,7 +23,35 @@ export interface UploadedPhoto {
   notes?: string;
 }
 
-// Enhanced Page interface with SFX support
+// Sequence metadata for landscape spread system
+export type BeatType = 'setup' | 'discovery' | 'challenge' | 'big_moment' | 'resolution';
+export type AnchorPosition = 'left' | 'right' | 'center';
+export type TextZone = 'left' | 'right' | 'center-reserved';
+
+export interface SpreadSequenceMetadata {
+  seq: number;
+  beat: BeatType;
+  setting: string;
+  action: string;
+  mood_palette: string;
+  visual_anchor: string;
+  char_anchor_hint: AnchorPosition;
+  text_zone_hint: AnchorPosition;
+  refinement_word?: string;
+  continuity_from_prev?: string;
+  lead_to_next?: string;
+  avoid: string[];
+}
+
+// Spread interface for landscape rendering
+export interface Spread {
+  imageUrl: string;
+  text: string;
+  pageRangeLabel: string;
+  spreadIndex: number;
+}
+
+// Enhanced Page interface
 export interface Page {
   page_number: number;
   scene_type: string;
@@ -61,11 +89,8 @@ export interface Page {
   sensory_details?: string;
   pose_description?: string;
 
-    // SFX fields (ADDED)
-  has_sfx?: boolean;
-  sfx_text?: string;
-  sfx_style?: 'comic' | 'playful' | 'dramatic' | 'soft';
-  sfx_position?: { x: number; y: number };
+  // Landscape spread sequence metadata
+  spread_metadata?: SpreadSequenceMetadata;
 }
 
 interface BookStore {

@@ -92,21 +92,30 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     }
   }, [generating, loadingTips.length]);
 
-  // Initialize images from story data
-  useEffect(() => {
-    if (storyData?.pages) {
-      const initialImages: GeneratedImage[] = storyData.pages.map(page => ({
-        page_number: page.page_number,
-        dataUrl: '',
-        style: 'paper-collage',
-        camera_angle: page.shot_id || page.camera_angle || 'wide',
-        action: page.visual_action || page.action_label || '',
-        characters_on_page: page.characters_on_page,
-        status: 'pending'
-      }));
-      setGeneratedImages(initialImages);
-    }
-  }, [storyData]);
+  // Initialize images from story data - Simple: one slot per page (always 4 pages)
+  useEffect(() => {
+    if (storyData?.pages) {
+      const pageCount = storyData.pages.length; // Always 4 pages
+      const initialImages: GeneratedImage[] = [];
+
+      for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+        const page = storyData.pages[pageIndex];
+
+        initialImages.push({
+          page_number: pageIndex + 1,
+          dataUrl: '',
+          style: 'paper-collage',
+          camera_angle: page?.shot_id || page?.camera_angle || 'wide',
+          action: page?.visual_action || page?.action_label || '',
+          characters_on_page: page?.characters_on_page || [],
+          status: 'pending'
+        });
+      }
+
+      setGeneratedImages(initialImages);
+    }
+  }, [storyData]);
+
 
   // Cleanup on component unmount
   useEffect(() => {
@@ -222,10 +231,14 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           characters_on_page: page.characters_on_page,
           background_extras: page.background_extras
         },
-        // ADD THIS: Pass cast with descriptions
-        cast: cast
+        // Pass cast with descriptions
+        cast: cast,
+        // CRITICAL: Pass all pages for sequential storytelling
+        allPages: storyData?.pages || []
       };
-      if (page.page_number === 1) {
+
+      // For page 0 (character anchor) or page 1, we need baby photo/description
+      if (page.page_number === 0 || page.page_number === 1) {
         const babyPhoto = uploadedPhotos.find(p =>
           p.people.includes('baby') && p.is_identity_anchor
         ) || uploadedPhotos.find(p =>
@@ -237,13 +250,17 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           payload.babyPhotoUrl = babyProfile.baby_photo_url;
         } else if (cast.baby?.features_lock) {
           // No photo but we have description - don't throw error
-          console.log(`Page 1: Using baby description instead of photo`);
+          console.log(`Page ${page.page_number}: Using baby description instead of photo`);
           payload.babyDescription = cast.baby.features_lock;
         } else {
-          console.error('No baby photo or description available for Page 1');
+          console.error(`No baby photo or description available for Page ${page.page_number}`);
           return null;
         }
-        console.log(`Page 1: Creating Paper Collage style anchor for ${babyProfile?.gender} baby`);
+
+        // Also pass uploadedPhotos for character anchor to work properly
+        payload.uploadedPhotos = uploadedPhotos;
+
+        console.log(`Page ${page.page_number}: ${page.page_number === 0 ? 'Creating character anchor' : 'Creating Paper Collage style anchor'} for ${babyProfile?.gender} baby`);
       } else {
         const charactersOnPage = page.characters_on_page || [];
         const minimalPhotos = charactersOnPage.map((charId: PersonId) => {
@@ -348,34 +365,46 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           ));
 
           if (job.status === 'completed' && job.result) {
-            console.log(`[Poll] Job ${jobId} completed for page ${pageNumber}`);
+            console.log(`[Poll] Job ${jobId} completed for page ${job.result.page_number}`);
             clearInterval(interval);
             pollingIntervalsRef.current.delete(jobId);
 
-            if (pageNumber === 1) {
-              setStyleAnchor(job.result.dataUrl);
-              setPage1Completed(true);
-            }
+            // Page 0 is the style anchor - save it separately, NOT as a book page
+            if (job.result.page_number === 0) {
+              console.log('[Poll] Character anchor (page 0) saved - not added to book pages');
+              setStyleAnchor(job.result.dataUrl);
+              resolve(true);
+              return;
+            }
 
-            setGeneratedImages(prev => {
-              const updated = prev.map(img =>
-                img.page_number === pageNumber
-                  ? {
-                      ...img,
-                      dataUrl: job.result.dataUrl,
-                      status: 'success' as const,
-                      elapsed_ms: job.result.elapsed_ms,
-                      characters_on_page: job.result.characters_on_page
-                    }
-                  : img
-              );
+            // Simple! Page number is just 1, 2, 3, or 4 - no mapping needed
+            // Page number already available from job.result
 
-              checkCompletion(updated);
+            console.log(`[Poll] Page ${pageNumber} completed`);
 
-              return updated;
-            });
+            if (pageNumber === 1) {
+              setPage1Completed(true);
+            }
 
-            resolve(true);
+            setGeneratedImages(prev => {
+              const updated = prev.map(img =>
+                img.page_number === pageNumber
+                  ? {
+                      ...img,
+                      dataUrl: job.result.dataUrl,
+                      status: 'success' as const,
+                      elapsed_ms: job.result.elapsed_ms,
+                      characters_on_page: job.result.characters_on_page
+                    }
+                  : img
+              );
+
+              checkCompletion(updated);
+
+              return updated;
+            });
+
+            resolve(true);
             return;
           }
 
@@ -404,7 +433,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   };
 
   const checkCompletion = (images: GeneratedImage[]) => {
-    const totalPages = storyData?.pages.length || 0;
+    const totalPages = images.length; // Total pages to generate (always 4)
     const completed = images.filter(img =>
       img.status === 'success' || img.status === 'error'
     ).length;
@@ -473,86 +502,147 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     setCurrentLoadingTip(0);
     setActualGenerationComplete(false);
 
-    try {
-      const page1 = storyData.pages[0];
-      console.log('Starting Paper Collage Page 1 generation...');
+    try {
+      // STEP 1: Generate Character Anchor (Page 0) FIRST
+      console.log('🎨 Generating character anchor (Page 0) - NOT a story page...');
 
-      setGeneratedImages(prev =>
-        prev.map(img =>
-          img.page_number === 1 ? { ...img, status: 'generating' as const } : img
-        )
-      );
+      const anchorPage = {
+        ...storyData.pages[0],
+        page_number: 0,
+        narration: 'Character reference anchor',
+        is_character_free: false, // MUST be false - this is a character anchor!
+        characters_on_page: ['baby']
+      };
 
-      const page1JobId = await startImageGeneration(page1);
-      if (!page1JobId) {
-        throw new Error('Failed to start Page 1 generation');
-      }
+      const anchorJobId = await startImageGeneration(anchorPage);
+      if (!anchorJobId) {
+        throw new Error('Failed to start character anchor generation');
+      }
 
-      const job1: ImageJob = {
-        jobId: page1JobId,
-        pageNumber: 1,
-        status: 'pending',
-        progress: 0,
-        startTime: Date.now(),
-      };
-      setJobs([job1]);
+      const anchorJob: ImageJob = {
+        jobId: anchorJobId,
+        pageNumber: 0,
+        status: 'pending',
+        progress: 0,
+        startTime: Date.now(),
+      };
+      setJobs([anchorJob]);
 
-      const page1Success = await pollJobStatus(page1JobId, 1);
+      console.log('⏳ Waiting for character anchor to complete...');
+      const anchorSuccess = await pollJobStatus(anchorJobId, 0);
 
-      if (!page1Success) {
-        setGenerating(false);
-        pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
-        pollingIntervalsRef.current.clear();
-        return;
-      }
+      if (!anchorSuccess) {
+        throw new Error('Character anchor generation failed');
+      }
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('✅ Character anchor completed!');
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      const remainingJobs: { jobId: string; pageNumber: number }[] = [];
+      // STEP 2: Generate pages 1, 2, 3, 4 (simple!)
+      console.log('📖 Starting page generation...');
 
-      for (let i = 1; i < storyData.pages.length; i++) {
-        const page = storyData.pages[i];
+      const pageCount = storyData.pages.length; // Always 4 pages
+      console.log(`🎨 Generating ${pageCount} landscape pages`);
 
-        setGeneratedImages(prev =>
-          prev.map(img =>
-            img.page_number === page.page_number
-              ? { ...img, status: 'generating' as const }
-              : img
-          )
-        );
+      // Generate Page 1 first
+      setGeneratedImages(prev =>
+        prev.map(img =>
+          img.page_number === 1 ? { ...img, status: 'generating' as const } : img
+        )
+      );
 
-        const jobId = await startImageGeneration(page);
-        if (jobId) {
-          const job: ImageJob = {
-            jobId,
-            pageNumber: page.page_number,
-            status: 'pending',
-            progress: 0,
-            startTime: Date.now(),
-          };
-          setJobs(prev => [...prev, job]);
-          remainingJobs.push({ jobId, pageNumber: page.page_number });
+      const page1JobId = await startImageGeneration(storyData.pages[0]);
+      if (!page1JobId) {
+        throw new Error('Failed to start Page 1 generation');
+      }
 
-          await new Promise(resolve => setTimeout(resolve, 300));
-        } else {
-          setGeneratedImages(prev =>
-            prev.map(img =>
-              img.page_number === page.page_number
-                ? { ...img, status: 'error' as const, error: 'Failed to start' }
-                : img
-            )
-          );
-        }
-      }
+      const job1: ImageJob = {
+        jobId: page1JobId,
+        pageNumber: 1,
+        status: 'pending',
+        progress: 0,
+        startTime: Date.now(),
+      };
+      setJobs([job1]);
 
-      await Promise.all(
-        remainingJobs.map(({ jobId, pageNumber }) =>
-          pollJobStatus(jobId, pageNumber).catch(err => {
-            console.error(`Polling failed for page ${pageNumber}:`, err);
-            return false;
-          })
-        )
-      );
+      const page1Success = await pollJobStatus(page1JobId, 1);
+
+      if (!page1Success) {
+        setGenerating(false);
+        pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
+        pollingIntervalsRef.current.clear();
+        return;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // PARALLEL GENERATION: Start pages 2, 3, 4 in parallel
+      console.log(`🚀 Starting ${pageCount - 1} pages in parallel...`);
+
+      const pagePromises: Promise<void>[] = [];
+
+      for (let pageIndex = 1; pageIndex < pageCount; pageIndex++) {
+        const page = storyData.pages[pageIndex];
+        const pageNumber = pageIndex + 1;
+
+        if (!page) {
+          console.warn(`No page data for page ${pageNumber}`);
+          continue;
+        }
+
+        console.log(`🎨 Starting Page ${pageNumber}`);
+
+        setGeneratedImages(prev =>
+          prev.map(img =>
+            img.page_number === pageNumber ? { ...img, status: 'generating' as const } : img
+          )
+        );
+
+        const pagePromise = (async () => {
+          const jobId = await startImageGeneration(page);
+
+          if (jobId) {
+            const job: ImageJob = {
+              jobId,
+              pageNumber,
+              status: 'pending',
+              progress: 0,
+              startTime: Date.now(),
+            };
+            setJobs(prev => [...prev, job]);
+
+            const pageSuccess = await pollJobStatus(jobId, pageNumber);
+
+            if (!pageSuccess) {
+              console.error(`Page ${pageNumber} generation failed`);
+              setGeneratedImages(prev =>
+                prev.map(img =>
+                  img.page_number === pageNumber
+                    ? { ...img, status: 'error' as const, error: 'Generation failed' }
+                    : img
+                )
+              );
+            }
+          } else {
+            setGeneratedImages(prev =>
+              prev.map(img =>
+                img.page_number === pageNumber
+                  ? { ...img, status: 'error' as const, error: 'Failed to start' }
+                  : img
+              )
+            );
+          }
+        })();
+
+        pagePromises.push(pagePromise);
+
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+
+      await Promise.all(pagePromises);
+
+      console.log('✅ All pages generation complete!');
+
 
     } catch (error: any) {
       console.error('Generation failed:', error);

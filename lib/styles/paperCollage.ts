@@ -228,10 +228,8 @@ export function enhanceWithIsolatedPaperCollage(
     enhanced += ', visible paper texture and torn edges on character only';
   }
   
-  // Add gender clarity if specified
-  if (gender && !enhanced.includes('girl') && !enhanced.includes('boy')) {
-    enhanced += `, ${PAPER_COLLAGE_STYLE.gender_enhancement[gender]}`;
-  }
+  // DO NOT add gender descriptions - character identity comes from reference images!
+  // The anchor image and uploaded photos define the character appearance
   
   // Ensure isolation at the end
   enhanced += ', NO BACKGROUND ELEMENTS, only character and immediate surface, pure white background, isolated subject';

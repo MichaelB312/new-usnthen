@@ -4,13 +4,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Home } from 'lucide-react';
+import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Home, ArrowLeft } from 'lucide-react';
 import { ChatInterface } from '@/components/story-wizard/ChatInterface';
 import { ProfileForm } from '@/components/baby-profile/ProfileForm';
 import { StoryReviewSpreads } from '@/components/story-review/StoryReviewSpreads';
 import { IntegratedBookPreview } from '@/components/book-preview/IntegratedBookPreview';
 import { AsyncBatchedImageGenerator as ImageGenerator } from '@/components/illustrations/AsyncBatchedImageGenerator';
 import { useBookStore } from '@/lib/store/bookStore';
+import { isFeatureEnabled } from '@/lib/features/flags';
+import { TEST_BABY_PROFILE, TEST_STORY_DATA, TEST_CONVERSATION } from '@/lib/testing/testStoryData';
+import { SaveProgressButton } from '@/components/common/SaveProgressButton';
+import { ResumeProgressModal } from '@/components/common/ResumeProgressModal';
+import { loadProgress, hasSavedProgress, saveProgress } from '@/lib/store/progressStore';
 import toast from 'react-hot-toast';
 import Confetti from 'react-confetti';
 import { useWindowSize } from 'react-use';
@@ -37,7 +42,9 @@ export default function CreateBookPage() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationMessage, setGenerationMessage] = useState('');
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
-  
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [savedProgress, setSavedProgress] = useState<any>(null);
+
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pollStartTimeRef = useRef<number>(0);
 
@@ -53,6 +60,58 @@ export default function CreateBookPage() {
     reset
   } = useBookStore();
 
+  // Check for saved progress and TEST MODE on mount
+  useEffect(() => {
+    if (!bookId) {
+      setBookId(uuidv4());
+    }
+
+    // TEST MODE: Auto-populate with test data and skip to Story Review
+    if (isFeatureEnabled('test_mode')) {
+      console.log('🧪 TEST MODE ENABLED - Loading test data...');
+
+      // Force load test data regardless of existing state
+      setProfile(TEST_BABY_PROFILE);
+      setConversation(TEST_CONVERSATION);
+      setStory(TEST_STORY_DATA);
+      setCurrentStep(3); // Jump to Story Review
+
+      toast.success('🧪 Test mode: Loaded Yara\'s beach story', {
+        duration: 3000,
+        icon: '🧪'
+      });
+      return; // Skip resume check in test mode
+    }
+
+    // Check for saved progress (only if NOT in test mode)
+    if (hasSavedProgress()) {
+      const progress = loadProgress();
+      if (progress) {
+        setSavedProgress(progress);
+        setShowResumeModal(true);
+      }
+    }
+  }, []); // Run only once on mount
+
+  // Auto-save progress whenever key data changes
+  useEffect(() => {
+    if (currentStep > 1 && !isGeneratingStory && !isFeatureEnabled('test_mode')) {
+      const conversation = useBookStore.getState().conversation;
+      const illustrations = useBookStore.getState().illustrations;
+
+      saveProgress({
+        savedAt: new Date().toISOString(),
+        currentStep,
+        babyProfile,
+        conversation,
+        storyData,
+        generatedImages: illustrations,
+        bookId: bookId || undefined
+      });
+    }
+  }, [currentStep, babyProfile, storyData]);
+
+  // Separate effect for bookId
   useEffect(() => {
     if (!bookId) {
       setBookId(uuidv4());
@@ -192,10 +251,11 @@ export default function CreateBookPage() {
     setStory(story);
     setGenerationProgress(100);
     setGenerationMessage('Story complete!');
-    
+
     const pageCount = story?.pages?.length || 10;
-    toast.success(`Created a ${pageCount}-page story for ${babyProfile?.baby_name}!`);
-    
+    const spreadCount = Math.ceil(pageCount / 2);
+    toast.success(`Created a ${spreadCount}-spread story for ${babyProfile?.baby_name}!`);
+
     setTimeout(() => {
       setIsGeneratingStory(false);
       setCurrentStep(3);
@@ -225,21 +285,74 @@ export default function CreateBookPage() {
     setTimeout(() => setShowConfetti(false), 5000);
   };
 
+  const handleBack = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    } else {
+      router.push('/');
+    }
+  };
+
+  const handleResumeProgress = () => {
+    if (savedProgress) {
+      setCurrentStep(savedProgress.currentStep);
+      if (savedProgress.babyProfile) setProfile(savedProgress.babyProfile);
+      if (savedProgress.conversation) setConversation(savedProgress.conversation);
+      if (savedProgress.storyData) setStory(savedProgress.storyData);
+      if (savedProgress.bookId) setBookId(savedProgress.bookId);
+
+      setShowResumeModal(false);
+      toast.success('Progress restored!');
+    }
+  };
+
+  const handleStartNew = () => {
+    setShowResumeModal(false);
+    setSavedProgress(null);
+    // Progress is already cleared in ResumeProgressModal
+  };
+
   return (
     <div className="min-h-screen p-6 pt-24">
       {showConfetti && <Confetti width={width} height={height} />}
 
+      {/* Resume Progress Modal */}
+      {showResumeModal && savedProgress && (
+        <ResumeProgressModal
+          progress={savedProgress}
+          onResume={handleResumeProgress}
+          onStartNew={handleStartNew}
+        />
+      )}
+
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <button onClick={() => router.push('/')} className="btn-ghost flex items-center gap-2">
-            <Home className="h-5 w-5" />
-            Home
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleBack} className="btn-ghost flex items-center gap-2">
+              <ArrowLeft className="h-5 w-5" />
+              Back
+            </button>
+            <button onClick={() => router.push('/')} className="btn-ghost flex items-center gap-2">
+              <Home className="h-5 w-5" />
+              Home
+            </button>
+          </div>
 
-          <h1 className="font-patrick text-3xl gradient-text">Create Your Magical Storybook</h1>
+          <h1 className="font-patrick text-3xl gradient-text pb-1 absolute left-1/2 transform -translate-x-1/2">Create Your Magical Storybook</h1>
 
-          <div className="w-20" />
+          <div className="flex items-center gap-2">
+            {currentStep < 6 && !isGeneratingStory && (
+              <SaveProgressButton
+                currentStep={currentStep}
+                babyProfile={babyProfile}
+                conversation={useBookStore.getState().conversation}
+                storyData={storyData}
+                generatedImages={useBookStore.getState().illustrations}
+                bookId={bookId || undefined}
+              />
+            )}
+          </div>
         </div>
 
         {/* Progress Bar */}

@@ -1,9 +1,9 @@
 // components/story-review/StoryReviewSpreads.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, RefreshCw, Edit2, Check, Sparkles, ChevronLeft, ChevronRight, Volume2 } from 'lucide-react';
+import { BookOpen, RefreshCw, Edit2, Check, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBookStore } from '@/lib/store/bookStore';
 import toast from 'react-hot-toast';
 
@@ -12,32 +12,11 @@ interface StoryReviewProps {
   onRegenerate: () => void;
 }
 
-// Auto-detect SFX from narration
-function detectSFX(narration: string): { text: string; confidence: number } | null {
-  const sfxPatterns = [
-    { pattern: /splash|splish/i, sfx: 'SPLASH!' },
-    { pattern: /giggle|laugh/i, sfx: 'GIGGLE!' },
-    { pattern: /boom|bang|crash/i, sfx: 'BOOM!' },
-    { pattern: /whoosh|zoom|dash/i, sfx: 'WHOOSH!' },
-    { pattern: /pop|bubble/i, sfx: 'POP!' },
-    { pattern: /yawn/i, sfx: 'YAAAWN!' },
-    { pattern: /cry|wail/i, sfx: 'WAAH!' },
-    { pattern: /snore|sleep/i, sfx: 'ZZZ...' },
-    { pattern: /munch|eat|yum/i, sfx: 'MUNCH!' },
-    { pattern: /beep|honk/i, sfx: 'BEEP BEEP!' },
-    { pattern: /squeak|creak/i, sfx: 'SQUEAK!' },
-    { pattern: /thump|stomp/i, sfx: 'THUMP!' },
-    { pattern: /ring|ding/i, sfx: 'RING!' },
-    { pattern: /quack|duck/i, sfx: 'QUACK!' },
-  ];
-  
-  for (const { pattern, sfx } of sfxPatterns) {
-    if (pattern.test(narration)) {
-      return { text: sfx, confidence: 0.9 };
-    }
-  }
-  
-  return null;
+interface PageData {
+  pageIndex: number;
+  pageLabel: string;
+  text: string;
+  pageNumber: number;
 }
 
 export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProps) {
@@ -45,84 +24,53 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
   const [editingPage, setEditingPage] = useState<number | null>(null);
   const [editedNarration, setEditedNarration] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
-  const [detectedSFX, setDetectedSFX] = useState<Record<number, string>>({});
 
-  // Auto-detect SFX for all pages
-  useEffect(() => {
-    if (!storyData?.pages) return;
-    
-    const sfxMap: Record<number, string> = {};
-    storyData.pages.forEach((page) => {
-      const detection = detectSFX(page.narration);
-      if (detection && detection.confidence > 0.7) {
-        sfxMap[page.page_number] = detection.text;
-      }
+  // Build pages array (NEW: Each page is displayed separately)
+  const pages: PageData[] = [];
+  if (storyData?.pages) {
+    storyData.pages.forEach((page, index) => {
+      pages.push({
+        pageIndex: index,
+        pageLabel: `Page ${page.page_number}`,
+        text: page.narration || '',
+        pageNumber: page.page_number
+      });
     });
-    setDetectedSFX(sfxMap);
-  }, [storyData]);
+  }
 
-  const handleEditPage = (pageNumber: number) => {
-    const page = storyData?.pages.find(p => p.page_number === pageNumber);
+  const handleEditPage = (pageIndex: number) => {
+    const page = pages[pageIndex];
     if (page) {
-      setEditingPage(pageNumber);
-      setEditedNarration(page.narration);
+      setEditingPage(pageIndex);
+      setEditedNarration(page.text);
     }
   };
 
   const savePageEdit = () => {
     if (editingPage === null || !storyData) return;
-    
-    const updatedPages = storyData.pages.map(page => 
-      page.page_number === editingPage 
-        ? { ...page, narration: editedNarration }
-        : page
-    );
-    
+
+    // Update the specific page's narration
+    const updatedPages = storyData.pages.map((page, idx) => {
+      if (idx === editingPage) {
+        return { ...page, narration: editedNarration };
+      }
+      return page;
+    });
+
     useBookStore.setState({
       storyData: {
         ...storyData,
         pages: updatedPages
       }
     });
-    
-    // Re-detect SFX for edited page
-    const detection = detectSFX(editedNarration);
-    if (detection && detection.confidence > 0.7) {
-      setDetectedSFX(prev => ({ ...prev, [editingPage]: detection.text }));
-    } else {
-      setDetectedSFX(prev => {
-        const updated = { ...prev };
-        delete updated[editingPage];
-        return updated;
-      });
-    }
-    
+
     setEditingPage(null);
     toast.success('Page updated!');
   };
 
-  const saveAndContinue = () => {
-    if (storyData) {
-      // Add detected SFX to pages before continuing
-      const updatedPages = storyData.pages.map(page => ({
-        ...page,
-        has_sfx: !!detectedSFX[page.page_number],
-        sfx_text: detectedSFX[page.page_number]
-      }));
-      
-      useBookStore.setState({
-        storyData: {
-          ...storyData,
-          pages: updatedPages
-        }
-      });
-    }
-    onContinue();
-  };
+  if (!storyData?.pages || pages.length === 0) return null;
 
-  if (!storyData?.pages) return null;
-
-  const totalPages = storyData.pages.length;
+  const totalPages = pages.length;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -165,13 +113,13 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
           >
             {/* Page Content */}
             <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-8 min-h-[300px] flex items-center justify-center">
-              {editingPage === storyData.pages[currentPage].page_number ? (
+              {editingPage === currentPage ? (
                 <div className="w-full space-y-4">
                   <textarea
                     value={editedNarration}
                     onChange={(e) => setEditedNarration(e.target.value)}
                     className="w-full p-4 text-lg font-patrick text-gray-700 bg-white rounded-xl resize-none focus:outline-none focus:ring-4 focus:ring-purple-200 shadow-inner"
-                    rows={4}
+                    rows={6}
                     autoFocus
                   />
                   <div className="flex gap-3 justify-center">
@@ -192,57 +140,27 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
                 </div>
               ) : (
                 <div className="text-center space-y-4 max-w-2xl">
-                  <motion.p 
+                  <motion.p
                     className="text-2xl font-patrick text-gray-700 leading-relaxed"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
-                    {storyData.pages[currentPage].narration}
+                    {pages[currentPage].text}
                   </motion.p>
-                  
-                  {/* Auto-detected SFX */}
-                  {detectedSFX[storyData.pages[currentPage].page_number] && (
-                    <motion.div
-                      initial={{ scale: 0, rotate: -15 }}
-                      animate={{ scale: 1, rotate: 15 }}
-                      transition={{ type: "spring", stiffness: 200 }}
-                      className="inline-block mt-4"
-                    >
-                      <div className="bg-gradient-to-br from-yellow-300 to-orange-400 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
-                        <Volume2 className="h-5 w-5" />
-                        <span className="font-bold text-lg">
-                          {detectedSFX[storyData.pages[currentPage].page_number]}
-                        </span>
-                      </div>
-                    </motion.div>
-                  )}
-                  
+
                   <button
-                    onClick={() => handleEditPage(storyData.pages[currentPage].page_number)}
+                    onClick={() => handleEditPage(currentPage)}
                     className="text-purple-600 hover:text-purple-700 text-sm font-medium flex items-center gap-1 mx-auto mt-4"
                   >
                     <Edit2 className="h-4 w-4" />
-                    Edit this page
+                    Edit
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Page Info */}
-            <div className="flex items-center justify-between text-sm text-gray-600">
-              <div className="flex items-center gap-2">
-                {storyData.pages[currentPage].characters_on_page?.length > 0 && (
-                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full">
-                    {storyData.pages[currentPage].characters_on_page.join(', ')}
-                  </span>
-                )}
-                {detectedSFX[storyData.pages[currentPage].page_number] && (
-                  <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full flex items-center gap-1">
-                    <Volume2 className="h-3 w-3" />
-                    SFX
-                  </span>
-                )}
-              </div>
+            {/* Progress indicator */}
+            <div className="flex items-center justify-center text-sm">
               <span className="text-purple-600 font-medium">
                 Page {currentPage + 1} of {totalPages}
               </span>
@@ -261,9 +179,9 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
             Previous
           </button>
 
-          {/* Page Dots */}
+          {/* Progress Dots */}
           <div className="flex gap-2">
-            {storyData.pages.map((_, index) => (
+            {pages.map((_, index) => (
               <button
                 key={index}
                 onClick={() => setCurrentPage(index)}
@@ -305,19 +223,16 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
           </button>
           
           <button
-            onClick={saveAndContinue}
+            onClick={onContinue}
             className="btn-primary flex items-center justify-center gap-2"
           >
             <Sparkles className="h-5 w-5" />
             Continue to Illustrations
           </button>
         </div>
-        
+
         <p className="text-center text-sm text-gray-500 mt-4">
-          {Object.keys(detectedSFX).length > 0 
-            ? `✨ Found ${Object.keys(detectedSFX).length} sound effects in your story!`
-            : 'Review your story and make any edits'
-          }
+          Review your story and make any edits before continuing
         </p>
       </motion.div>
     </div>

@@ -7,9 +7,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
-import { PersonId, CastMember, UploadedPhoto } from '@/lib/store/bookStore';
+import { PersonId, CastMember, UploadedPhoto, Page } from '@/lib/store/bookStore';
 import { HIGH_CONTRAST_SHOTS, buildHighContrastPrompt } from '@/lib/camera/highContrastShots';
 import { enhanceWithIsolatedPaperCollage, getGenderDescription } from '@/lib/styles/paperCollage';
+import { buildLandscapePagePrompt } from '@/lib/prompts/landscapePagePrompt';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,8 +57,25 @@ setInterval(() => {
 function buildEnhancedHighContrastPrompt(
   pageData: any,
   pageNumber: number,
-  babyGender: 'boy' | 'girl' | 'neutral'
+  babyGender: 'boy' | 'girl' | 'neutral',
+  babyName?: string,
+  allPages?: Page[]
 ): string {
+  // Check if we have landscape page metadata (simple: page number directly maps to array index)
+  console.log(`[buildPrompt] Page ${pageNumber}: Checking for metadata...`);
+  console.log(`[buildPrompt] Has spread_metadata: ${!!pageData.spread_metadata}`);
+
+  if (pageData.spread_metadata && babyName) {
+    console.log(`[buildPrompt] ✅ Using SIMPLIFIED LANDSCAPE PROMPT for Page ${pageNumber}`);
+    console.log(`[buildPrompt] Setting: ${pageData.spread_metadata.setting}, Action: ${pageData.spread_metadata.action}`);
+
+    // Simple! Just use the page data directly (no merging, no complex logic)
+    return buildLandscapePagePrompt(pageData);
+  }
+
+  console.log(`[buildPrompt] ⚠️  Falling back to generic HIGH CONTRAST prompt for Page ${pageNumber}`);
+
+  // Fallback to original prompt builder
   const shotId = pageData.shot_id || 'establishing_wide';
   const shot = HIGH_CONTRAST_SHOTS[shotId];
 
@@ -262,9 +280,9 @@ function getOneCharacterReference(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { bookId, pageNumber, pageData: page, babyProfile, cast } = body;
+    const { bookId, pageNumber, pageData: page, babyProfile, cast, allPages } = body;
 
-    if (!bookId || !pageNumber || !page) {
+    if (!bookId || pageNumber === undefined || pageNumber === null || !page) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields' },
         { status: 400 }
@@ -289,7 +307,8 @@ export async function POST(request: NextRequest) {
       background_extras: page.background_extras,
       // Add any story-specific details
       object_focus: page.object_focus,
-      page_goal: page.page_goal
+      page_goal: page.page_goal,
+      spread_metadata: page.spread_metadata  // Include spread metadata
     };
 
     const babyGender = babyProfile?.gender || 'neutral';
@@ -318,6 +337,7 @@ export async function POST(request: NextRequest) {
       cast: cast,
       babyGender,
       isCharacterFree,
+      allPages: allPages,  // Pass all pages for spread context
       ...body  // Include any other fields from the original body
     };
 
@@ -365,64 +385,68 @@ async function processHighContrastImageGeneration(jobId: string, params: any) {
       babyGender = 'neutral',
       uploadedPhotos = [],
       cast = {},
-      isCharacterFree
+      isCharacterFree,
+      allPages = []
     } = params;
+
+    const babyName = babyProfile?.baby_name || 'Baby';
 
     console.log(`[Job ${jobId}] Page ${pageNumber}, ${isCharacterFree ? 'Character-free' : 'Character'} ${babyGender} shot: ${pageData.shot_id}`);
 
     let imageFiles: any[] = [];
     let prompt: string;
 
-    if (isCharacterFree) {
-      // CHARACTER-FREE PAGE - No references needed
-      console.log(`[Job ${jobId}] Character-free page - no character references`);
-      
-      // Use a simple white background as base
-      const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
-      const baseFile = await prepareImageFile(whiteBase, 'white.png');
-      imageFiles = [baseFile];
-
-      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender);
-
-    } else if (pageNumber === 1 && !isCharacterFree) {
-        // Page 1 with character - create style anchor
+    // SPECIAL: Page 0 = Character Anchor (NOT an actual page)
+    if (pageNumber === 0) {
         let babyReference = babyPhotoUrl;
         let babyDescription = params.babyDescription || params.cast?.baby?.features_lock;
-        
+
         if (!babyReference && uploadedPhotos.length > 0) {
             babyReference = getOneCharacterReference('baby', uploadedPhotos, bookId);
         }
-        
-        // Check we have either photo or description
+
         if (!babyReference && !babyDescription) {
-            throw new Error('No baby photo or description provided for Page 1');
+            throw new Error('No baby photo or description provided for character anchor');
         }
-        
-        console.log(`[Job ${jobId}] Page 1: Creating High-Contrast Paper Collage style anchor for ${babyGender} baby`);
-        
+
+        console.log(`[Job ${jobId}] CHARACTER ANCHOR (Page 0): Creating style reference for ${babyGender} baby (NOT a story page)`);
+
         if (babyReference) {
             const babyFile = await prepareImageFile(babyReference, 'baby.png');
             imageFiles = [babyFile];
         } else {
-            // Use white base for description-only
             const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
             const baseFile = await prepareImageFile(whiteBase, 'white.png');
             imageFiles = [baseFile];
         }
-        
-        prompt = buildEnhancedHighContrastPrompt(pageData, 1, babyGender);
-        
-        // Add description to prompt if no photo
+
+        // Enhanced character anchor prompt - request cute, adorable baby
+        const genderText = babyGender === 'boy' ? 'boy' : babyGender === 'girl' ? 'girl' : 'baby';
+        prompt = `Paper collage style. 1536×1024 landscape. Full bleed edge-to-edge, no white padding or borders.
+Adorable, cute ${genderText} baby with sweet, charming features and lovely expression.
+Baby standing or sitting, centered. Use reference image for all character features and appearance.
+Paper cutout aesthetic with torn edges. Full bleed composition.`;
+
         if (!babyReference && babyDescription) {
             prompt += `\n\nBaby character description: ${babyDescription}\n`;
-            prompt += 'Create paper collage baby matching this exact description.\n';
+            prompt += 'Create adorable paper collage baby with cute features matching this exact description.\n';
         }
-        
+
+    } else if (isCharacterFree) {
+      // CHARACTER-FREE PAGE - No references needed
+      console.log(`[Job ${jobId}] Character-free page - no character references`);
+
+      const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+      const baseFile = await prepareImageFile(whiteBase, 'white.png');
+      imageFiles = [baseFile];
+
+      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender, babyName, allPages);
+
     } else {
-      // Other character pages
+      // ALL STORY PAGES (1, 2, 3, etc.) - use character anchor + landscape page prompts
       const styleAnchor = await waitForStyleAnchor(bookId);
       if (!styleAnchor) {
-        throw new Error('Style anchor not available. Please generate Page 1 first.');
+        throw new Error('Style anchor not available. Generate character anchor (page 0) first.');
       }
 
       const references: { url: string; name: string }[] = [];
@@ -440,42 +464,35 @@ async function processHighContrastImageGeneration(jobId: string, params: any) {
         }
       }
 
-      console.log(`[Job ${jobId}] Page ${pageNumber}: High-Contrast with ${references.length} refs`);
+      console.log(`[Job ${jobId}] Page ${pageNumber}: Landscape page scene with ${references.length} refs`);
 
       imageFiles = await Promise.all(
         references.map(ref => prepareImageFile(ref.url, ref.name))
       );
 
-      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender);
-      
-      // Add character descriptions for this page.
-      if (pageData.characters_on_page && cast) {
-        let descriptionsSection = '';
-        for (const charId of pageData.characters_on_page) {
-            const castMember = cast[charId as PersonId];
-            if (castMember?.features_lock) {
-              const charName = charId === 'baby' ? babyProfile?.baby_name : charId;
-              descriptionsSection += `${charName}: ${castMember.features_lock}\n`;
-            }
-        }
-        if(descriptionsSection) {
-            prompt += '\nCHARACTER DESCRIPTIONS:\n';
-            prompt += descriptionsSection;
-            prompt += 'Create paper collage characters that match these descriptions exactly.\n';
-        }
-      }
+      // Build landscape spread prompt with full scene details
+      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender, babyName, allPages);
+
+      // DO NOT add character descriptions!
+      // Character appearance comes from the reference images (anchor + uploaded photos)
+      // The prompt should ONLY describe: scene, action, environment, composition
+      // This ensures consistent character appearance across all pages
     }
 
     job.progress = 30;
 
-    console.log(`[Job ${jobId}] Calling OpenAI with High-Contrast prompt:`, prompt.substring(0, 200));
+    console.log(`[Job ${jobId}] ========== GPT IMAGE 1 REQUEST ==========`);
+    console.log(`[Job ${jobId}] Page Number: ${pageNumber}`);
+    console.log(`[Job ${jobId}] Reference Images Count: ${imageFiles.length}`);
+    console.log(`[Job ${jobId}] FULL PROMPT:\n`, prompt);
+    console.log(`[Job ${jobId}] ==========================================`);
 
     const response = await openai.images.edit({
       model: 'gpt-image-1',
       image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
       prompt,
       n: 1,
-      size: '1024x1024',
+      size: '1536x1024',  // LANDSCAPE for pages
       quality: 'high',
       input_fidelity: 'high',
       background: 'transparent',
@@ -487,7 +504,8 @@ async function processHighContrastImageGeneration(jobId: string, params: any) {
 
     const imageBase64 = await handleOpenAIResponse(response);
 
-    if (pageNumber === 1 && !isCharacterFree) {
+    // ALWAYS save page 0 as style anchor (it's the character anchor)
+    if (pageNumber === 0) {
       styleAnchors.set(bookId, imageBase64);
       console.log(`[Job ${jobId}] Style anchor created for book ${bookId}`);
     }

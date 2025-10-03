@@ -4,10 +4,15 @@ node_modules/
 *.log
 .env*
 .DS_Store
-node_modules/
 *.zip
-.next/
-node_modules/
-*.zip
-.next/
 path/to/VERY_BIG_FILE
+
+# Documentation files
+CHANGELOG.md
+FIXES_IMPLEMENTED.md
+IMAGE_GENERATION_ISSUES.md
+LANDSCAPE_SPREAD_README.md
+TEST_MODE_GUIDE.md
+
+# Build artifacts
+tsconfig.tsbuildinfo

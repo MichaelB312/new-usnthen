@@ -7,7 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { PersonId } from '@/lib/store/bookStore';
-import { generateHighContrastSequence, HIGH_CONTRAST_SHOTS } from '@/lib/camera/highContrastShots';
+import { generateCameraSequence, CAMERA_ANGLES } from '@/lib/camera/highContrastShots';
+import { generateSpreadSequence } from '@/lib/sequence/spreadSequence';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -56,6 +57,7 @@ interface StoryPage {
   object_focus?: string;
   scene_type?: 'opening' | 'action' | 'closing' | 'transition';
   page_goal?: string;
+  camera_angle?: string; // Fallback if GPT returns this instead of shot_id
 }
 
 interface StoryResponse {
@@ -80,9 +82,9 @@ function calculateAgeInMonths(birthdate: string): number {
 }
 
 function getPageCount(ageInMonths: number): number {
-  if (ageInMonths < 12) return 6;
-  if (ageInMonths < 24) return 8;
-  return 10;
+  // SIMPLIFIED: Always return 4 pages (landscape spreads)
+  // Each page is 1536×1024 and displays as an "open book" with divider
+  return 4;
 }
 
 function getWordLimit(ageInMonths: number): { min: number; max: number } {
@@ -167,28 +169,15 @@ function createEngagingFallbackStory(
 ): any {
   const pageCount = getPageCount(ageInMonths);
   const refrain = 'What joy!';
-  const shotSequence = generateHighContrastSequence(pageCount, true);
+  const cameraSequence = generateCameraSequence(pageCount);
 
   const pages = [
     {
-      narration: `A bright yellow duck sits waiting by the tub.`,
-      page_goal: 'Set the scene with object of desire',
-      characters_on_page: [],
-      is_character_free: true,
-      shot_id: 'object_of_desire',
-      shot_description: 'Object of Desire',
-      emotion: 'anticipatory' as const,
-      object_focus: 'yellow rubber duck',
-      visual_focus: 'toy',
-      sensory_details: 'Shiny, smooth, inviting'
-    },
-    {
       narration: `${babyName} crawls closer. Eyes wide! ${refrain}`,
-      page_goal: 'Show approach and excitement',
+      page_goal: 'Opening scene with excitement',
       characters_on_page: ['baby' as PersonId],
-      is_character_free: false,
-      shot_id: 'worms_eye_ground',
-      shot_description: 'Worm\'s-Eye View',
+      camera_angle: cameraSequence[0],
+      shot_description: CAMERA_ANGLES[cameraSequence[0]].name,
       emotion: 'excited' as const,
       visual_action: 'crawling forward eagerly',
       sensory_details: 'Movement, anticipation'
@@ -197,21 +186,19 @@ function createEngagingFallbackStory(
       narration: `Tiny fingers reach and grab! *Squeak!*`,
       page_goal: 'The moment of contact',
       characters_on_page: ['baby' as PersonId],
-      is_character_free: false,
-      shot_id: 'extreme_macro_detail',
-      shot_description: 'Extreme Macro',
+      camera_angle: cameraSequence[1],
+      shot_description: CAMERA_ANGLES[cameraSequence[1]].name,
       emotion: 'joy' as const,
       visual_focus: 'hands',
-      visual_action: 'grabbing duck',
-      sensory_details: 'Texture of duck, squeeze'
+      visual_action: 'grabbing toy',
+      sensory_details: 'Texture, squeeze'
     },
     {
-      narration: `Splash splash splash! ${babyName} and ducky play! ${refrain}`,
+      narration: `Splash splash splash! ${babyName} plays! ${refrain}`,
       page_goal: 'Peak action and joy',
       characters_on_page: ['baby' as PersonId],
-      is_character_free: false,
-      shot_id: 'birds_eye_overhead',
-      shot_description: 'Bird\'s-Eye View',
+      camera_angle: cameraSequence[2],
+      shot_description: CAMERA_ANGLES[cameraSequence[2]].name,
       emotion: 'joy' as const,
       visual_action: 'splashing in bath',
       sensory_details: 'Water, bubbles, laughter'
@@ -220,46 +207,33 @@ function createEngagingFallbackStory(
       narration: `Mommy wraps ${babyName} warm and snug.`,
       page_goal: 'Comfort and care',
       characters_on_page: ['baby' as PersonId, 'mom' as PersonId],
-      is_character_free: false,
-      shot_id: 'over_shoulder_parent',
-      shot_description: 'Over-the-Shoulder',
+      camera_angle: cameraSequence[3],
+      shot_description: CAMERA_ANGLES[cameraSequence[3]].name,
       emotion: 'peaceful' as const,
       visual_action: 'being wrapped in towel',
       sensory_details: 'Soft, warm, cozy'
-    },
-    {
-      narration: `Duck floats alone. Bubbles pop one by one.`,
-      page_goal: 'Peaceful aftermath',
-      characters_on_page: [],
-      is_character_free: true,
-      shot_id: 'aftermath_quiet',
-      shot_description: 'Aftermath Shot',
-      emotion: 'peaceful' as const,
-      object_focus: 'duck floating in calm water',
-      sensory_details: 'Quiet, still, peaceful'
     }
   ];
 
   return {
     title: `${babyName}'s Splish Splash`,
     refrain,
-    emotional_core: 'The simple joy of bath time discovery',
-    story_arc: 'anticipation → excitement → joy → comfort → peace',
+    emotional_core: 'The simple joy of discovery and play',
+    story_arc: 'excitement → joy → comfort',
     cast_members: ['baby', 'mom'],
     metadata: {
       emotional_core: 'A celebration of simple pleasures and loving care',
-      story_arc: 'desire → action → joy → comfort',
-      includes_character_free_pages: true
+      story_arc: 'action → joy → comfort'
     },
-    style: 'isolated-paper-collage',
+    style: 'paper-collage',
     gender,
-    high_contrast_sequence: shotSequence,
-    pages: pages.slice(0, pageCount).map((page, i) => ({
+    camera_sequence: cameraSequence,
+    pages: pages.map((page, i) => ({
       page_number: i + 1,
       ...page,
+      shot_id: page.camera_angle, // For backward compatibility
       action_description: page.visual_action || 'Scene moment',
-      background_extras: undefined,
-      scene_type: i === 0 ? 'opening' : i === pageCount - 1 ? 'closing' : page.is_character_free ? 'transition' : 'action',
+      scene_type: i === 0 ? 'opening' : i === pageCount - 1 ? 'closing' : 'action',
       layout_template: 'auto'
     }))
   };
@@ -273,7 +247,7 @@ async function processStoryGeneration(jobId: string, params: any) {
   try {
     job.status = 'processing';
     job.progress = 10;
-    job.message = 'Extracting memory details...';
+    job.message = 'Reading your precious memory...';
 
     const { babyProfile, conversation, illustrationStyle, storyLength } = params;
 
@@ -290,38 +264,28 @@ async function processStoryGeneration(jobId: string, params: any) {
     const storyGuidelines = getStoryGuidelines(ageInMonths);
 
     job.progress = 20;
-    job.message = 'Generating shot sequence...';
 
-    // Generate high-contrast shot sequence with character-free pages
-    const shotSequence = generateHighContrastSequence(pageCount, true);
-    
-    // Build shot descriptions for the prompt
-    const shotsDescription = shotSequence.map((shotId, idx) => {
-      const shot = HIGH_CONTRAST_SHOTS[shotId];
-      const pageNum = idx + 1;
-      
-      if (!shot.requires_character) {
-        return `Page ${pageNum}: ${shot.name} (CHARACTER-FREE) - ${shot.base_prompt}
-        This page should NOT include ${babyProfile.baby_name} or any characters.
-        Focus on: objects, atmosphere, or environmental details.`;
-      } else {
-        return `Page ${pageNum}: ${shot.name} - ${shot.base_prompt}
-        This is a CHARACTER shot featuring ${babyProfile.baby_name}.`;
-      }
-    }).join('\n');
+    // Generate diverse camera sequence for this story
+    const cameraSequence = generateCameraSequence(pageCount);
+
+    // Build camera angle options for GPT
+    const cameraAngleOptions = Object.entries(CAMERA_ANGLES).map(([id, angle]) => {
+      return `"${id}": ${angle.name} - ${angle.description}
+        Best for: ${angle.best_for?.join(', ') || 'versatile scenes'}`;
+    }).join('\n\n');
 
     job.progress = 30;
-    job.message = 'Creating narrative structure...';
+    job.message = 'Crafting your story...';
 
     // Gender-specific guidance
-    const genderGuidance = babyGender === 'girl' 
+    const genderGuidance = babyGender === 'girl'
       ? 'Baby girl with feminine charm and sweetness'
       : babyGender === 'boy'
       ? 'Baby boy with boyish energy and playfulness'
       : 'Baby with joyful, curious spirit';
 
-    // Enhanced story generation prompt
-    const prompt = `You are creating an emotionally engaging children's book with sophisticated visual pacing.
+    // Enhanced story generation prompt with camera diversity
+    const prompt = `You are creating an emotionally engaging children's book with MAXIMUM VISUAL VARIETY using different camera angles for each page.
 
 CREATE A STORY FOR: ${babyProfile.baby_name}, a ${babyGender === 'girl' ? 'baby girl' : babyGender === 'boy' ? 'baby boy' : 'baby'}, age ${ageInMonths} months.
 
@@ -335,30 +299,23 @@ AGE-APPROPRIATE GUIDELINES:
 ${storyGuidelines}
 
 WORD LIMIT: ${wordLimits.min}-${wordLimits.max} words per page (STRICT)
+PAGE COUNT: ${pageCount} pages
 
-CRITICAL VISUAL VARIETY REQUIREMENTS:
-You MUST use these EXACT shots for each page (NO SUBSTITUTIONS):
-${shotsDescription}
+SUGGESTED CAMERA SEQUENCE (use these for maximum variety):
+${cameraSequence.map((angleId, i) => `Page ${i + 1}: ${CAMERA_ANGLES[angleId].name} - ${CAMERA_ANGLES[angleId].description}`).join('\n')}
 
-IMPORTANT RULES FOR CHARACTER-FREE PAGES:
-- Pages marked as "CHARACTER-FREE" must NOT mention ${babyProfile.baby_name} in the narration
-- These pages should describe objects, atmosphere, or environmental details
-- They create pacing, build anticipation, or show aftermath
-- Example character-free narrations:
-  * "A bright red ball sits waiting in the grass."
-  * "Tiny footprints trail across the sandy beach."
-  * "Sunlight dances through the window, warm and golden."
+AVAILABLE CAMERA ANGLES:
+${cameraAngleOptions}
 
-STORY STRUCTURE RULES:
-1. Use character-free pages strategically for:
-   - Opening: Set the scene or introduce an object of desire
-   - Mid-story: Create breathing room after intense action
-   - Transitions: Show passage of time or change of scene
-   - Closing: Peaceful aftermath or setting for next adventure
-
-2. Each page must have COMPLETELY DIFFERENT visual composition
-3. Never use similar angles on consecutive pages
-4. Include a 2-4 word REFRAIN that appears on at least 3 CHARACTER pages
+🎬 CRITICAL CAMERA ANGLE RULES:
+1. **EVERY PAGE MUST HAVE A COMPLETELY DIFFERENT CAMERA ANGLE** - No repeats!
+2. **EVERY PAGE MUST HAVE A COMPLETELY DIFFERENT ACTION** - Vary what the baby is doing!
+3. Each page should show a different moment/action:
+   - Different body positions (standing, sitting, crawling, reaching, etc.)
+   - Different locations or parts of the scene
+   - Different emotional expressions
+4. Use the suggested camera sequence above, or choose different angles that match your narrative
+5. Return camera_angle field with the angle ID (e.g., "wide_shot", "birds_eye", etc.)
 
 OUTPUT JSON (exact structure):
 {
@@ -370,27 +327,30 @@ OUTPUT JSON (exact structure):
   "pages": [
     {
       "page_number": 1,
-      "narration": "${wordLimits.min}-${wordLimits.max} words (or object description for character-free pages)",
+      "narration": "${wordLimits.min}-${wordLimits.max} words",
       "page_goal": "What this page achieves narratively",
-      "shot_id": "${shotSequence[0]}",
-      "shot_description": "${HIGH_CONTRAST_SHOTS[shotSequence[0]]?.name}",
-      "is_character_free": ${!HIGH_CONTRAST_SHOTS[shotSequence[0]]?.requires_character},
-      "visual_action": "Specific action or object focus",
-      "action_description": "How this serves the story",
+      "camera_angle": "CHOOSE from available camera angles - MUST be different for each page",
+      "shot_description": "Copy the name of the chosen camera angle",
+      "visual_action": "SPECIFIC action - MUST be different from other pages",
+      "action_description": "How this action serves the story",
       "visual_focus": "Key visual element",
       "emotion": "joy/wonder/peaceful/curious/proud/excited",
       "sensory_details": "What can be felt/heard/seen",
-      "characters_on_page": ${!HIGH_CONTRAST_SHOTS[shotSequence[0]]?.requires_character ? '[]' : '["baby", ...]'},
-      "object_focus": "For character-free pages, what object/detail to show",
-      "scene_type": "opening"
+      "characters_on_page": ["baby", ...],
+      "scene_type": "opening/action/closing/transition"
     }
   ]
 }
 
-Remember: Character-free pages are powerful tools for pacing and atmosphere. Use them wisely!`;
+🎯 CRITICAL REMINDERS:
+- Each page MUST have a DIFFERENT camera_angle
+- Each page MUST show a DIFFERENT action
+- NO repeated camera angles across pages
+- NO repeated actions across pages
+- Maximum visual variety = better book!`;
 
     job.progress = 50;
-    job.message = 'Calling AI to generate story...';
+    job.message = `Writing ${babyProfile.baby_name}'s story...`;
 
     // Call OpenAI with enhanced prompt
     const completion = await openai.chat.completions.create({
@@ -407,72 +367,91 @@ Remember: Character-free pages are powerful tools for pacing and atmosphere. Use
     });
 
     job.progress = 70;
-    job.message = 'Processing AI response...';
+    job.message = 'Bringing the story to life...';
 
     const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
     if (!raw) throw new Error('Empty model response');
     const storyData: StoryResponse = JSON.parse(raw);
 
     job.progress = 80;
-    job.message = 'Enhancing story pages...';
+    job.message = 'Adding the finishing touches...';
 
     // Validate and enhance pages
     const enhancedPages = storyData.pages.map((page, index) => {
-      const shotId = shotSequence[index] || 'establishing_wide';
-      const shot = HIGH_CONTRAST_SHOTS[shotId];
-      
+      // Use GPT's chosen camera_angle (or shot_id as fallback)
+      const cameraAngle = page.camera_angle || page.shot_id || 'medium_shot';
+      const angle = CAMERA_ANGLES[cameraAngle];
+
+      if (!angle) {
+        console.warn(`Unknown camera_angle: ${cameraAngle}, defaulting to medium_shot`);
+      }
+
       const charactersOnPage: PersonId[] = [];
-      
-      // Only process characters for character pages
-      if (shot?.requires_character && page.characters_on_page) {
+
+      // Process characters on page
+      if (page.characters_on_page && page.characters_on_page.length > 0) {
         for (const char of page.characters_on_page) {
           const personId = mapToPersonId(char, babyProfile.baby_name);
           if (personId && !charactersOnPage.includes(personId)) {
             charactersOnPage.push(personId);
           }
         }
-        
-        // Ensure baby is included if not specified
-        if (charactersOnPage.length === 0 && !page.is_character_free) {
-          charactersOnPage.push('baby');
-        }
+      }
+
+      // Ensure baby is included if not specified
+      if (charactersOnPage.length === 0) {
+        charactersOnPage.push('baby');
       }
 
       return {
         ...page,
         page_number: page.page_number,
-        shot_id: shotId,
-        shot_description: shot?.name || 'Unique angle',
-        is_character_free: !shot?.requires_character,
+        narration: page.narration,
+        visual_prompt: page.visual_action || page.action_description || 'Scene description',
+        shot_id: cameraAngle, // For backward compatibility
+        camera_angle: cameraAngle,
+        shot_description: angle?.name || page.shot_description || 'Unique angle',
         characters_on_page: charactersOnPage,
         scene_type: page.scene_type || (
-          index === 0 ? 'opening' : 
-          index === storyData.pages.length - 1 ? 'closing' : 
-          page.is_character_free ? 'transition' : 'action'
+          index === 0 ? 'opening' :
+          index === storyData.pages.length - 1 ? 'closing' : 'action'
         ),
         emotion: page.emotion || 'joy',
         layout_template: 'auto',
-        page_goal: page.page_goal || `Page ${index + 1} beat`,
-        object_focus: page.object_focus || (page.is_character_free ? 'atmospheric detail' : undefined)
+        page_goal: page.page_goal || `Page ${index + 1} beat`
       };
     });
 
     job.progress = 90;
-    job.message = 'Finalizing story...';
+
+    // Generate landscape spread sequence metadata
+    const spreadSequences = generateSpreadSequence(enhancedPages, storyData.metadata);
+
+    // Attach sequence metadata to pages (spreads)
+    const pagesWithSequence = enhancedPages.map((page, index) => {
+      const spreadIndex = Math.floor(index / 2);
+      return {
+        ...page,
+        spread_metadata: spreadSequences[spreadIndex]
+      };
+    });
+
+    job.message = 'Almost there...';
 
     const enhancedStory = {
       title: storyData.title,
       refrain: storyData.refrain,
-      pages: enhancedPages,
+      pages: pagesWithSequence,
       cast_members: Array.from(new Set(enhancedPages.flatMap(p => p.characters_on_page))),
       metadata: {
         ...storyData.metadata,
         emotional_core: storyData.emotional_core,
         story_arc: storyData.story_arc,
-        includes_character_free_pages: true
+        includes_character_free_pages: true,
+        spread_sequences: spreadSequences  // Store sequences in metadata
       },
       style: 'isolated-paper-collage',
-      high_contrast_sequence: shotSequence,
+      high_contrast_sequence: enhancedPages.map(p => p.shot_id), // Extract shot sequence from GPT's choices
       gender: babyGender
     };
 
@@ -480,7 +459,7 @@ Remember: Character-free pages are powerful tools for pacing and atmosphere. Use
     job.status = 'completed';
     job.result = enhancedStory;
     job.completedAt = Date.now();
-    job.message = 'Story generation complete!';
+    job.message = `${babyProfile.baby_name}'s story is ready!`;
 
     console.log(`Story job ${jobId} completed successfully`);
 

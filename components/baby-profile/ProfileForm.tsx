@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Baby, Calendar, Camera, Sparkles, Upload, X } from 'lucide-react';
+import { Baby, Calendar, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 
@@ -14,35 +14,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
   const [babyName, setBabyName] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [gender, setGender] = useState('');
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error('Photo must be less than 10MB');
-        return;
-      }
-      
-      setPhotoFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removePhoto = () => {
-    setPhotoFile(null);
-    setPhotoPreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
 
   const calculateAgeGroup = (birthdate: string): string => {
     const birth = new Date(birthdate);
@@ -74,9 +46,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
         baby_name: babyName,
         birthdate: birthdate,
         gender: gender,
-        age_group: calculateAgeGroup(birthdate),
-        photo_file: photoFile,
-        photo_preview: photoPreview
+        age_group: calculateAgeGroup(birthdate)
       };
 
       onComplete(profile);
@@ -153,76 +123,36 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Gender *
           </label>
-          <div className="grid grid-cols-3 gap-4">
-            {['boy', 'girl', 'neutral'].map((option) => (
-              <motion.button
-                key={option}
-                type="button"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setGender(option)}
-                className={`
-                  py-3 px-4 rounded-2xl border-2 font-medium transition-all
-                  ${gender === option 
-                    ? 'border-purple-500 bg-purple-50 text-purple-700' 
-                    : 'border-gray-200 hover:border-purple-300'}
-                `}
-              >
-                {option === 'boy' ? '👦 Boy' : option === 'girl' ? '👧 Girl' : '🌟 Neutral'}
-              </motion.button>
-            ))}
-          </div>
-        </div>
-
-        {/* Photo Upload */}
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Baby's Photo (Optional)
-          </label>
-          <p className="text-sm text-gray-500 mb-4">
-            Upload a photo to see your baby in the illustrations
-          </p>
-          
-          {!photoPreview ? (
-            <motion.div
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
-              onClick={() => fileInputRef.current?.click()}
-              className="border-3 border-dashed border-purple-300 rounded-2xl p-8 text-center cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all"
+          <div className="grid grid-cols-2 gap-4">
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setGender('boy')}
+              className={`
+                py-4 px-6 rounded-2xl border-2 font-semibold text-lg transition-all
+                ${gender === 'boy'
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-lg'
+                  : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'}
+              `}
             >
-              <Upload className="h-12 w-12 text-purple-400 mx-auto mb-4" />
-              <p className="text-gray-700 font-medium mb-2">
-                Click to upload a photo
-              </p>
-              <p className="text-sm text-gray-500">
-                JPG, PNG or WebP (max 10MB)
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={handlePhotoUpload}
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-              />
-            </motion.div>
-          ) : (
-            <div className="relative">
-              <img
-                src={photoPreview}
-                alt="Baby preview"
-                className="w-full h-64 object-cover rounded-2xl"
-              />
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                type="button"
-                onClick={removePhoto}
-                className="absolute top-4 right-4 p-2 bg-white rounded-full shadow-lg hover:bg-red-50"
-              >
-                <X className="h-5 w-5 text-red-500" />
-              </motion.button>
-            </div>
-          )}
+              Boy
+            </motion.button>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setGender('girl')}
+              className={`
+                py-4 px-6 rounded-2xl border-2 font-semibold text-lg transition-all
+                ${gender === 'girl'
+                  ? 'border-pink-500 bg-pink-50 text-pink-700 shadow-lg'
+                  : 'border-gray-200 hover:border-pink-300 hover:bg-pink-50/50'}
+              `}
+            >
+              Girl
+            </motion.button>
+          </div>
         </div>
 
         {/* Submit Button */}

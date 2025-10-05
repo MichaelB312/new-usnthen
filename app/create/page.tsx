@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Home, ArrowLeft } from 'lucide-react';
 import { ChatInterface } from '@/components/story-wizard/ChatInterface';
+import { HybridChatInterface } from '@/components/story-wizard/HybridChatInterface';
 import { ProfileForm } from '@/components/baby-profile/ProfileForm';
 import { StoryReviewSpreads } from '@/components/story-review/StoryReviewSpreads';
 import { IntegratedBookPreview } from '@/components/book-preview/IntegratedBookPreview';
@@ -459,7 +460,11 @@ export default function CreateBookPage() {
               {currentStep === 1 && <ProfileForm onComplete={handleProfileComplete} />}
 
               {currentStep === 2 && babyProfile && (
-                <ChatInterface babyName={babyProfile.baby_name} onComplete={handleChatComplete} />
+                isFeatureEnabled('hybrid_agent') ? (
+                  <HybridChatInterface babyName={babyProfile.baby_name} onComplete={handleChatComplete} />
+                ) : (
+                  <ChatInterface babyName={babyProfile.baby_name} onComplete={handleChatComplete} />
+                )
               )}
 
               {currentStep === 3 && storyData && (

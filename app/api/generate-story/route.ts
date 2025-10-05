@@ -5,17 +5,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PersonId } from '@/lib/store/bookStore';
 import { generateCameraSequence, CAMERA_ANGLES } from '@/lib/camera/highContrastShots';
 import { generateSpreadSequence } from '@/lib/sequence/spreadSequence';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: 60000, // 60 second timeout for OpenAI
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-const STORY_MODEL = process.env.OPENAI_STORY_MODEL || 'gpt-4o-mini';
+const STORY_MODEL = 'gemini-2.5-flash';
 
 // Job storage
 interface StoryJob {
@@ -87,39 +85,106 @@ function getPageCount(ageInMonths: number): number {
   return 4;
 }
 
-function getWordLimit(ageInMonths: number): { min: number; max: number } {
-  if (ageInMonths < 6) return { min: 3, max: 5 };
-  if (ageInMonths < 12) return { min: 5, max: 10 };
-  if (ageInMonths < 24) return { min: 8, max: 15 };
-  return { min: 10, max: 20 };
+function getWordLimit(ageInMonths: number): { min: number; max: number; total: { min: number; max: number } } {
+  // Per-page word limits based on master prompt guidelines
+  if (ageInMonths < 6) return { min: 3, max: 8, total: { min: 50, max: 100 } };  // 0-6 months (infant)
+  if (ageInMonths < 12) return { min: 5, max: 12, total: { min: 75, max: 150 } }; // 6-12 months (infant)
+  if (ageInMonths < 24) return { min: 8, max: 15, total: { min: 100, max: 200 } }; // 12-24 months (toddler)
+  if (ageInMonths < 48) return { min: 15, max: 30, total: { min: 200, max: 600 } }; // 2-4 years (preschooler)
+  return { min: 25, max: 50, total: { min: 500, max: 1000 } }; // 4-6 years (kindergartener)
 }
 
 function getStoryGuidelines(ageInMonths: number): string {
-  if (ageInMonths < 12) {
-    return `LITTLEST LISTENERS (0-12 months):
-    - Focus on sensory experiences and parent-child bond
-    - Use rhythmic, musical language with lots of repetition
-    - Include onomatopoeia (boom!, splash!, whoosh!)
-    - Create wonder through simple cause-and-effect
-    - Each page should engage the senses (sight, sound, touch)
-    - Use the baby's name frequently
-    - Example: "Down sits ${"{name}"}. Wiggle, wiggle, toes! What is that? Sand!"`;
-  } else if (ageInMonths < 24) {
-    return `EAGER TODDLERS (12-24 months):
-    - Simple sequence with clear cause and effect
-    - Character wants something, does something, gets result
-    - Use strong action verbs (stomp, reach, tumble, hug)
-    - Include repetitive phrases they can join in on
-    - Create mini-narratives within each page
-    - Example: "A shiny red pail! ${"{name}"} reaches... and GRABS it. Up, up, up it goes. Then... THUMP! Down it comes again."`;
+  if (ageInMonths < 24) {
+    // 0-2 years (Infant/Toddler)
+    return `AGE-SPECIFIC WRITING GUIDELINES (0-2 YEARS - INFANT/TODDLER):
+
+FOCUS: Rhythm, repetition, and naming the world. Tone should be gentle and soothing.
+
+LANGUAGE RULES:
+- Use simple, declarative sentences (e.g., "Yara sees the big, blue water.")
+- Heavy use of onomatopoeia ("Splash! Splash!", "Swoosh!")
+- Repetition is your friend - repeat key phrases for rhythm
+- Name objects and actions clearly ("This is sand. Soft, warm sand.")
+- Use sensory words (warm, soft, bright, loud)
+
+NARRATIVE STRUCTURE:
+- Simple, linear sequence of events
+- No complex problems or conflicts
+- Focus on discovery and sensory experience
+- Each page = one clear moment/action
+- Build gentle anticipation through simple cause-and-effect
+
+EMOTIONAL TONE:
+- Warm, reassuring, joyful
+- Celebrate small discoveries
+- Emphasize parent-child bond and safety
+
+EXAMPLE:
+"Yara's toes wiggle in the warm sand. Wiggle, wiggle!
+Down she sits. PLOP!
+What's that sound? SWOOSH! SWOOSH!
+It's the big, blue waves!"`;
+  } else if (ageInMonths < 48) {
+    // 2-4 years (Preschooler)
+    return `AGE-SPECIFIC WRITING GUIDELINES (2-4 YEARS - PRESCHOOLER):
+
+FOCUS: A clear emotional journey and a simple, relatable problem-and-resolution.
+
+LANGUAGE RULES:
+- Mix of simple and compound sentences
+- Introduce simple dialogue that feels natural
+- More descriptive words, but still concrete (not abstract)
+- Action verbs that show movement (reached, grabbed, splashed, giggled)
+- Use "show don't tell" - describe actions/expressions, not emotions directly
+
+NARRATIVE STRUCTURE (3-ACT):
+- ACT 1 (Setup): Introduce the scene and build anticipation
+- ACT 2 (Challenge): Present a "little challenge" (hesitation, uncertainty, small obstacle)
+- ACT 3 (Resolution): Show the child overcoming it with family support, ending with joy
+
+THE EMOTIONAL CORE IS KEY:
+- Identify the central feeling (excitement, bravery, wonder, love)
+- Every page should connect back to this core emotion
+- Show character growth through the experience
+
+EXAMPLE:
+"Yara stared at the big waves. They looked... scary.
+'It's okay, sweetie,' Mama whispered. 'I'm right here.'
+Yara took one tiny step. Then another.
+SPLASH! The water tickled her toes!
+She looked up at Mama and giggled. 'Again! Again!'"`;
   } else {
-    return `CURIOUS PRESCHOOLERS (24-36 months):
-    - Clear problem and solution arc
-    - Name and explore feelings (proud, frustrated, excited)
-    - Include simple dialogue and character interactions
-    - Answer "why" through the narrative
-    - Build to a satisfying emotional resolution
-    - Example: "A little wave tickled her toes. *Swish!* ${"{name}"} giggled and chased it back to the sea. 'You can't catch me!' she squealed with delight."`;
+    // 4-6 years (Kindergartener)
+    return `AGE-SPECIFIC WRITING GUIDELINES (4-6 YEARS - KINDERGARTENER):
+
+FOCUS: Themes of discovery, family bonds, and character growth. Humor and dialogue are effective.
+
+LANGUAGE RULES:
+- Varied sentence structures (short for impact, longer for description)
+- Robust vocabulary, but still accessible (brave, determined, curious, magnificent)
+- Natural dialogue that reveals character and emotion
+- Use metaphors and similes sparingly ("as big as a house", "like a giant blanket")
+- "Show don't tell" is critical - describe expressions, body language, reactions
+
+NARRATIVE STRUCTURE (COMPLETE ARC):
+- BEGINNING (Pages 1-3): Set scene, introduce characters, build anticipation/wonder
+- RISING ACTION (Pages 4-7): The discovery, exploration, and any challenges faced
+- CLIMAX (Page 8-9): The main event or achievement
+- RESOLUTION (Pages 10-12): Warm conclusion, emotional satisfaction, lesson learned
+
+CHARACTER DEVELOPMENT:
+- Show internal thoughts through actions ("She bit her lip")
+- Demonstrate growth (from hesitant to confident, scared to brave)
+- Include meaningful interactions with family members
+- Celebrate the achievement with genuine emotion
+
+EXAMPLE:
+"Yara stood at the edge of the beach, her eyes wide as saucers. The ocean stretched out before her, bigger than anything she'd ever seen.
+'You ready, sweetheart?' Dad asked, his hand warm in hers.
+Yara took a deep breath. She wasn't sure, but... she wanted to be brave.
+'Let's do it!' she declared, squeezing Dad's hand tight.
+Together, they stepped forward. And when that first wave washed over her feet, Yara's surprised laugh rang out across the beach."`;
   }
 }
 
@@ -352,132 +417,208 @@ async function processStoryGeneration(jobId: string, params: any) {
       ? 'Baby boy with boyish energy and playfulness'
       : 'Baby with joyful, curious spirit';
 
-    // Enhanced story generation prompt with all context + onomatopoeia
-    const prompt = `You are creating an emotionally engaging children's book with MAXIMUM VISUAL VARIETY using different camera angles for each page.
+    // Master prompt for children's book generation
+    const prompt = `You are an expert children's book author with deep understanding of child psychology and narrative structure.
 
-CREATE A STORY FOR: ${babyProfile.baby_name}, a ${babyGender === 'girl' ? 'baby girl' : babyGender === 'boy' ? 'baby boy' : 'baby'}, age ${ageInMonths} months.
+Your task is to transform the following raw story data into a beautiful, warm, and engaging children's book manuscript.
 
-MEMORY CONTEXT:
-- Core memory: ${memory}
-- Location/Setting: ${location || 'outdoor setting'}
-- Who was there: ${whoWasThere || 'Just baby'}
-- Special object: ${specialObject || 'None'}
-- Milestone: ${isMilestone ? `Yes - ${milestoneDetail || milestoneCheck}` : 'No'}
-- Why special: ${whySpecial}
-- Story beginning: ${storyBeginning}
-- Story middle: ${storyMiddle}
-- Story ending: ${storyEnd}
-- Sensory details: ${sensoryDetails}
+=== TARGET READER ===
+Child Name: ${babyProfile.baby_name}
+Age: ${ageInMonths} months (${ageInMonths < 24 ? '0-2 years: Infant/Toddler' : ageInMonths < 48 ? '2-4 years: Preschooler' : '4-6 years: Kindergartener'})
+Gender: ${babyGender === 'girl' ? 'baby girl' : babyGender === 'boy' ? 'baby boy' : 'baby'}
 
-CAST MEMBERS DETECTED: ${extractedCast.join(', ')}
+=== STORY DATA (The User's Memory) ===
+Core Memory: ${memory}
+Location: ${location || 'outdoor setting'}
+Who Was There: ${whoWasThere || 'Just baby'}
+Special Object: ${specialObject || 'None'}
+Milestone: ${isMilestone ? `Yes - ${milestoneDetail || milestoneCheck}` : 'No'}
+Emotional Significance: ${whySpecial}
 
-AGE-APPROPRIATE GUIDELINES:
+STORY ARC (provided by parent):
+- Beginning: ${storyBeginning}
+- Middle: ${storyMiddle}
+- Ending: ${storyEnd}
+
+Sensory Details: ${sensoryDetails}
+Cast Members: ${extractedCast.join(', ')}
+
+=== MASTER STORYTELLING PRINCIPLES ===
+
 ${storyGuidelines}
 
-🔊 ONOMATOPOEIA RULES (Sound Words):
-${ageInMonths < 12 ? `Ages 0-12 months: Use simple sound words as main text elements. Examples: "Splash!", "Woof!", "Beep!"` :
-  ageInMonths < 24 ? `Ages 12-24 months: Integrate sounds into simple sentences with repetition. Examples: "The duck says, Quack, quack!", "Knock, knock!"` :
-  ageInMonths < 48 ? `Ages 24-48 months: Use sounds to punctuate actions. Examples: "He jumped. SPLASH, SPLASH!", "Swoosh went the leaves."` :
-  `Ages 48+ months: Integrate sounds smoothly into complex sentences. Examples: "...with a satisfying squelch", "Pop, pop, pop went the popcorn"`}
-- Add onomatopoeia (sound words) naturally based on actions
-- Sound words should match the age guidelines above
-- Format sound words in UPPERCASE for emphasis
-- Examples: SPLASH, WOOSH, GIGGLE, THUMP, SWOOSH, MUNCH, POP
+=== CRITICAL WRITING RULES ===
 
-WORD LIMIT: ${wordLimits.min}-${wordLimits.max} words per page (STRICT)
-PAGE COUNT: ${pageCount} pages
+1. POINT OF VIEW: Write in third-person limited, focusing on ${babyProfile.baby_name}'s feelings and experiences. The reader should feel like they are right there with ${babyProfile.baby_name}.
 
-SUGGESTED CAMERA SEQUENCE (use these for maximum variety):
+2. TENSE: Use past tense for classic storytelling (e.g., "${babyProfile.baby_name} saw the waves.")
+
+3. TONE: Consistently warm, loving, and reassuring throughout.
+
+4. SHOW, DON'T TELL EMOTIONS:
+   ❌ BAD: "She was happy."
+   ✅ GOOD: "A giant smile spread across ${babyProfile.baby_name}'s face, and she let out a happy giggle."
+
+   ❌ BAD: "He felt scared."
+   ✅ GOOD: "${babyProfile.baby_name} stopped. His eyes grew wide, and he reached for Daddy's hand."
+
+5. CENTRAL EMOTION AS NORTH STAR:
+   The emotional core is: ${whySpecial || 'joy and wonder'}
+   Every page must connect back to this feeling in some way.
+
+6. SENSORY IMAGERY:
+   Weave in these sensory details throughout: ${sensoryDetails || 'sights, sounds, feelings'}
+   Create a vivid, multi-sensory world.
+
+7. WORD COUNT (STRICT):
+   - Per page: ${wordLimits.min}-${wordLimits.max} words
+   - Total story: ${wordLimits.total.min}-${wordLimits.total.max} words
+   - Page count: ${pageCount} pages
+
+=== NARRATIVE STRUCTURE (Paced ${pageCount}-Page Story) ===
+
+${pageCount === 4 ? `
+SETUP (Pages 1-2): Use story_beginning to set scene, introduce characters, build anticipation
+ACTION (Page 3): Main event from story_middle, show discovery/challenge with family support
+CONCLUSION (Page 4): Use story_end to wind down, warm and emotionally satisfying
+` : `
+SETUP (Pages 1-3): Use story_beginning to set scene, introduce characters, build anticipation
+DISCOVERY & ACTION (Pages 4-7): Heart of story from story_middle, show reactions and any challenges
+CONCLUSION (Pages 8-${pageCount}): Use story_end to wind down, warm and emotionally satisfying
+`}
+
+=== VISUAL VARIETY (Critical for Illustrations) ===
+
+CAMERA ANGLES (use these for maximum visual variety):
 ${cameraSequence.map((angleId, i) => `Page ${i + 1}: ${CAMERA_ANGLES[angleId].name} - ${CAMERA_ANGLES[angleId].description}`).join('\n')}
 
 AVAILABLE CAMERA ANGLES:
 ${cameraAngleOptions}
 
-🎬 CRITICAL CAMERA ANGLE RULES:
-1. **EVERY PAGE MUST HAVE A COMPLETELY DIFFERENT CAMERA ANGLE** - No repeats!
-2. **EVERY PAGE MUST HAVE A COMPLETELY DIFFERENT ACTION** - Vary what the baby is doing!
-3. Each page should show a different moment/action:
-   - Different body positions (standing, sitting, crawling, reaching, etc.)
-   - Different locations or parts of the scene
-   - Different emotional expressions
-4. Use the suggested camera sequence above, or choose different angles that match your narrative
-5. Return camera_angle field with the angle ID (e.g., "wide_shot", "birds_eye", etc.)
+🎬 CAMERA ANGLE RULES:
+- EVERY page MUST use a COMPLETELY DIFFERENT camera angle (no repeats!)
+- EVERY page MUST show a DIFFERENT action/moment
+- Vary body positions: standing, sitting, crawling, reaching, jumping, etc.
+- Vary locations within the scene
+- Vary emotional expressions page to page
 
-OUTPUT JSON (exact structure):
+=== CHARACTER ASSIGNMENT ===
+Cast available: ${extractedCast.join(', ')}
+
+Guidelines:
+- Opening pages: Often ${babyProfile.baby_name} alone or with one parent (establishing shot)
+- Middle pages: Can include ${babyProfile.baby_name} + supporting characters during action
+- Closing pages: Often ${babyProfile.baby_name} + family for emotional resolution
+- Assign characters where they naturally fit the narrative moment
+
+=== OUTPUT FORMAT (EXACT JSON STRUCTURE) ===
+
 {
-  "title": "Short, emotionally evocative title",
-  "refrain": "2-4 word rhythmic refrain",
+  "title": "Short, emotionally evocative title (3-6 words)",
+  "refrain": "2-4 word rhythmic refrain (optional, can be empty string)",
   "emotional_core": "The heart of this story in one sentence",
-  "story_arc": "The emotional journey",
+  "story_arc": "The emotional journey in 3-5 words",
   "cast_members": [${extractedCast.map(c => `"${c}"`).join(', ')}],
   "pages": [
     {
       "page_number": 1,
-      "narration": "${wordLimits.min}-${wordLimits.max} words with ONOMATOPOEIA in UPPERCASE",
-      "page_goal": "What this page achieves narratively",
-      "camera_angle": "CHOOSE from available camera angles - MUST be different for each page",
-      "shot_description": "Copy the name of the chosen camera angle",
-      "visual_action": "SPECIFIC action - MUST be different from other pages",
-      "action_description": "How this action serves the story",
-      "visual_focus": "Key visual element${specialObject ? ` (include ${specialObject} if relevant)` : ''}",
-      "emotion": "joy/wonder/peaceful/curious/proud/excited",
-      "sensory_details": "${sensoryDetails || 'What can be felt/heard/seen'}",
-      "characters_on_page": ["baby"${extractedCast.length > 1 ? `, "mom/dad/grandma/etc" - assign supporting characters strategically` : ''}],
+      "narration": "The actual text that appears on the page (${wordLimits.min}-${wordLimits.max} words). SHOW emotions through actions. Include onomatopoeia in UPPERCASE where natural.",
+      "visual_action": "Brief scene description for illustrator (what ${babyProfile.baby_name} is doing, where, key visual elements)",
+      "action_description": "How this visual serves the narrative",
+      "page_goal": "What this page achieves in the story arc",
+      "camera_angle": "MUST choose from available angles - different for each page",
+      "shot_description": "Name of the chosen camera angle",
+      "visual_focus": "Key visual element to emphasize${specialObject ? ` (include ${specialObject} if relevant)` : ''}",
+      "emotion": "joy/wonder/peaceful/curious/proud/excited/brave/loved",
+      "sensory_details": "Specific sensory elements for this page",
+      "characters_on_page": ["baby"${extractedCast.length > 1 ? `, "mom", "dad", etc. - assign strategically` : ''}],
       "scene_type": "opening/action/closing/transition"
     }
   ]
 }
 
-📋 STORY STRUCTURE GUIDE (use the provided story arc):
-- Page 1 (Opening): ${storyBeginning || 'How the moment started'}
-- Pages 2-3 (Middle): ${storyMiddle || 'The exciting part, include small challenge if mentioned'}
-- Page 4 (Closing): ${storyEnd || 'Sweet conclusion'}
+=== FINAL CHECKLIST ===
+✓ Age-appropriate vocabulary and sentence structure
+✓ Word count within limits (per page AND total)
+✓ All emotions shown through actions, not stated
+✓ Central emotional theme woven throughout
+✓ Sensory details create vivid world
+✓ Each page has unique camera angle (no repeats!)
+✓ Each page shows different action/moment
+✓ Characters assigned naturally to pages
+✓ Narrative flows from beginning → middle → end
+✓ Warm, loving, reassuring tone throughout
+✓ Third-person past tense consistently
+✓ Onomatopoeia included where natural (UPPERCASE)
 
-👥 CHARACTER ASSIGNMENT GUIDELINES:
-- Page 1: Usually baby alone (establishing shot)
-- Pages 2-3: Can include baby + supporting characters during action
-- Page 4: Often baby + parent/family for emotional resolution
-- Assign characters based on who would naturally be in each scene moment
-
-🎯 CRITICAL REMINDERS:
-- Each page MUST have a DIFFERENT camera_angle
-- Each page MUST show a DIFFERENT action
-- NO repeated camera angles across pages
-- NO repeated actions across pages
-- Maximum visual variety = better book!
-- Include onomatopoeia (sound words) in UPPERCASE
-- Use the story beginning/middle/end to structure pages
-- Assign characters to pages where they fit the narrative`;
+Now create the complete ${pageCount}-page children's book manuscript in JSON format.`;
 
     job.progress = 50;
     job.message = `Writing ${babyProfile.baby_name}'s story...`;
 
-    // Call OpenAI with enhanced prompt
-    const completion = await openai.chat.completions.create({
-      model: STORY_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: "You are a master children's book author who understands age-appropriate storytelling, visual variety through camera angles, and the engaging power of onomatopoeia (sound words). You know how to structure stories with clear beginning-middle-end arcs and assign supporting characters to appropriate pages for emotional impact."
-        },
-        { role: 'user', content: prompt }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.8,
+    // Call Gemini with master prompt
+    const systemPrompt = `You are an expert children's book author with deep understanding of child psychology and narrative structure.
+
+You excel at:
+- Age-appropriate storytelling (adapting vocabulary, sentence structure, and themes to the child's developmental stage)
+- "Show don't tell" emotional writing (revealing feelings through actions, expressions, and body language)
+- Creating warm, loving, reassuring narratives that strengthen family bonds
+- Weaving sensory details that create vivid, immersive worlds
+- Building clear narrative arcs (setup → action/challenge → resolution)
+- Using onomatopoeia and rhythm to engage young readers
+- Third-person limited perspective that makes readers feel present in the moment
+- Visual variety for illustrations (varied camera angles, actions, and compositions)
+
+You follow instructions precisely and create beautiful, emotionally resonant children's books.
+
+IMPORTANT: You must respond with valid JSON only. No markdown, no code blocks, just pure JSON.`;
+
+    const fullPrompt = `${systemPrompt}
+
+${prompt}`;
+
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+      generationConfig: {
+        temperature: 0.85,
+        responseMimeType: 'application/json',
+      },
     });
 
     job.progress = 70;
     job.message = 'Bringing the story to life...';
 
-    const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
+    const raw = result.response.text().trim();
     if (!raw) throw new Error('Empty model response');
-    const storyData: StoryResponse = JSON.parse(raw);
+
+    // Remove markdown code blocks if present
+    const jsonText = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const storyData: StoryResponse = JSON.parse(jsonText);
 
     job.progress = 80;
     job.message = 'Adding the finishing touches...';
 
+    // Validate word counts
+    const totalWords = storyData.pages.reduce((sum, page) => {
+      const words = page.narration.split(/\s+/).length;
+      return sum + words;
+    }, 0);
+
+    console.log(`Story word count: ${totalWords} (target: ${wordLimits.total.min}-${wordLimits.total.max})`);
+
+    // Warn if word count is significantly off
+    if (totalWords < wordLimits.total.min * 0.8 || totalWords > wordLimits.total.max * 1.2) {
+      console.warn(`⚠️ Story word count (${totalWords}) is outside target range (${wordLimits.total.min}-${wordLimits.total.max})`);
+    }
+
     // Validate and enhance pages
     const enhancedPages = storyData.pages.map((page, index) => {
+      const pageWordCount = page.narration.split(/\s+/).length;
+
+      // Log word count per page
+      if (pageWordCount < wordLimits.min || pageWordCount > wordLimits.max) {
+        console.warn(`⚠️ Page ${index + 1} word count (${pageWordCount}) outside range (${wordLimits.min}-${wordLimits.max})`);
+      }
       // Use GPT's chosen camera_angle (or shot_id as fallback)
       const cameraAngle = page.camera_angle || page.shot_id || 'medium_shot';
       const angle = CAMERA_ANGLES[cameraAngle];

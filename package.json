@@ -11,6 +11,7 @@
     "clean": "rm -rf node_modules .next && npm install"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@supabase/auth-helpers-nextjs": "^0.8.0",
     "@supabase/supabase-js": "^2.39.0",
     "autoprefixer": "^10",

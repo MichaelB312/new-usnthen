@@ -8,6 +8,10 @@ export const FEATURE_FLAGS = {
   // Set to true in code or use env var for quick testing
   test_mode: process.env.NEXT_PUBLIC_TEST_MODE === 'true' || false,
 
+  // Hybrid Agent - Use Gemini-powered conversational story wizard
+  // Set to true to use the new intelligent agent system
+  hybrid_agent: process.env.NEXT_PUBLIC_HYBRID_AGENT === 'true' || true, // Default to true for testing
+
   // Add more feature flags as needed
 } as const;
 

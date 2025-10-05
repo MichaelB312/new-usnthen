@@ -1,12 +1,55 @@
 # 4-Page System: Complete Documentation
 
 **Date**: January 2, 2025
-**Last Updated**: January 3, 2025 (Enhanced Memory Chat & Multi-Character Support)
+**Last Updated**: October 5, 2025 (Two-Step Image Generation with Text Inpainting)
 **Status**: ✅ 100% Complete and Verified
 
 ---
 
-## 🆕 Latest Updates (January 3, 2025)
+## 🆕 Latest Updates (October 5, 2025)
+
+### Two-Step Image Generation with Text Inpainting
+
+**Major Architecture Change:**
+The system now uses a two-step AI image generation pipeline that bakes text directly into images using GPT Image 1's inpainting capabilities with masking.
+
+**Features Added:**
+1. ✅ **Step 1: Base Image Generation** - Creates landscape paper-collage illustration with rule-of-thirds composition
+2. ✅ **Step 2: Text Inpainting** - Adds narration text using mask-based inpainting in Patrick Hand font, 48pt
+3. ✅ **Server-Side Mask Generator** - Canvas-based PNG mask creation for text regions
+4. ✅ **Rule of Thirds Layout** - Characters positioned in left/right third, text in opposite third
+5. ✅ **Text Placement Data** - Automatic calculation of text box coordinates (462px × 724px regions)
+6. ✅ **Parallel Page Generation** - All 4 story pages now generate simultaneously (no sequential waiting)
+7. ✅ **Enhanced Gender Characteristics** - Better boy/girl distinctions in character anchor prompts
+8. ✅ **Removed Text Overlay UI** - Text is now baked into images, not overlaid in frontend
+
+**Files Modified:**
+- `app/api/generate-image-async/route.ts` - Two-step generation pipeline with inpainting
+- `lib/utils/maskGenerator.ts` - NEW: Server-side mask generation for text regions
+- `lib/prompts/landscapePagePrompt.ts` - Rule-of-thirds composition and text placement data function
+- `components/book-preview/LandscapeSpreadViewer.tsx` - Removed text overlay (text now in images)
+- `components/illustrations/AsyncBatchedImageGenerator.tsx` - Parallel generation for all 4 pages
+- `package.json` - Added `canvas` dependency for mask generation
+- `package-lock.json` - Canvas and related dependencies
+
+**Technical Details:**
+- **Text Font**: Patrick Hand, 48pt, black color
+- **Text Box Size**: 462px width × 724px height
+- **Text Position**: Left third (x: 50, y: 150) OR Right third (x: 1024, y: 150)
+- **Text Alignment**: Alternates between left-aligned and right-aligned based on character position
+- **Generation Timeout**: Extended to 8 minutes (from 5-6 minutes)
+- **Image Format**: 1536×1024 landscape PNG
+
+**Benefits:**
+- Text is permanently part of the image (no overlay needed)
+- Better visual integration with paper-collage aesthetic
+- Consistent text appearance across all platforms
+- Simplified frontend rendering (just display image)
+- Faster parallel generation of all story pages
+
+---
+
+## 🆕 Previous Updates (January 3, 2025)
 
 ### Enhanced Memory Chat & Multi-Character Story System
 
@@ -902,5 +945,247 @@ Page 4:
 - ✅ 4-page simple system with no spread complexity
 
 **Status**: READY FOR PRODUCTION ✅
-**Last Updated**: January 3, 2025
-**Impact**: Comprehensive story capture, richer narratives, multi-character support, engaging sound words
+**Last Updated**: October 5, 2025
+**Impact**: Comprehensive story capture, richer narratives, multi-character support, engaging sound words, baked-in text with inpainting
+
+---
+
+## Two-Step Image Generation System (October 5, 2025)
+
+### Architecture Overview
+
+The image generation system now uses a **two-step pipeline** that creates base illustrations and then adds text via AI inpainting.
+
+### Step 1: Base Image Generation
+
+**Process**:
+1. Generate 1536×1024 landscape paper-collage illustration
+2. Position characters using **rule of thirds** (left OR right third)
+3. Enhanced prompts with gender characteristics and camera angles
+4. No warm filters or yellow tones
+
+**Character Positioning**:
+```typescript
+const useLeftThird = Math.random() > 0.5;
+const characterSide = useLeftThird ? 'left third' : 'right third';
+const textSide = useLeftThird ? 'right third' : 'left third';
+```
+
+**Prompt Example**:
+```
+Soft paper collage style. 1536×1024 landscape. FULL BLEED edge-to-edge composition.
+Bird's-eye view: Baby crawling in beach.
+
+CRITICAL COMPOSITION - RULE OF THIRDS:
+- Position ALL characters in the right third of the image
+- Keep the left third clear for later text overlay
+- Characters should be composed within the right third area only
+
+Soft paper collage style with gentle torn edges. NO warm filter. NO yellow tones.
+```
+
+### Step 2: Text Inpainting (Story Pages Only)
+
+**Process** (`app/api/generate-image-async/route.ts:526-573`):
+1. **Generate Mask**: Create PNG mask for text region using `maskGenerator.ts`
+2. **Prepare Files**: Convert base64 image and mask to File objects
+3. **Call GPT Image Edit**: Use `openai.images.edit()` with mask parameter
+4. **Apply Text**: Add narration in Patrick Hand font, 48pt, black
+
+**Mask Generation** (`lib/utils/maskGenerator.ts`):
+```typescript
+export function generateTextMaskServer(
+  x: number,      // Text box X coordinate
+  y: number,      // Text box Y coordinate
+  width: number,  // Text box width (462px)
+  height: number  // Text box height (724px)
+): string {
+  // Creates 1536×1024 black canvas
+  // Draws white rectangle at specified coordinates
+  // Returns data URL: "data:image/png;base64,..."
+}
+```
+
+**Text Inpainting Prompt**:
+```typescript
+const textPrompt = `Add this text in Patrick Hand font, 48pt, black color, ${textAlignment}:
+"${narration}"
+
+Blend the text naturally into the paper collage style. Text can overlay subtle decorative paper elements.
+Keep the paper collage aesthetic.`;
+```
+
+**GPT Image Edit Call**:
+```typescript
+const textResponse = await openai.images.edit({
+  model: 'gpt-image-1',
+  image: baseImageFile,      // Base illustration from Step 1
+  mask: maskFile,            // White rectangle on black background
+  prompt: textPrompt,        // Text content and styling
+  n: 1,
+  size: '1536x1024',
+  quality: 'high',
+  input_fidelity: 'high',
+  moderation: 'low',
+});
+```
+
+### Text Placement Data
+
+**Function** (`lib/prompts/landscapePagePrompt.ts`):
+```typescript
+export function getTextPlacementData(page: Page): {
+  textSide: 'left third' | 'right third';
+  textAlignment: 'left-aligned' | 'right-aligned';
+  narration: string;
+  textBoxCoordinates: { x: number; y: number; width: number; height: number };
+}
+```
+
+**Text Box Coordinates**:
+- **Right Third**: `{ x: 1024, y: 150, width: 462, height: 724 }`
+- **Left Third**: `{ x: 50, y: 150, width: 462, height: 724 }`
+
+**Margins**:
+- Top margin: 150px
+- Bottom margin: 150px (1024 - 150 - 724 = 150)
+- Side margins: 50px from edges
+
+### Character Anchor (Page 0)
+
+**Special Case**: Character anchor does NOT receive text inpainting
+- Page 0 is used purely as a style/character reference
+- Only Step 1 (base image generation) is performed
+- Saved to `styleAnchor` (not in story pages)
+
+**Detection**:
+```typescript
+if (pageNumber > 0 && pageData.narration) {
+  // Perform Step 2: Text inpainting
+}
+```
+
+### Parallel Generation
+
+**Old Behavior**:
+```typescript
+// Sequential: Page 1 → wait → Pages 2, 3, 4 in parallel
+await generatePage1();
+await Promise.all([generatePage2(), generatePage3(), generatePage4()]);
+```
+
+**New Behavior** (`components/illustrations/AsyncBatchedImageGenerator.tsx`):
+```typescript
+// Parallel: ALL pages 1, 2, 3, 4 simultaneously
+for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+  const pagePromise = generatePage(pageIndex);
+  pagePromises.push(pagePromise);
+}
+await Promise.all(pagePromises);
+```
+
+**Benefits**:
+- Faster overall generation time
+- Simpler code (no special-casing Page 1)
+- Better resource utilization
+
+### UI Changes
+
+**Before** (`LandscapeSpreadViewer.tsx`):
+```tsx
+<img src={imageUrl} />
+<div className="absolute bottom-0">
+  <div className="bg-white/90 backdrop-blur">
+    <p>{spread.text}</p>  {/* Text overlay */}
+  </div>
+</div>
+```
+
+**After**:
+```tsx
+<img src={imageUrl} />  {/* Text is already in the image */}
+```
+
+**Removed Lines**: 73-81 (text overlay container)
+
+### Dependencies
+
+**Added** (`package.json`):
+```json
+{
+  "dependencies": {
+    "canvas": "^3.2.0"
+  }
+}
+```
+
+**Purpose**: Server-side canvas rendering for mask generation
+**Platform**: Works on Node.js 18.12.0+ or 20.9.0+
+**Native Compilation**: Requires build tools (automatically handled by npm)
+
+### Timeouts & Polling
+
+**Updated Values**:
+```typescript
+const MAX_POLL_TIME = 480000;    // 8 minutes max (was 6 minutes)
+const EXPECTED_TIME = 480000;    // 8 minutes expected (was 5 minutes)
+```
+
+**Rationale**: Two-step generation takes longer than single-step
+
+### Error Handling
+
+**File Preparation**:
+```typescript
+async function prepareImageFile(dataUrl: string, filename: string): Promise<File> {
+  // Converts data URL to File object for GPT API
+  // Handles both base64 images and PNG data URLs
+}
+```
+
+**Response Handling**:
+```typescript
+async function handleOpenAIResponse(response: any): Promise<string> {
+  // Extracts base64 image from GPT response
+  // Handles both .data[0].b64_json and .data[0].url formats
+}
+```
+
+### Testing Considerations
+
+**Mask Validation**:
+- Verify mask is 1536×1024 black PNG with white rectangle
+- Ensure coordinates match character positioning (opposite thirds)
+- Check mask file size is reasonable (<50KB typically)
+
+**Text Quality**:
+- Verify font is Patrick Hand
+- Check font size is approximately 48pt
+- Ensure text color is black
+- Verify alignment matches textSide (left/right)
+
+**Integration**:
+- All 4 pages should have baked-in text
+- Character anchor (page 0) should NOT have text
+- Text should not overlap characters
+- Text should be legible against paper-collage background
+
+**Performance**:
+- Monitor total generation time (should be <8 minutes)
+- Check parallel generation logs (all pages start simultaneously)
+- Verify no timeout errors
+
+### Known Limitations
+
+1. **Text Overflow**: Long narrations may not fit in 462×724 box
+2. **Font Rendering**: GPT's interpretation of "48pt" may vary slightly
+3. **Background Interference**: Busy backgrounds may affect text legibility
+4. **Character Positioning**: Random left/right assignment may occasionally need manual override
+
+### Future Enhancements
+
+- [ ] Dynamic text box sizing based on narration length
+- [ ] Text wrapping intelligence (multi-line support)
+- [ ] Background opacity detection for text contrast
+- [ ] Manual text positioning override UI
+- [ ] Support for multiple text boxes per page

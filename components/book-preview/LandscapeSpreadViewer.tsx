@@ -70,15 +70,6 @@ export function LandscapeSpreadViewer({ onComplete }: LandscapeSpreadViewerProps
                   }}
                 />
               </div>
-
-              {/* Text overlay at bottom - stays above image and shadows */}
-              <div className="absolute bottom-0 left-0 right-0 pointer-events-none px-8 pb-8 z-20">
-                <div className="bg-white/90 backdrop-blur-sm rounded-lg px-6 py-4 shadow-lg">
-                  <p className="font-patrick text-lg md:text-xl lg:text-2xl leading-relaxed text-gray-800 text-center">
-                    {spread.text}
-                  </p>
-                </div>
-              </div>
             </div>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-100">

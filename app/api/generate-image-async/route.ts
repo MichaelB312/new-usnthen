@@ -426,13 +426,19 @@ async function processHighContrastImageGeneration(jobId: string, params: any) {
             imageFiles = [baseFile];
         }
 
-        // Enhanced character anchor prompt - request cute, adorable baby with soft colors
+        // Enhanced character anchor prompt - cute baby with soft features and gender characteristics
         const genderText = babyGender === 'boy' ? 'boy' : babyGender === 'girl' ? 'girl' : 'baby';
+        const genderCharacteristics = babyGender === 'boy'
+          ? 'Clear baby boy characteristics. Boyish features, short hair or no bow accessories.'
+          : babyGender === 'girl'
+          ? 'Clear baby girl characteristics. Feminine features, may have bow or headband.'
+          : 'Neutral baby characteristics.';
+
         prompt = `Soft paper collage style. 1536×1024 landscape. Full bleed edge-to-edge composition, NO white borders.
-Adorable, cute ${genderText} baby with sweet, charming features and lovely expression.
-Baby standing or sitting, centered. Use reference image for all character features and appearance.
-Light pastel colors with cheerful bright accents. NOT dark colors. Soft, gentle aesthetic.
-White background visible between paper cutout elements. Gentle torn paper edges. Cute children's book style.`;
+Adorable, cute ${genderText} baby with soft face, delicate features, small eyebrows, sweet expression.
+${genderCharacteristics}
+Baby standing or sitting, centered.
+Soft paper cuts with gentle torn edges. NO warm filter. NO yellow tones.`;
 
         if (!babyReference && babyDescription) {
             prompt += `\n\nBaby character description: ${babyDescription}\n`;
@@ -509,12 +515,61 @@ White background visible between paper cutout elements. Gentle torn paper edges.
 
     job.progress = 80;
 
-    const imageBase64 = await handleOpenAIResponse(response);
+    let imageBase64 = await handleOpenAIResponse(response);
 
     // ALWAYS save page 0 as style anchor (it's the character anchor)
     if (pageNumber === 0) {
       styleAnchors.set(bookId, imageBase64);
       console.log(`[Job ${jobId}] Style anchor created for book ${bookId}`);
+    }
+
+    job.progress = 60;
+
+    // STEP 2: Add text via inpainting (only for story pages, not anchor)
+    if (pageNumber > 0 && pageData.narration) {
+      console.log(`[Job ${jobId}] Step 2: Adding text via inpainting...`);
+
+      const { getTextPlacementData } = await import('@/lib/prompts/landscapePagePrompt');
+      const textData = getTextPlacementData(pageData);
+
+      // Generate mask for text area
+      const { generateTextMaskServer } = await import('@/lib/utils/maskGenerator');
+      const maskDataUrl = generateTextMaskServer(
+        textData.textBoxCoordinates.x,
+        textData.textBoxCoordinates.y,
+        textData.textBoxCoordinates.width,
+        textData.textBoxCoordinates.height
+      );
+
+      // Prepare base image and mask
+      const baseImageFile = await prepareImageFile(`data:image/png;base64,${imageBase64}`, 'base.png');
+      const maskFile = await prepareImageFile(maskDataUrl, 'mask.png');
+
+      // Text inpainting prompt
+      const textPrompt = `Add this text in Patrick Hand font, 48pt, black color, ${textData.textAlignment}:
+"${textData.narration}"
+
+Blend the text naturally into the paper collage style. Text can overlay subtle decorative paper elements.
+Keep the paper collage aesthetic.`;
+
+      console.log(`[Job ${jobId}] Text inpainting prompt:`, textPrompt);
+
+      // Call GPT Image 1 edit with mask
+      const textResponse = await openai.images.edit({
+        model: 'gpt-image-1',
+        image: baseImageFile,
+        mask: maskFile,
+        prompt: textPrompt,
+        n: 1,
+        size: '1536x1024',
+        quality: 'high',
+        input_fidelity: 'high',
+        // @ts-expect-error: moderation exists but not in SDK types
+        moderation: 'low',
+      });
+
+      imageBase64 = await handleOpenAIResponse(textResponse);
+      console.log(`[Job ${jobId}] Text added successfully`);
     }
 
     job.progress = 90;

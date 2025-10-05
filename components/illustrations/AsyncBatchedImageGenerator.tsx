@@ -36,8 +36,8 @@ interface GeneratedImage {
 }
 
 const POLL_INTERVAL = 2000;
-const MAX_POLL_TIME = 360000; // 6 minutes max
-const EXPECTED_TIME = 300000; // 5 minutes expected
+const MAX_POLL_TIME = 480000; // 8 minutes max
+const EXPECTED_TIME = 480000; // 8 minutes expected
 
 export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => void }) {
   const router = useRouter();
@@ -520,50 +520,15 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
       console.log('✅ Character anchor completed!');
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // STEP 2: Generate pages 1, 2, 3, 4 (simple!)
+      // STEP 2: Generate ALL pages 1, 2, 3, 4 in parallel (no waiting!)
       console.log('📖 Starting page generation...');
 
       const pageCount = storyData.pages.length; // Always 4 pages
-      console.log(`🎨 Generating ${pageCount} landscape pages`);
-
-      // Generate Page 1 first
-      setGeneratedImages(prev =>
-        prev.map(img =>
-          img.page_number === 1 ? { ...img, status: 'generating' as const } : img
-        )
-      );
-
-      const page1JobId = await startImageGeneration(storyData.pages[0]);
-      if (!page1JobId) {
-        throw new Error('Failed to start Page 1 generation');
-      }
-
-      const job1: ImageJob = {
-        jobId: page1JobId,
-        pageNumber: 1,
-        status: 'pending',
-        progress: 0,
-        startTime: Date.now(),
-      };
-      setJobs([job1]);
-
-      const page1Success = await pollJobStatus(page1JobId, 1);
-
-      if (!page1Success) {
-        setGenerating(false);
-        pollingIntervalsRef.current.forEach(interval => clearInterval(interval));
-        pollingIntervalsRef.current.clear();
-        return;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // PARALLEL GENERATION: Start pages 2, 3, 4 in parallel
-      console.log(`🚀 Starting ${pageCount - 1} pages in parallel...`);
+      console.log(`🚀 Generating ALL ${pageCount} pages in parallel...`);
 
       const pagePromises: Promise<void>[] = [];
 
-      for (let pageIndex = 1; pageIndex < pageCount; pageIndex++) {
+      for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
         const page = storyData.pages[pageIndex];
         const pageNumber = pageIndex + 1;
 

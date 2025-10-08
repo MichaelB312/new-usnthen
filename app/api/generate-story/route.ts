@@ -356,6 +356,7 @@ function createEngagingFallbackStory(
   };
 }
 
+
 // Process story generation asynchronously
 async function processStoryGeneration(jobId: string, params: any) {
   const job = storyJobs.get(jobId);

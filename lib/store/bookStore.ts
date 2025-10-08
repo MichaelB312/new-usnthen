@@ -137,6 +137,12 @@ interface BookStore {
     model?: string;
   }[];
   illustrationStyle: 'paper-collage';  // UPDATED: Single style only
+
+  // Refinement words - Hidden surprise elements for final book only
+  refinementWords: {
+    page_number: number;
+    word: string;
+  }[];
   
   // Layout
   layouts: {
@@ -151,6 +157,10 @@ interface BookStore {
   setIllustrations: (illustrations: any[]) => void;
   setIllustrationStyle: (style: 'paper-collage') => void;  // UPDATED: Single style only
   setPageLayout: (pageNumber: number, layout: any) => void;
+
+  // Refinement words actions (hidden from parents during creation)
+  setRefinementWords: (words: { page_number: number; word: string }[]) => void;
+  addRefinementWord: (pageNumber: number, word: string) => void;
   
   // Cast management actions
   addCastMember: (member: CastMember) => void;
@@ -252,9 +262,10 @@ export const useBookStore = create<BookStore>()(
       storyData: null,
       illustrations: [],
       illustrationStyle: 'paper-collage',  // UPDATED: Default and only style
+      refinementWords: [],  // Hidden surprise elements
       layouts: {},
       version: '',
-      
+
       setBookId: (id) => set({ bookId: id }),
       setProfile: (profile) => set({ babyProfile: profile }),
       setConversation: (conversation) => set({ conversation }),
@@ -264,6 +275,17 @@ export const useBookStore = create<BookStore>()(
       setPageLayout: (pageNumber, layout) => {
         set((state) => ({
           layouts: { ...state.layouts, [pageNumber]: layout }
+        }));
+      },
+
+      // Refinement words management (hidden from parents)
+      setRefinementWords: (words) => set({ refinementWords: words }),
+      addRefinementWord: (pageNumber, word) => {
+        set((state) => ({
+          refinementWords: [
+            ...state.refinementWords.filter(w => w.page_number !== pageNumber),
+            { page_number: pageNumber, word }
+          ]
         }));
       },
       
@@ -334,6 +356,7 @@ export const useBookStore = create<BookStore>()(
         conversation: [],
         storyData: null,
         illustrations: [],
+        refinementWords: [],  // Clear hidden refinement words
         layouts: {},
         version: '',
         illustrationStyle: 'paper-collage'  // UPDATED: Reset to default single style

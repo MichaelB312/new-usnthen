@@ -167,9 +167,15 @@ async function handleContinue(director: StoryMemoryDirector, userMessage: string
 
     const conversationHistory = director.getConversationHistory();
 
+    // Filter history to ensure it starts with 'user' role
+    // Skip the first message if it's from the assistant (the initial greeting)
+    const filteredHistory = conversationHistory.length > 0 && conversationHistory[0].role === 'model'
+      ? conversationHistory.slice(1)
+      : conversationHistory;
+
     // Create chat with history
     const chat = model.startChat({
-      history: conversationHistory
+      history: filteredHistory
     });
 
     const nextQuestionPrompt = `${systemPrompt}

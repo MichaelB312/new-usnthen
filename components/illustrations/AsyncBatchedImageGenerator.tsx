@@ -48,7 +48,8 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     cast,
     uploadedPhotos,
     setIllustrations,
-    setStyleAnchor
+    setStyleAnchor,
+    addRefinementWord
   } = useBookStore();
 
   const [phase, setPhase] = useState<'cast' | 'generate' | 'complete'>('cast');
@@ -366,6 +367,12 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
 
             if (pageNumber === 1) {
               setPage1Completed(true);
+            }
+
+            // Save refinement word separately (hidden from parents, surprise for book)
+            if (job.result.refinement_word) {
+              console.log(`[Poll] Saving refinement word for page ${pageNumber}: "${job.result.refinement_word}"`);
+              addRefinementWord(pageNumber, job.result.refinement_word);
             }
 
             setGeneratedImages(prev => {

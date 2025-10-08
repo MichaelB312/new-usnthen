@@ -1,16 +1,35 @@
 // app/api/generate-image-async/route.ts
 /**
- * Enhanced image generation with High-Contrast Shots
- * Handles both character and character-free pages
+ * 3-Layer Image Generation Pipeline
+ * Layer 1: Character cutouts (anchor + variants) via Image Edits
+ * Layer 2: Local composition (character + narration rendering)
+ * Layer 3: Inpainting (scene details + refinement words)
+ *
+ * Quality set to "high" for production-quality results
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PersonId, CastMember, UploadedPhoto, Page } from '@/lib/store/bookStore';
-import { CAMERA_ANGLES } from '@/lib/camera/highContrastShots';
-import { enhanceWithIsolatedPaperCollage, getGenderDescription } from '@/lib/styles/paperCollage';
-import { buildLandscapePagePrompt } from '@/lib/prompts/landscapePagePrompt';
+
+// Layer utilities
+import {
+  generateCharacterPreservationMask,
+  getPreserveLevelForAction
+} from '@/lib/utils/characterMasks';
+import {
+  composeSpread,
+  getCharacterPosition,
+  getCompositionBounds,
+  CompositionResult
+} from '@/lib/utils/localComposition';
+import {
+  generateInpaintingMask,
+  calculateNarrationBounds,
+  getRefinementWordZones
+} from '@/lib/utils/inpaintingMasks';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,6 +40,12 @@ const openai = new OpenAI({
   timeout: 120000,
   maxRetries: 2,
 });
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+// Quality set to high for production results
+const IMAGE_QUALITY = 'high' as const;
 
 // Job storage
 const jobs = new Map<string, {
@@ -33,7 +58,7 @@ const jobs = new Map<string, {
   completedAt?: number;
 }>();
 
-// Style anchor storage
+// Style anchor storage (now stores 1024×1024 transparent character)
 const styleAnchors = new Map<string, string>();
 
 // Character reference cache
@@ -48,167 +73,6 @@ setInterval(() => {
     }
   }
 }, 10 * 60 * 1000);
-
-/**
- * Build High-Contrast Paper Collage prompt
- */
-// app/api/generate-image-async/route.ts
-// Update the buildEnhancedHighContrastPrompt function
-function buildEnhancedHighContrastPrompt(
-  pageData: any,
-  pageNumber: number,
-  babyGender: 'boy' | 'girl' | 'neutral',
-  babyName?: string,
-  allPages?: Page[]
-): string {
-  // Check if we have landscape page metadata (simple: page number directly maps to array index)
-  console.log(`[buildPrompt] Page ${pageNumber}: Checking for metadata...`);
-  console.log(`[buildPrompt] Has spread_metadata: ${!!pageData.spread_metadata}`);
-
-  if (pageData.spread_metadata && babyName) {
-    console.log(`[buildPrompt] ✅ Using SIMPLIFIED LANDSCAPE PROMPT for Page ${pageNumber}`);
-    console.log(`[buildPrompt] Setting: ${pageData.spread_metadata.setting}, Action: ${pageData.spread_metadata.action}`);
-
-    // Simple! Just use the page data directly (no merging, no complex logic)
-    return buildLandscapePagePrompt(pageData);
-  }
-
-  console.log(`[buildPrompt] ⚠️  Falling back to generic CAMERA ANGLE prompt for Page ${pageNumber}`);
-
-  // Fallback to original prompt builder
-  const shotId = pageData.shot_id || 'establishing_wide';
-  const shot = CAMERA_ANGLES[shotId];
-
-  if (!shot) {
-    console.error(`Unknown shot ID: ${shotId}`);
-    return 'Paper collage cutout on pure white background';
-  }
-
-  // Check if this is a character-free page (camera angles don't have requires_character field)
-  const isCharacterFree = pageData.is_character_free;
-
-  if (isCharacterFree) {
-    // CHARACTER-FREE PAGE - Make it relate to the story!
-    let prompt = 'Soft paper collage style. CRITICAL: NO PEOPLE, NO CHARACTERS IN THIS IMAGE\n';
-    prompt += `Camera angle: ${shot.description}\n`;
-    prompt += 'Light pastel colors with cheerful bright accents. NOT dark colors.\n';
-    prompt += 'White background visible between paper cutout elements. Cute, gentle aesthetic.\n';
-    
-    // Extract objects and themes from the narration
-    const narration = pageData.narration?.toLowerCase() || '';
-    
-    // Extract specific objects mentioned in the narration
-    const objectKeywords = [
-      'ball', 'duck', 'toy', 'blanket', 'bottle', 'shoe', 'hat', 'book',
-      'flower', 'shell', 'teddy', 'bear', 'blocks', 'cup', 'spoon',
-      'bubbles', 'balloon', 'sand', 'water', 'grass', 'leaves', 'sun',
-      'moon', 'stars', 'cloud', 'tree', 'bird', 'butterfly', 'fish',
-      'car', 'train', 'boat', 'kite', 'drum', 'guitar', 'piano'
-    ];
-    
-    const foundObjects = objectKeywords.filter(obj => narration.includes(obj));
-    
-    if (foundObjects.length > 0) {
-      // Use the specific object from the story
-      prompt += `Focus on: paper collage ${foundObjects[0]}\n`;
-      prompt += `This ${foundObjects[0]} is central to the story moment\n`;
-    } else if (pageData.object_focus) {
-      prompt += `Focus on: paper collage ${pageData.object_focus}\n`;
-    } else {
-      // Extract theme from narration
-      if (narration.includes('sleep') || narration.includes('night')) {
-        prompt += 'Focus on: paper collage moon and stars\n';
-      } else if (narration.includes('play') || narration.includes('fun')) {
-        prompt += 'Focus on: paper collage colorful toy\n';
-      } else if (narration.includes('eat') || narration.includes('food')) {
-        prompt += 'Focus on: paper collage bowl and spoon\n';
-      } else if (narration.includes('outside') || narration.includes('garden')) {
-        prompt += 'Focus on: paper collage flower or butterfly\n';
-      } else {
-        prompt += 'Focus on: paper collage toy or decorative element\n';
-      }
-    }
-    
-    // Add emotional context from the narration
-    if (narration.includes('quiet') || narration.includes('peaceful')) {
-      prompt += 'Soft, calm paper colors, gentle arrangement\n';
-    } else if (narration.includes('excit') || narration.includes('joy')) {
-      prompt += 'Bright, vibrant paper colors, dynamic arrangement\n';
-    }
-    
-    prompt += 'Paper collage style object, clean white background\n';
-    prompt += 'Torn paper edges, layered paper texture\n';
-
-    return prompt;
-  }
-
-  // CHARACTER PAGE - Include story context
-  let enhancedPrompt = `Soft paper collage style. 1536×1024 landscape.\n`;
-  enhancedPrompt += `Camera angle: ${shot.description}\n`;
-  enhancedPrompt += 'Light pastel colors with cheerful bright accents. NOT dark colors. Soft, cute aesthetic.\n';
-  enhancedPrompt += 'White background visible between paper elements. Gentle torn paper edges.\n';
-
-  // Add action and emotion
-  if (pageData.visual_action || pageData.action_description) {
-    enhancedPrompt += `Action: ${pageData.visual_action || pageData.action_description}\n`;
-  }
-  if (pageData.emotion) {
-    enhancedPrompt += `Emotion: ${pageData.emotion}\n`;
-  }
-
-  // Add story-specific details
-  enhancedPrompt += '\n';
-  
-  // Add specific actions from narration
-  const narration = pageData.narration?.toLowerCase() || '';
-  
-  // Action extraction
-  if (narration.includes('crawl')) {
-    enhancedPrompt += 'Baby crawling on hands and knees\n';
-  } else if (narration.includes('reach')) {
-    enhancedPrompt += 'Baby reaching with arms extended\n';
-  } else if (narration.includes('laugh') || narration.includes('giggl')) {
-    enhancedPrompt += 'Baby laughing joyfully with open mouth\n';
-  } else if (narration.includes('sleep') || narration.includes('rest')) {
-    enhancedPrompt += 'Baby peacefully sleeping or resting\n';
-  } else if (narration.includes('play')) {
-    enhancedPrompt += 'Baby actively playing\n';
-  } else if (narration.includes('eat') || narration.includes('food')) {
-    enhancedPrompt += 'Baby eating or holding food\n';
-  } else if (narration.includes('walk') || narration.includes('step')) {
-    enhancedPrompt += 'Baby taking steps or walking\n';
-  } else if (narration.includes('sit')) {
-    enhancedPrompt += 'Baby sitting up\n';
-  }
-  
-  // Add props mentioned in narration
-  const props = [];
-  const propKeywords = ['ball', 'toy', 'blanket', 'teddy', 'bear', 'bottle', 'book', 'blocks'];
-  for (const prop of propKeywords) {
-    if (narration.includes(prop)) {
-      props.push(`paper collage ${prop}`);
-    }
-  }
-  if (props.length > 0) {
-    enhancedPrompt += `Including: ${props.join(', ')}\n`;
-  }
-  
-  // Add emotional expression based on narration
-  if (narration.includes('happy') || narration.includes('joy')) {
-    enhancedPrompt += 'Expression: big smile, bright eyes\n';
-  } else if (narration.includes('curious') || narration.includes('wonder')) {
-    enhancedPrompt += 'Expression: wide eyes, curious look\n';
-  } else if (narration.includes('surprise')) {
-    enhancedPrompt += 'Expression: surprised, mouth open\n';
-  } else if (narration.includes('peaceful') || narration.includes('calm')) {
-    enhancedPrompt += 'Expression: peaceful, content\n';
-  }
-  
-  // Add paper collage style
-  enhancedPrompt = enhanceWithIsolatedPaperCollage(enhancedPrompt, babyGender);
-  
-  return enhancedPrompt;
-}
 
 /**
  * Convert base64/URL to file for OpenAI
@@ -237,6 +101,338 @@ async function prepareImageFile(imageUrl: string, name: string = 'ref.png'): Pro
     console.error(`Failed to prepare image:`, error);
     throw error;
   }
+}
+
+/**
+ * Extract refinement word from narration (hidden surprise element)
+ * Looks for onomatopoeia, repeated words, or sound effects
+ */
+function extractRefinementWordFromNarration(narration: string, action: string): string | undefined {
+  const lower = narration.toLowerCase();
+
+  // Look for repeated words (like "splash splash" or "giggle giggle")
+  const repeatedPattern = /\b(\w+)\s+\1\b/i;
+  const match = narration.match(repeatedPattern);
+  if (match) {
+    return match[0]; // Return the full "word word" pattern
+  }
+
+  // Look for onomatopoeia
+  if (lower.includes('boom')) return 'boom!';
+  if (lower.includes('splash')) return 'splash!';
+  if (lower.includes('whoosh')) return 'whoosh!';
+  if (lower.includes('giggle')) return 'giggle giggle';
+  if (lower.includes('yay')) return 'yay!';
+  if (lower.includes('wow')) return 'wow!';
+  if (lower.includes('shh') || lower.includes('shhh')) return 'shhhh';
+  if (lower.includes('zoom')) return 'zoom!';
+  if (lower.includes('pop')) return 'pop!';
+
+  // Don't force a refinement word if it's not natural
+  return undefined;
+}
+
+/**
+ * Analyze action to determine ground level and character interaction with environment
+ */
+interface ActionAnalysis {
+  groundLevel: 'low' | 'medium' | 'high'; // How high ground elements should be placed
+  interactionType: 'on' | 'in' | 'near' | 'above'; // How character relates to environment
+  primaryElement: string; // Main environmental element (sand, water, grass, floor)
+  secondaryElements: string[]; // Supporting elements
+}
+
+function analyzeCharacterAction(action: string, setting: string): ActionAnalysis {
+  const actionLower = action.toLowerCase();
+
+  // Detect ground level based on action
+  let groundLevel: 'low' | 'medium' | 'high' = 'medium';
+  let interactionType: 'on' | 'in' | 'near' | 'above' = 'on';
+
+  // Ground level detection
+  if (actionLower.includes('sitting') || actionLower.includes('lying') || actionLower.includes('crawling') || actionLower.includes('crouching')) {
+    groundLevel = 'high'; // Ground comes up higher when sitting/lying
+  } else if (actionLower.includes('jumping') || actionLower.includes('flying') || actionLower.includes('reaching up')) {
+    groundLevel = 'low'; // Ground stays lower when jumping/flying
+  } else {
+    groundLevel = 'medium'; // Standing, walking, etc.
+  }
+
+  // Interaction type detection
+  if (actionLower.includes('in water') || actionLower.includes('splashing') || actionLower.includes('swimming') || actionLower.includes('in the water')) {
+    interactionType = 'in'; // Character is IN the element
+  } else if (actionLower.includes('above') || actionLower.includes('jumping') || actionLower.includes('flying')) {
+    interactionType = 'above'; // Character is ABOVE the ground
+  } else if (actionLower.includes('near') || actionLower.includes('by') || actionLower.includes('at')) {
+    interactionType = 'near'; // Character is NEAR the element
+  } else {
+    interactionType = 'on'; // Character is ON the ground
+  }
+
+  // Setting-based element selection
+  const settingLower = setting.toLowerCase();
+  let primaryElement = 'ground';
+  let secondaryElements: string[] = [];
+
+  if (settingLower.includes('beach') || settingLower.includes('ocean') || settingLower.includes('sea')) {
+    if (interactionType === 'in') {
+      primaryElement = 'water with small waves';
+      secondaryElements = ['foam', 'splashes', 'droplets'];
+    } else {
+      primaryElement = 'sandy beach';
+      secondaryElements = ['small shells', 'starfish', 'seagulls in sky'];
+    }
+  } else if (settingLower.includes('park') || settingLower.includes('garden') || settingLower.includes('outside') || settingLower.includes('outdoor')) {
+    primaryElement = 'grass';
+    secondaryElements = ['flowers', 'butterflies', 'small trees or bushes'];
+  } else if (settingLower.includes('pool') || settingLower.includes('water')) {
+    if (interactionType === 'in') {
+      primaryElement = 'pool water';
+      secondaryElements = ['splashes', 'ripples', 'water droplets'];
+    } else {
+      primaryElement = 'pool edge';
+      secondaryElements = ['water visible', 'pool toys'];
+    }
+  } else if (settingLower.includes('home') || settingLower.includes('room') || settingLower.includes('house') || settingLower.includes('indoor')) {
+    primaryElement = 'floor';
+    secondaryElements = ['wallpaper pattern at edges', 'small toys', 'rug or mat'];
+  } else if (settingLower.includes('backyard')) {
+    primaryElement = 'grass or patio';
+    secondaryElements = ['fence elements', 'garden items', 'trees'];
+  } else {
+    // Generic outdoor
+    primaryElement = 'natural ground';
+    secondaryElements = ['sky elements', 'small decorative nature items'];
+  }
+
+  return {
+    groundLevel,
+    interactionType,
+    primaryElement,
+    secondaryElements
+  };
+}
+
+/**
+ * Build context-aware scene prompt based on action analysis and character position
+ */
+function buildContextAwareScenePrompt(
+  action: string,
+  setting: string,
+  characterPosition: 'left' | 'right',
+  narration: string
+): string {
+  const analysis = analyzeCharacterAction(action, setting);
+
+  let prompt = `Paper collage style environmental elements (NO characters, NO text edits).
+
+CRITICAL: Add elements that support the action and setting. Keep white background visible.
+
+SETTING: ${setting}
+ACTION: ${action}
+CHARACTER POSITION: Character is on ${characterPosition} side
+
+ENVIRONMENTAL ELEMENTS:
+
+`;
+
+  // Ground/primary element placement based on ground level and interaction
+  if (analysis.interactionType === 'in') {
+    // Character is IN the element (water, etc.)
+    prompt += `PRIMARY: ${analysis.primaryElement} SURROUNDING character at mid-level (SMALL SCALE)
+- Place SMALL ${analysis.primaryElement} elements around and slightly below character
+- Suggest immersion WITHOUT overwhelming the composition
+- Keep elements light and minimal
+- ${analysis.secondaryElements.join(', ')} near character - SMALL decorative pieces only
+`;
+  } else if (analysis.interactionType === 'on') {
+    // Character is ON the ground
+    if (analysis.groundLevel === 'high') {
+      // Sitting/lying - ground comes up higher
+      prompt += `PRIMARY: ${analysis.primaryElement} at MEDIUM-HIGH level - MINIMAL coverage (character is sitting/lying on it)
+- Place THIN LAYER of ${analysis.primaryElement} from BOTTOM up to mid-lower area
+- Suggest character resting ON ${analysis.primaryElement} without heavy coverage
+- Keep it light and airy, not dense
+- ${analysis.secondaryElements.join(', ')} scattered around - 2-3 small pieces maximum
+`;
+    } else if (analysis.groundLevel === 'low') {
+      // Jumping/flying - ground stays lower
+      prompt += `PRIMARY: ${analysis.primaryElement} at BOTTOM level ONLY - MINIMAL strip (character is above it)
+- Place NARROW STRIP of ${analysis.primaryElement} at very BOTTOM of composition
+- Keep clear space between ground and character
+- Light and minimal ground indication
+- ${analysis.secondaryElements.join(', ')} at ground level - small accents only
+`;
+    } else {
+      // Standing/walking - medium ground level
+      prompt += `PRIMARY: ${analysis.primaryElement} at LOWER-MEDIUM level - LIGHT LAYER (character standing on it)
+- Place THIN LAYER of ${analysis.primaryElement} from BOTTOM up to lower third
+- Suggest character's feet ON ${analysis.primaryElement} without heavy coverage
+- Keep it light and breathable
+- ${analysis.secondaryElements.join(', ')} around on ground - small decorative pieces only
+`;
+    }
+  } else if (analysis.interactionType === 'near') {
+    // Character is NEAR the element
+    prompt += `PRIMARY: ${analysis.primaryElement} ADJACENT to character - SMALL ACCENT (not full coverage)
+- Place SMALL SECTION of ${analysis.primaryElement} on opposite side from character
+- Light suggestion of proximity, not immersion
+- Minimal and tasteful
+- ${analysis.secondaryElements.join(', ')} between character and primary element - tiny details only
+`;
+  } else {
+    // Above
+    prompt += `PRIMARY: ${analysis.primaryElement} well BELOW character - MINIMAL STRIP at bottom
+- Place THIN LINE of ${analysis.primaryElement} at BOTTOM only
+- Large open space between ground and character
+- Very light and minimal
+- ${analysis.secondaryElements.join(', ')} at ground level - small accents
+`;
+  }
+
+  // Background elements (always at top/edges)
+  if (setting.toLowerCase().includes('beach') || setting.toLowerCase().includes('park') || setting.toLowerCase().includes('outdoor') || setting.toLowerCase().includes('garden') || setting.toLowerCase().includes('outside')) {
+    prompt += `
+BACKGROUND: Sky elements at TOP corners ONLY - MINIMAL
+- 1-2 small clouds or soft color accent at very top corners
+- Do NOT create full sky - just hint of atmosphere
+- Maximum 10-15% coverage at top
+- Preserve white space and breathing room
+`;
+  } else if (setting.toLowerCase().includes('home') || setting.toLowerCase().includes('room') || setting.toLowerCase().includes('indoor')) {
+    prompt += `
+BACKGROUND: Indoor accents at far edges ONLY - MINIMAL
+- Tiny pattern hints at extreme corners
+- Do NOT fill sides - just suggest walls
+- Keep 80%+ of composition white/clean
+- Small decorative items in far corners only
+`;
+  }
+
+  prompt += `
+CRITICAL PLACEMENT RULES:
+- Character is on ${characterPosition} side, so place accent elements on opposite side or balanced
+- PRESERVE WHITE BACKGROUND: At least 60% of composition MUST remain white/clean
+- Elements are SMALL ACCENTS ONLY - think minimalist children's book illustration
+- DO NOT fill entire areas - add small decorative pieces, not full coverage
+- Soft pastel colors, torn paper edges, gentle and sparse
+- If in doubt, add LESS rather than more
+- Elements should whisper, not shout
+
+ABSOLUTE PROHIBITIONS (DO NOT DO THESE):
+❌ DO NOT create full-page backgrounds
+❌ DO NOT fill entire corners or sides with solid colors
+❌ DO NOT extend elements beyond specified zones
+❌ DO NOT cover white space with texture or patterns
+❌ DO NOT create heavy, dense, or overwhelming compositions
+❌ DO NOT add elements that touch or overlap the center divider line
+❌ DO NOT modify, erase, or paint over existing narration text
+❌ DO NOT add background elements inside character panel's center area
+
+MUST DO (REQUIREMENTS):
+✓ Keep composition LIGHT and AIRY - lots of breathing room
+✓ Elements must be SMALL SCALE decorative accents
+✓ Preserve large areas of clean white background
+✓ Place elements ONLY in specified narrow zones (60px borders)
+✓ Use soft pastel colors with transparency/lightness
+✓ Think "a few strategic touches" not "full scene"`;
+
+  return prompt;
+}
+
+/**
+ * Reactive moderation fix using Gemini
+ * Only called when OpenAI moderation actually fails
+ */
+async function fixModerationIssueWithGemini(originalPrompt: string, context: string): Promise<string> {
+  try {
+    console.log(`[Gemini Moderation Fix] Attempting to rewrite prompt that triggered moderation`);
+
+    const systemPrompt = `You are a moderation safety expert helping to rewrite AI image generation prompts that triggered false-positive moderation flags.
+
+CONTEXT: This is for an innocent children's book about a baby/toddler. The content is 100% wholesome and family-friendly, but the AI moderation system flagged it incorrectly.
+
+TASK: Rewrite the prompt to preserve the creative intent while removing ANY words that might trigger moderation:
+- Replace "bare" + body parts with alternatives (bare feet → tiny feet, bare hands → little hands)
+- Replace any clothing state references with neutral descriptions
+- Replace any body part close-ups with gentler phrasing
+- Keep the same artistic style, composition, and scene description
+- Maintain all character details and camera angles
+
+ORIGINAL PROMPT (flagged by moderation):
+${originalPrompt}
+
+CONTEXT:
+${context}
+
+OUTPUT: Return ONLY the rewritten prompt as plain text. No explanations, no JSON, just the fixed prompt.`;
+
+    const result = await geminiModel.generateContent({
+      contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        temperature: 0.3,
+      },
+    });
+
+    const rewrittenPrompt = result.response.text().trim();
+    console.log(`[Gemini Moderation Fix] Rewritten prompt (${rewrittenPrompt.length} chars)`);
+    console.log(`[Gemini Moderation Fix] Original: ${originalPrompt.substring(0, 100)}...`);
+    console.log(`[Gemini Moderation Fix] Rewritten: ${rewrittenPrompt.substring(0, 100)}...`);
+
+    return rewrittenPrompt;
+  } catch (error: any) {
+    console.error('[Gemini Moderation Fix] Failed:', error);
+    // Fallback to basic sanitization if Gemini fails
+    return sanitizePromptForModeration(originalPrompt);
+  }
+}
+
+/**
+ * Sanitize prompt to avoid false positive moderation flags (fallback)
+ */
+function sanitizePromptForModeration(prompt: string): string {
+  let sanitized = prompt;
+
+  // Replace potentially problematic terms with safe alternatives
+  const replacements: [RegExp, string][] = [
+    [/\bbare\s+feet\b/gi, 'tiny feet'],
+    [/\bbare\s+foot\b/gi, 'tiny foot'],
+    [/\bnaked\b/gi, 'unclothed'],
+    [/\bbare\s+skin\b/gi, 'soft skin'],
+    [/\bbare\s+/gi, 'little '], // Generic "bare" -> "little"
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    sanitized = sanitized.replace(pattern, replacement);
+  }
+
+  return sanitized;
+}
+
+/**
+ * Handle OpenAI response
+ */
+async function handleOpenAIResponse(response: any): Promise<string> {
+  if (!response.data || !response.data[0]) {
+    throw new Error('No image data in response');
+  }
+
+  const imageData = response.data[0];
+
+  if ('b64_json' in imageData && imageData.b64_json) {
+    return imageData.b64_json;
+  }
+
+  if ('url' in imageData && imageData.url) {
+    const imgResponse = await fetch(imageData.url);
+    if (!imgResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imgResponse.status}`);
+    }
+    const arrayBuffer = await imgResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
+  }
+
+  throw new Error('Unknown response format from OpenAI');
 }
 
 /**
@@ -281,6 +477,23 @@ function getOneCharacterReference(
 }
 
 /**
+ * Wait for style anchor
+ */
+async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<string | null> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const anchor = styleAnchors.get(bookId);
+    if (anchor) {
+      return anchor;
+    }
+    if (attempt === 0) {
+      console.log(`Waiting for character anchor for book ${bookId}...`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  return null;
+}
+
+/**
  * POST - Start image generation job
  */
 export async function POST(request: NextRequest) {
@@ -295,34 +508,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Enhance pageData with all story context
     const pageData = {
       ...page,
-      narration: page.narration,  // CRITICAL: Include the actual story text
+      narration: page.narration,
       shot_id: page.shot_id,
       shot_description: page.shot_description,
-      camera_angle: page.camera_angle,
-      camera_prompt: page.camera_prompt,
       visual_action: page.visual_action || page.action_description,
       action_label: page.action_label,
-      sensory_details: page.sensory_details,
-      emotion: page.emotion,
-      visual_focus: page.visual_focus,
-      scene_type: page.scene_type,
       characters_on_page: page.characters_on_page,
-      background_extras: page.background_extras,
-      // Add any story-specific details
-      object_focus: page.object_focus,
-      page_goal: page.page_goal,
-      spread_metadata: page.spread_metadata  // Include spread metadata
+      spread_metadata: page.spread_metadata
     };
 
     const babyGender = babyProfile?.gender || 'neutral';
-    const shotId = pageData.shot_id || 'establishing_wide';
-    const shot = CAMERA_ANGLES[shotId];
-    const isCharacterFree = pageNumber === 1
-      ? false  // Force Page 1 to always have character
-      : pageData.is_character_free;
 
     const jobId = `${bookId}-${pageNumber}-${Date.now()}`;
     jobs.set(jobId, {
@@ -332,9 +529,9 @@ export async function POST(request: NextRequest) {
       startTime: Date.now()
     });
 
-    console.log(`[Job ${jobId}] Page ${pageNumber}, ${isCharacterFree ? 'Character-free' : 'Character'} ${babyGender} shot: ${pageData.shot_id}`);
+    console.log(`[Job ${jobId}] Page ${pageNumber} - 3-Layer Pipeline (quality=${IMAGE_QUALITY})`);
 
-    // Pass the enhanced payload with all story context
+    // Pass payload to processing
     const payload: any = {
       bookId,
       pageNumber,
@@ -342,12 +539,11 @@ export async function POST(request: NextRequest) {
       pageData,
       cast: cast,
       babyGender,
-      isCharacterFree,
-      allPages: allPages,  // Pass all pages for spread context
-      ...body  // Include any other fields from the original body
+      allPages: allPages,
+      ...body
     };
 
-    processHighContrastImageGeneration(jobId, payload).catch(error => {
+    processThreeLayerPipeline(jobId, payload).catch(error => {
       console.error(`Job ${jobId} failed:`, error);
       const job = jobs.get(jobId);
       if (job) {
@@ -359,7 +555,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       jobId,
-      message: `High-Contrast ${isCharacterFree ? 'character-free' : 'character'} image generation started`
+      message: `3-Layer pipeline started for page ${pageNumber}`
     });
 
   } catch (error: any) {
@@ -372,9 +568,9 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Process high-contrast image generation
+ * Process 3-Layer Pipeline
  */
-async function processHighContrastImageGeneration(jobId: string, params: any) {
+async function processThreeLayerPipeline(jobId: string, params: any) {
   const job = jobs.get(jobId);
   if (!job) return;
 
@@ -390,210 +586,412 @@ async function processHighContrastImageGeneration(jobId: string, params: any) {
       babyProfile,
       babyGender = 'neutral',
       uploadedPhotos = [],
-      cast = {},
-      isCharacterFree,
-      allPages = []
+      cast = {}
     } = params;
 
     const babyName = babyProfile?.baby_name || 'Baby';
 
-    console.log(`[Job ${jobId}] Page ${pageNumber}, ${isCharacterFree ? 'Character-free' : 'Character'} ${babyGender} shot: ${pageData.shot_id}`);
-
-    let imageFiles: any[] = [];
-    let prompt: string;
-
-    // SPECIAL: Page 0 = Character Anchor (NOT an actual page)
+    // ============================================================
+    // PAGE 0: CHARACTER ANCHOR (NOT part of 3-layer pipeline)
+    // Simple isolated character on transparent background
+    // ============================================================
     if (pageNumber === 0) {
-        let babyReference = babyPhotoUrl;
-        let babyDescription = params.babyDescription || params.cast?.baby?.features_lock;
+      console.log(`[Job ${jobId}] CHARACTER ANCHOR: Generating isolated character (1024×1024 transparent)`);
 
-        if (!babyReference && uploadedPhotos.length > 0) {
-            babyReference = getOneCharacterReference('baby', uploadedPhotos, bookId);
-        }
+      let babyReference = babyPhotoUrl;
+      let babyDescription = params.babyDescription || params.cast?.baby?.features_lock;
 
-        if (!babyReference && !babyDescription) {
-            throw new Error('No baby photo or description provided for character anchor');
-        }
-
-        console.log(`[Job ${jobId}] CHARACTER ANCHOR (Page 0): Creating style reference for ${babyGender} baby (NOT a story page)`);
-
-        if (babyReference) {
-            const babyFile = await prepareImageFile(babyReference, 'baby.png');
-            imageFiles = [babyFile];
-        } else {
-            const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
-            const baseFile = await prepareImageFile(whiteBase, 'white.png');
-            imageFiles = [baseFile];
-        }
-
-        // Enhanced character anchor prompt - cute baby with soft features and gender characteristics
-        const genderText = babyGender === 'boy' ? 'boy' : babyGender === 'girl' ? 'girl' : 'baby';
-        const genderCharacteristics = babyGender === 'boy'
-          ? 'Clear baby boy characteristics. Boyish features, short hair or no bow accessories.'
-          : babyGender === 'girl'
-          ? 'Clear baby girl characteristics. Feminine features, may have bow or headband.'
-          : 'Neutral baby characteristics.';
-
-        prompt = `Soft paper collage style. 1536×1024 landscape. Full bleed edge-to-edge composition, NO white borders.
-Adorable, cute ${genderText} baby with soft face, delicate features, small eyebrows, sweet expression.
-${genderCharacteristics}
-Baby standing or sitting, centered.
-Soft paper cuts with gentle torn edges. NO warm filter. NO yellow tones.`;
-
-        if (!babyReference && babyDescription) {
-            prompt += `\n\nBaby character description: ${babyDescription}\n`;
-            prompt += 'Create adorable paper collage baby with cute features matching this exact description.\n';
-        }
-
-    } else if (isCharacterFree) {
-      // CHARACTER-FREE PAGE - No references needed
-      console.log(`[Job ${jobId}] Character-free page - no character references`);
-
-      const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
-      const baseFile = await prepareImageFile(whiteBase, 'white.png');
-      imageFiles = [baseFile];
-
-      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender, babyName, allPages);
-
-    } else {
-      // ALL STORY PAGES (1, 2, 3, etc.) - use character anchor + landscape page prompts
-      const styleAnchor = await waitForStyleAnchor(bookId);
-      if (!styleAnchor) {
-        throw new Error('Style anchor not available. Generate character anchor (page 0) first.');
+      if (!babyReference && uploadedPhotos.length > 0) {
+        babyReference = getOneCharacterReference('baby', uploadedPhotos, bookId);
       }
 
-      const references: { url: string; name: string }[] = [];
-      references.push({ url: styleAnchor, name: 'style.png' });
+      if (!babyReference && !babyDescription) {
+        throw new Error('No baby photo or description provided for character anchor');
+      }
 
-      const uniqueCharacters = new Set(pageData.characters_on_page || []);
-      for (const characterId of uniqueCharacters) {
-        if (references.length >= 4) break;
-        const charRef = getOneCharacterReference(characterId as PersonId, uploadedPhotos, bookId);
-        if (charRef) {
-          references.push({
-            url: charRef,
-            name: `${characterId}.png`
+      let imageFiles: any[] = [];
+
+      if (babyReference) {
+        const babyFile = await prepareImageFile(babyReference, 'baby.png');
+        imageFiles = [babyFile];
+      } else {
+        // Use white base if only description available
+        const whiteBase = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+        const baseFile = await prepareImageFile(whiteBase, 'white.png');
+        imageFiles = [baseFile];
+      }
+
+      // Build anchor prompt
+      const genderText = babyGender === 'boy' ? 'boy' : babyGender === 'girl' ? 'girl' : 'baby';
+      const genderCharacteristics = babyGender === 'boy'
+        ? 'Clear baby boy characteristics. Boyish features, short hair.'
+        : babyGender === 'girl'
+        ? 'Clear baby girl characteristics. Feminine features, may have bow or headband.'
+        : 'Neutral baby characteristics.';
+
+      let prompt = `CHARACTER ANCHOR - Isolated character ONLY on transparent background.
+
+CRITICAL: This is a character cutout template, NOT a scene or composition.
+
+Style: Soft paper collage with gentle torn edges
+Size: 1024×1024 square
+Background: PURE TRANSPARENT (alpha channel, NO white, NO colors)
+
+Character: Adorable, cute ${genderText} baby
+- ${genderCharacteristics}
+- Soft face, delicate features, small eyebrows, sweet expression
+- Standing or sitting pose, centered in frame
+- Full body visible
+
+ABSOLUTE REQUIREMENTS:
+✓ ONLY the character - nothing else
+✓ Completely isolated cutout with crisp edges
+✓ Pure transparent background (no white, no texture, no elements)
+✓ NO ground, NO shadows, NO decorative elements
+✓ NO text, NO scene objects, NO background colors
+✓ Character should be transferable to any background later
+
+Soft pastel colors on character only. Clean paper collage cutout.`;
+
+      if (!babyReference && babyDescription) {
+        prompt += `\n\nBaby character description: ${babyDescription}`;
+        prompt += '\nCreate adorable paper collage baby matching this exact description.';
+      }
+
+      job.progress = 30;
+
+      console.log(`[Job ${jobId}] Calling GPT-Image-1 (quality=${IMAGE_QUALITY})`);
+      console.log(`[Job ${jobId}] Prompt:`, prompt);
+
+      let response;
+      try {
+        response = await openai.images.edit({
+          model: 'gpt-image-1',
+          image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+          prompt,
+          n: 1,
+          size: '1024x1024', // SQUARE for character
+          quality: IMAGE_QUALITY,
+          input_fidelity: 'high',
+          background: 'transparent',
+          // @ts-expect-error: moderation exists but not in SDK types
+          moderation: 'low',
+        });
+      } catch (error: any) {
+        // Retry with Gemini-rewritten prompt if moderation blocked
+        if (error.code === 'moderation_blocked') {
+          console.log(`[Job ${jobId}] ANCHOR MODERATION BLOCKED - Using Gemini to rewrite prompt`);
+
+          const context = `Creating character anchor for ${babyName} (${babyGender}). 1024×1024 transparent background.`;
+          const fixedPrompt = await fixModerationIssueWithGemini(prompt, context);
+
+          response = await openai.images.edit({
+            model: 'gpt-image-1',
+            image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+            prompt: fixedPrompt,
+            n: 1,
+            size: '1024x1024',
+            quality: IMAGE_QUALITY,
+            input_fidelity: 'high',
+            background: 'transparent',
+            // @ts-expect-error: moderation exists but not in SDK types
+            moderation: 'low',
           });
+        } else {
+          throw error;
         }
       }
 
-      console.log(`[Job ${jobId}] Page ${pageNumber}: Landscape page scene with ${references.length} refs`);
+      job.progress = 80;
 
-      imageFiles = await Promise.all(
-        references.map(ref => prepareImageFile(ref.url, ref.name))
-      );
+      const imageBase64 = await handleOpenAIResponse(response);
 
-      // Build landscape spread prompt with full scene details
-      prompt = buildEnhancedHighContrastPrompt(pageData, pageNumber, babyGender, babyName, allPages);
+      // Save as style anchor
+      const dataUrl = `data:image/png;base64,${imageBase64}`;
+      styleAnchors.set(bookId, dataUrl);
+      console.log(`[Job ${jobId}] ✅ Character anchor complete - SKIPPING Layer 2 & 3 (anchor is standalone)`);
 
-      // DO NOT add character descriptions!
-      // Character appearance comes from the reference images (anchor + uploaded photos)
-      // The prompt should ONLY describe: scene, action, environment, composition
-      // This ensures consistent character appearance across all pages
+      job.progress = 100;
+      job.status = 'completed';
+      job.completedAt = Date.now();
+      job.result = {
+        page_number: pageNumber,
+        dataUrl,
+        sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
+        style: 'character-anchor', // NOT part of 3-layer pipeline
+        gender: babyGender,
+        elapsed_ms: Date.now() - job.startTime
+      };
+
+      console.log(`[Job ${jobId}] Anchor ready for use in Pages 1-4`);
+      return; // EXIT - Pages 1-4 will use 3-layer pipeline
     }
 
-    job.progress = 30;
+    // ============================================================
+    // PAGES 1-4: 3-LAYER PIPELINE (character anchor is already created)
+    // Layer 1: Character pose variant (from anchor)
+    // Layer 2: Local composition (character + text rendering)
+    // Layer 3: Scene inpainting (minimal backgrounds)
+    // ============================================================
 
-    console.log(`[Job ${jobId}] ========== GPT IMAGE 1 REQUEST ==========`);
-    console.log(`[Job ${jobId}] Page Number: ${pageNumber}`);
-    console.log(`[Job ${jobId}] Reference Images Count: ${imageFiles.length}`);
-    console.log(`[Job ${jobId}] FULL PROMPT:\n`, prompt);
-    console.log(`[Job ${jobId}] ==========================================`);
+    // Wait for anchor
+    const styleAnchor = await waitForStyleAnchor(bookId);
+    if (!styleAnchor) {
+      throw new Error('Character anchor not available. Generate page 0 first.');
+    }
 
-    const response = await openai.images.edit({
-      model: 'gpt-image-1',
-      image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-      prompt,
-      n: 1,
-      size: '1536x1024',  // LANDSCAPE for pages
-      quality: 'high',
-      input_fidelity: 'high',
-      background: 'transparent',
-      // @ts-expect-error: moderation exists but not in SDK types
-      moderation: 'low',
+    console.log(`[Job ${jobId}] ========================================`);
+    console.log(`[Job ${jobId}] Page ${pageNumber} - Starting 3-Layer Pipeline`);
+    console.log(`[Job ${jobId}] ========================================`);
+
+    // -------------------- LAYER 1: Character Variant --------------------
+    console.log(`[Job ${jobId}] LAYER 1: Creating character variant from anchor`);
+
+    const preserveLevel = getPreserveLevelForAction(pageData.visual_action || pageData.action_label);
+    const preservationMask = generateCharacterPreservationMask(preserveLevel);
+
+    // Collect ALL character references for this page
+    const charactersOnPage = pageData.characters_on_page || [];
+    const imageFiles: any[] = [];
+
+    // Always start with baby anchor
+    const anchorFile = await prepareImageFile(styleAnchor, 'anchor.png');
+    imageFiles.push(anchorFile);
+
+    // Add other character references if they exist
+    for (const charId of charactersOnPage) {
+      if (charId === 'baby') continue; // Skip baby, already have anchor
+
+      const charRef = getOneCharacterReference(charId as PersonId, uploadedPhotos, bookId);
+      if (charRef) {
+        const charFile = await prepareImageFile(charRef, `${charId}.png`);
+        imageFiles.push(charFile);
+      }
+    }
+
+    console.log(`[Job ${jobId}] L1 Character references: ${imageFiles.length} (${['baby', ...charactersOnPage.filter((c: PersonId) => c !== 'baby')].join(', ')})`);
+
+    const maskFile = await prepareImageFile(preservationMask, 'mask.png');
+
+    // Get camera angle from page data
+    const cameraAngle = pageData.shot_id || pageData.camera_angle || 'medium';
+    const cameraDescription = pageData.shot_description || pageData.camera_prompt || '';
+
+    // Build pose/gesture prompt with camera angle AND character descriptions
+    let posePrompt = `${pageData.visual_action || pageData.action_label || 'standing naturally'}.
+Camera angle: ${cameraAngle}${cameraDescription ? '. ' + cameraDescription : ''}.
+
+Characters in this scene: `;
+
+    // Add character descriptions
+    const characterDescriptions: string[] = [];
+    for (const charId of charactersOnPage) {
+      const charName = cast[charId]?.displayName || charId;
+      const charDesc = cast[charId]?.features_lock || '';
+
+      if (charId === 'baby') {
+        characterDescriptions.push(`${babyName} (baby)${charDesc ? ': ' + charDesc : ''}`);
+      } else {
+        characterDescriptions.push(`${charName}${charDesc ? ': ' + charDesc : ''}`);
+      }
+    }
+
+    posePrompt += characterDescriptions.join(', ');
+
+    // Multi-character composition guidance
+    if (charactersOnPage.length > 1) {
+      posePrompt += `\n\nCOMPOSITION: Show full bodies naturally positioned together as a family group.
+- If baby with parent: parent holding or standing next to baby
+- Position characters close together, not isolated
+- Show complete figures (full bodies, not just faces)
+- Natural poses and interactions between characters
+- All characters should appear at appropriate relative sizes`;
+    }
+
+    posePrompt += `\n\nMaintain exact same face and features for baby as reference.
+1024×1024 TRANSPARENT BACKGROUND, isolated character(s) cutout ONLY.
+NO scene elements, NO background objects, just the character(s).
+Paper collage style with soft edges.`;
+
+    console.log(`[Job ${jobId}] L1 Camera: ${cameraAngle}, Preserve Level: ${preserveLevel}`);
+    console.log(`[Job ${jobId}] L1 Prompt: ${posePrompt}`);
+
+    let layer1Response;
+    try {
+      layer1Response = await openai.images.edit({
+        model: 'gpt-image-1',
+        image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+        mask: maskFile,
+        prompt: posePrompt,
+        n: 1,
+        size: '1024x1024',
+        quality: IMAGE_QUALITY,
+        input_fidelity: 'high',
+        background: 'transparent',
+        // @ts-expect-error: moderation exists but not in SDK types
+        moderation: 'low',
+      });
+    } catch (error: any) {
+      // Retry with Gemini-rewritten prompt if moderation blocked
+      if (error.code === 'moderation_blocked') {
+        console.log(`[Job ${jobId}] L1 MODERATION BLOCKED - Using Gemini to rewrite prompt`);
+
+        const context = `Layer 1: Character variant. Page ${pageNumber}. Action: ${pageData.visual_action}. Camera: ${cameraAngle}. Characters: ${charactersOnPage.join(', ')}.`;
+        const fixedPrompt = await fixModerationIssueWithGemini(posePrompt, context);
+
+        layer1Response = await openai.images.edit({
+          model: 'gpt-image-1',
+          image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+          mask: maskFile,
+          prompt: fixedPrompt,
+          n: 1,
+          size: '1024x1024',
+          quality: IMAGE_QUALITY,
+          input_fidelity: 'high',
+          background: 'transparent',
+          // @ts-expect-error: moderation exists but not in SDK types
+          moderation: 'low',
+        });
+      } else {
+        throw error;
+      }
+    }
+
+    const characterVariantBase64 = await handleOpenAIResponse(layer1Response);
+    const characterVariantDataUrl = `data:image/png;base64,${characterVariantBase64}`;
+
+    job.progress = 40;
+
+    // -------------------- LAYER 2: Local Composition --------------------
+    console.log(`[Job ${jobId}] LAYER 2: Composing character + narration (local rendering)`);
+
+    const characterPosition = getCharacterPosition(pageNumber, pageData);
+    const narrationText = pageData.narration || '';
+
+    if (!narrationText) {
+      console.warn(`[Job ${jobId}] WARNING: No narration text for page ${pageNumber}!`);
+    }
+
+    console.log(`[Job ${jobId}] L2 Narration text (${narrationText.length} chars): "${narrationText.substring(0, 50)}..."`);
+
+    const compositionResult = await composeSpread({
+      characterImageBase64: characterVariantDataUrl,
+      narration: narrationText,
+      characterPosition
     });
 
-    job.progress = 80;
+    const composedDataUrl = compositionResult.imageDataUrl;
+    const actualTextBounds = compositionResult.actualTextBounds;
 
-    let imageBase64 = await handleOpenAIResponse(response);
-
-    // ALWAYS save page 0 as style anchor (it's the character anchor)
-    if (pageNumber === 0) {
-      styleAnchors.set(bookId, imageBase64);
-      console.log(`[Job ${jobId}] Style anchor created for book ${bookId}`);
-    }
+    console.log(`[Job ${jobId}] L2 Complete: Character on ${characterPosition}, narration on opposite panel`);
+    console.log(`[Job ${jobId}] L2 Actual text bounds: x=${actualTextBounds.x}, y=${actualTextBounds.y}, w=${actualTextBounds.width}, h=${actualTextBounds.height}`);
 
     job.progress = 60;
 
-    // STEP 2: Add text via inpainting (only for story pages, not anchor)
-    if (pageNumber > 0 && pageData.narration) {
-      console.log(`[Job ${jobId}] Step 2: Adding text via inpainting...`);
+    // -------------------- LAYER 3: Inpainting Scene + Refinement Words --------------------
+    console.log(`[Job ${jobId}] LAYER 3: Inpainting scene details + refinement words`);
 
-      const { getTextPlacementData } = await import('@/lib/prompts/landscapePagePrompt');
-      const textData = getTextPlacementData(pageData);
+    // Use ACTUAL text bounds from Layer 2 rendering (not estimated)
+    console.log(`[Job ${jobId}] L3 Using actual text bounds from Layer 2 (not estimation)`);
 
-      // Generate mask for text area
-      const { generateTextMaskServer } = await import('@/lib/utils/maskGenerator');
-      const maskDataUrl = generateTextMaskServer(
-        textData.textBoxCoordinates.x,
-        textData.textBoxCoordinates.y,
-        textData.textBoxCoordinates.width,
-        textData.textBoxCoordinates.height
-      );
+    // Generate inpainting mask with actual bounds
+    const inpaintingMask = generateInpaintingMask(characterPosition, actualTextBounds);
 
-      // Prepare base image and mask
-      const baseImageFile = await prepareImageFile(`data:image/png;base64,${imageBase64}`, 'base.png');
-      const maskFile = await prepareImageFile(maskDataUrl, 'mask.png');
+    // Extract refinement word from narration (hidden from parents, surprise for final book)
+    const refinementWord = extractRefinementWordFromNarration(pageData.narration || '', pageData.visual_action || '');
+    const refinementZones = getRefinementWordZones(characterPosition, pageNumber);
 
-      // Text inpainting prompt
-      const textPrompt = `Add this text in Patrick Hand font, 48pt, black color, ${textData.textAlignment}:
-"${textData.narration}"
+    // Log refinement word extraction (for debugging)
+    if (refinementWord) {
+      console.log(`[Job ${jobId}] L3 Refinement word extracted: "${refinementWord}" (hidden from parents, surprise for book)`);
+    }
 
-Blend the text naturally into the paper collage style. Text can overlay subtle decorative paper elements.
-Keep the paper collage aesthetic.`;
+    // Get setting from spread_metadata (explicit setting from story generation)
+    const setting = pageData.spread_metadata?.setting || 'outdoor setting';
+    const action = pageData.visual_action || pageData.action_label || 'standing naturally';
 
-      console.log(`[Job ${jobId}] Text inpainting prompt:`, textPrompt);
+    console.log(`[Job ${jobId}] L3 Context - Setting: "${setting}", Action: "${action}", Character: ${characterPosition}`);
 
-      // Call GPT Image 1 edit with mask
-      const textResponse = await openai.images.edit({
+    // Build context-aware scene prompt based on action analysis
+    let scenePrompt = buildContextAwareScenePrompt(
+      action,
+      setting,
+      characterPosition,
+      pageData.narration || ''
+    );
+
+    // Add refinement words instruction if present
+    if (refinementWord) {
+      scenePrompt += `\n\nREFINEMENT WORD: Add decorative text "${refinementWord}" in paper-collage letter style (cut-paper look, slight rotation, subtle shadow). `;
+      scenePrompt += `Place in available corner zones ONLY, small scale, do NOT overlap character or main narration.`;
+    }
+
+    console.log(`[Job ${jobId}] L3 Prompt:`, scenePrompt);
+
+    const composedFile = await prepareImageFile(composedDataUrl, 'composed.png');
+    const inpaintMaskFile = await prepareImageFile(inpaintingMask, 'inpaint-mask.png');
+
+    let layer3Response;
+    try {
+      layer3Response = await openai.images.edit({
         model: 'gpt-image-1',
-        image: baseImageFile,
-        mask: maskFile,
-        prompt: textPrompt,
+        image: composedFile,
+        mask: inpaintMaskFile,
+        prompt: scenePrompt,
         n: 1,
-        size: '1536x1024',
-        quality: 'high',
+        size: '1536x1024', // LANDSCAPE spread
+        quality: IMAGE_QUALITY,
         input_fidelity: 'high',
         // @ts-expect-error: moderation exists but not in SDK types
         moderation: 'low',
       });
+    } catch (error: any) {
+      // Retry with Gemini-rewritten prompt if moderation blocked
+      if (error.code === 'moderation_blocked') {
+        console.log(`[Job ${jobId}] L3 MODERATION BLOCKED - Using Gemini to rewrite prompt`);
 
-      imageBase64 = await handleOpenAIResponse(textResponse);
-      console.log(`[Job ${jobId}] Text added successfully`);
+        const context = `Layer 3: Scene inpainting. Page ${pageNumber}. Narration: "${pageData.narration}". Refinement word: ${refinementWord || 'none'}.`;
+        const fixedPrompt = await fixModerationIssueWithGemini(scenePrompt, context);
+
+        layer3Response = await openai.images.edit({
+          model: 'gpt-image-1',
+          image: composedFile,
+          mask: inpaintMaskFile,
+          prompt: fixedPrompt,
+          n: 1,
+          size: '1536x1024',
+          quality: IMAGE_QUALITY,
+          input_fidelity: 'high',
+          // @ts-expect-error: moderation exists but not in SDK types
+          moderation: 'low',
+        });
+      } else {
+        throw error;
+      }
     }
+
+    const finalImageBase64 = await handleOpenAIResponse(layer3Response);
+    const finalDataUrl = `data:image/png;base64,${finalImageBase64}`;
 
     job.progress = 90;
 
-    const dataUrl = `data:image/png;base64,${imageBase64}`;
+    console.log(`[Job ${jobId}] 3-Layer Pipeline Complete!`);
 
     job.progress = 100;
     job.status = 'completed';
     job.completedAt = Date.now();
     job.result = {
       page_number: pageNumber,
-      dataUrl,
-      sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
-      style: 'high-contrast-paper-collage',
+      dataUrl: finalDataUrl,
+      sizeKB: Math.round(Buffer.from(finalImageBase64, 'base64').length / 1024),
+      style: '3-layer-pipeline',
       gender: babyGender,
-      shot_id: pageData.shot_id,
-      shot_name: CAMERA_ANGLES[pageData.shot_id]?.name,
-      is_character_free: isCharacterFree,
-      characters_on_page: isCharacterFree ? [] : pageData.characters_on_page,
-      reference_count: imageFiles.length,
+      character_position: characterPosition,
+      preserve_level: preserveLevel,
+      characters_on_page: pageData.characters_on_page,
+      refinement_word: refinementWord,
       elapsed_ms: Date.now() - job.startTime
     };
-
-    console.log(`[Job ${jobId}] Completed: ${isCharacterFree ? 'Character-free' : 'Character'} ${CAMERA_ANGLES[pageData.shot_id]?.name} shot`);
 
   } catch (error: any) {
     console.error(`[Job ${jobId}] Failed:`, error);
@@ -601,49 +999,6 @@ Keep the paper collage aesthetic.`;
     job.error = error.message;
     job.completedAt = Date.now();
   }
-}
-
-/**
- * Handle OpenAI response
- */
-async function handleOpenAIResponse(response: any): Promise<string> {
-  if (!response.data || !response.data[0]) {
-    throw new Error('No image data in response');
-  }
-
-  const imageData = response.data[0];
-
-  if ('b64_json' in imageData && imageData.b64_json) {
-    return imageData.b64_json;
-  }
-
-  if ('url' in imageData && imageData.url) {
-    const imgResponse = await fetch(imageData.url);
-    if (!imgResponse.ok) {
-      throw new Error(`Failed to fetch image: ${imgResponse.status}`);
-    }
-    const arrayBuffer = await imgResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer).toString('base64');
-  }
-
-  throw new Error('Unknown response format from OpenAI');
-}
-
-/**
- * Wait for style anchor
- */
-async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<string | null> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const anchor = styleAnchors.get(bookId);
-    if (anchor) {
-      return anchor;
-    }
-    if (attempt === 0) {
-      console.log(`Waiting for High-Contrast style anchor for book ${bookId}...`);
-    }
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-  return null;
 }
 
 /**

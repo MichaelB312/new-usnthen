@@ -7,6 +7,13 @@ import Replicate from 'replicate';
  * @param scale - Upscaling factor (2 or 4)
  * @returns Base64 encoded upscaled image (without data URI prefix)
  */
+/**
+ * Sleep utility for retry delays
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function upscaleImage(
   imageBase64: string,
   scale: 2 | 4 = 2
@@ -20,33 +27,62 @@ export async function upscaleImage(
   // Real-ESRGAN expects a data URI or URL
   const dataUri = `data:image/png;base64,${imageBase64}`;
 
-  try {
-    const output = await replicate.run(
-      "nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
-      {
-        input: {
-          image: dataUri,
-          scale: scale,
-          face_enhance: false // Keep false to preserve children's book illustration style
-        }
+  // Retry configuration
+  const maxRetries = 3;
+  const baseDelay = 2000; // 2 seconds
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 1) {
+        const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff: 2s, 4s, 8s
+        console.log(`[Upscaler] Retry attempt ${attempt}/${maxRetries} after ${delay}ms delay`);
+        await sleep(delay);
       }
-    ) as unknown as string;
 
-    console.log(`[Upscaler] Upscaling complete, fetching result`);
+      const output = await replicate.run(
+        "nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
+        {
+          input: {
+            image: dataUri,
+            scale: scale,
+            face_enhance: false // Keep false to preserve children's book illustration style
+          }
+        }
+      ) as unknown as string;
 
-    // Replicate returns a URL to the upscaled image
-    const response = await fetch(output);
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+      console.log(`[Upscaler] Upscaling complete, fetching result`);
 
-    const resultBase64 = buffer.toString('base64');
-    console.log(`[Upscaler] Successfully upscaled to ${scale}x resolution`);
+      // Replicate returns a URL to the upscaled image
+      const response = await fetch(output);
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
-    return resultBase64;
-  } catch (error) {
-    console.error('[Upscaler] Error during upscaling:', error);
-    throw new Error(`Failed to upscale image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const resultBase64 = buffer.toString('base64');
+      console.log(`[Upscaler] Successfully upscaled to ${scale}x resolution`);
+
+      return resultBase64;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const isMemoryError = errorMessage.includes('CUDA out of memory') ||
+                           errorMessage.includes('out of memory');
+
+      // Log the error
+      console.error(`[Upscaler] Attempt ${attempt}/${maxRetries} failed:`, errorMessage);
+
+      // If it's a memory error and we have retries left, continue
+      if (isMemoryError && attempt < maxRetries) {
+        console.log(`[Upscaler] GPU memory error detected, will retry...`);
+        continue;
+      }
+
+      // If it's the last attempt or not a retryable error, throw
+      throw new Error(`Failed to upscale image after ${attempt} attempts: ${errorMessage}`);
+    }
   }
+
+  // Should never reach here, but TypeScript needs it
+  throw new Error('Upscaling failed: Maximum retries exceeded');
 }
 
 /**

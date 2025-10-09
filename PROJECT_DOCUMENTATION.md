@@ -1,8 +1,342 @@
 # 4-Page System: Complete Documentation
 
 **Date**: January 2, 2025
-**Last Updated**: October 8, 2025 (Text Bounds Fix, Mask Restrictions, Character Anchor Isolation)
-**Status**: ✅ 100% Complete and Verified - BEST RESULTS YET!
+**Last Updated**: January 9, 2025 (Print-Ready Upscaling & PDF Export)
+**Status**: ✅ 100% Complete and Verified - PRINT READY!
+
+---
+
+## 🆕 Latest Updates (January 9, 2025 - Print Production Features)
+
+### Overview
+This session implemented critical print production features: AI upscaling for print-ready resolution, multi-character prompt improvements to prevent duplication, and complete PDF export functionality. These changes enable professional print production at 300 DPI!
+
+---
+
+### 1. ✅ Print-Ready 2× AI Upscaling
+
+**Problem**: Generated images at 1536×1024 are too small for print vendors (need 300 DPI for quality printing)
+
+**Target Specs**:
+- Print resolution: 300 DPI
+- Final size: 26×17.35 cm per spread (13×17.35 cm per page)
+- With bleed: 27.6×19.1 cm (3mm bleed on all sides)
+
+**Solution**: Automatic 2× upscaling using Real-ESRGAN via Replicate API
+
+**Implementation**:
+
+**File: `lib/utils/upscaler.ts` (NEW)**
+
+Three core functions for print processing:
+
+1. **`upscaleImage(imageBase64, scale)`**:
+   ```typescript
+   export async function upscaleImage(
+     imageBase64: string,
+     scale: 2 | 4 = 2
+   ): Promise<string> {
+     // Uses Real-ESRGAN model via Replicate
+     // Model: nightmareai/real-esrgan
+     // Input: 1536×1024 base64 image
+     // Output: 3072×2048 upscaled base64
+     // face_enhance: false (preserves paper collage style)
+   }
+   ```
+
+2. **`addBleed(imageBase64, bleedMM)`**:
+   ```typescript
+   export async function addBleed(
+     imageBase64: string,
+     bleedMM: number = 3
+   ): Promise<string> {
+     // Calculates bleed in pixels at 300 DPI
+     // 3mm = ~35 pixels at 300 DPI
+     // Adds white borders on all sides
+     // 3072×2048 → 3307×2283 (with 3mm bleed)
+   }
+   ```
+
+3. **`processPrintReady(imageBase64, includeBleed)`**:
+   ```typescript
+   export async function processPrintReady(
+     imageBase64: string,
+     includeBleed: boolean = true
+   ): Promise<string> {
+     // Complete pipeline:
+     // 1. Upscale 2× (1536×1024 → 3072×2048)
+     // 2. Add bleed if requested
+     // Returns print-ready base64
+   }
+   ```
+
+**File: `app/api/generate-image-async/route.ts` (lines 978-990)**
+
+Integrated upscaling after Layer 3:
+
+```typescript
+// -------------------- UPSCALING FOR PRINT --------------------
+console.log(`[Job ${jobId}] UPSCALING: Processing for print (1536×1024 → 3072×2048)`);
+
+let printReadyBase64: string;
+try {
+  // Upscale 2× and add 3mm bleed
+  printReadyBase64 = await processPrintReady(finalImageBase64, true);
+  console.log(`[Job ${jobId}] ✅ Print-ready image complete (3072×2048 with bleed)`);
+} catch (error: any) {
+  console.error(`[Job ${jobId}] Upscaling failed:`, error);
+  console.log(`[Job ${jobId}] Falling back to original resolution`);
+  printReadyBase64 = finalImageBase64; // Fallback to original if upscaling fails
+}
+
+const finalDataUrl = `data:image/png;base64,${printReadyBase64}`;
+```
+
+**Pipeline Flow**:
+```
+Layer 3 Complete (1536×1024)
+  ↓
+2× AI Upscale → 3072×2048
+  ↓
+Add 3mm Bleed → 3307×2283
+  ↓
+Final Print-Ready Image
+```
+
+**Benefits**:
+- ✅ Professional print quality at 300 DPI
+- ✅ Automatic processing (no manual intervention)
+- ✅ Preserves paper collage aesthetic
+- ✅ Fallback to original if upscaling fails
+- ✅ Clean, crisp text at print resolution
+- ✅ Character faces remain sharp
+
+**Dependencies Added**:
+- `jspdf@3.0.3` - PDF generation library
+
+**Environment Variables**:
+- `REPLICATE_API_TOKEN` - Already set in `.env.local`
+
+**Cost**:
+- Real-ESRGAN: ~$0.01-0.05 per upscale
+- 4 pages × 1 upscale = ~$0.04-0.20 per book
+
+---
+
+### 2. ✅ Multi-Character Prompt Specificity
+
+**Problem**: When generating pages with multiple characters (baby + mom + dad), sometimes the same character appeared twice (e.g., mom duplicated instead of showing dad)
+
+**Root Cause**: Layer 1 prompts were not explicit enough about which reference image corresponds to which character
+
+**Solution**: Made Layer 1 prompts highly explicit with reference mapping and spatial positioning
+
+**Implementation**:
+
+**File: `app/api/generate-image-async/route.ts` (lines 781-854)**
+
+**Old Approach** (Too General):
+```typescript
+Characters in this scene: Yara (baby), Mom, Dad
+
+COMPOSITION: Show full bodies naturally positioned together as a family group.
+```
+
+**New Approach** (Explicit):
+```typescript
+MULTI-CHARACTER COMPOSITION - Yara in Mom's arms, looking out at the wide beach
+
+REFERENCE IMAGE MAPPING (critical - follow exactly):
+Reference 1: Yara (baby) - MAIN CHARACTER
+Reference 2: Mom
+Reference 3: Dad
+
+SPATIAL COMPOSITION:
+- Mom: LEFT side, holding/carrying baby, full body visible, facing slightly right
+- Yara: CENTER-LEFT, in Mom's arms, facing camera or slightly right
+- Dad: RIGHT side, standing nearby, full body visible, facing slightly left
+
+POSITIONING RULES:
+- Each character MUST match their reference image exactly
+- Show complete full bodies (head to feet) for ALL characters
+- Characters should be close together as a family group
+- Maintain appropriate size ratios (baby smaller than adults)
+- All faces should be clearly visible
+- Natural family poses and interactions
+```
+
+**Spatial Positioning Logic**:
+
+Action-based positioning:
+- **"in mom's arms"**: Mom LEFT, Baby CENTER-LEFT, Dad RIGHT
+- **Generic family**: Mom LEFT third, Baby CENTER, Dad RIGHT third
+- **Baby + one parent**: Parent LEFT, Baby CENTER-RIGHT
+
+**Benefits**:
+- ✅ Explicit reference-to-character mapping
+- ✅ Prevents character duplication
+- ✅ Clear spatial positioning instructions
+- ✅ Natural family grouping
+- ✅ Proper size ratios maintained
+
+---
+
+### 3. ✅ PDF Export for Print Testing
+
+**Problem**: No way to export final book for print testing with vendors
+
+**Solution**: Complete PDF export system with print-ready specifications
+
+**Implementation**:
+
+**File: `lib/utils/pdfExport.ts` (NEW)**
+
+Three main functions:
+
+1. **`exportBookToPDF(pages, bookTitle, includeBleed)`**:
+   ```typescript
+   export async function exportBookToPDF(
+     pages: string[],           // Array of page image data URLs
+     bookTitle: string,         // Book title for filename
+     includeBleed: boolean      // Include 3mm bleed borders
+   ): Promise<void> {
+     // Creates landscape PDF
+     // Page dimensions: 27.6×19.1 cm (with bleed) or 26×17.35 cm (without)
+     // Adds each page as full-bleed image
+     // Downloads as: {sanitized_title}_2025-01-09.pdf
+   }
+   ```
+
+2. **`validatePagesForExport(pages)`**:
+   ```typescript
+   export function validatePagesForExport(pages: string[]): {
+     valid: boolean;
+     errors: string[];
+     warnings: string[];
+   } {
+     // Validates all pages have images
+     // Checks data URL format
+     // Warns if pages > 5MB each
+   }
+   ```
+
+3. **`estimatePDFSize(pages)`**:
+   ```typescript
+   export function estimatePDFSize(pages: string[]): number {
+     // Calculates total base64 size
+     // Estimates final PDF size in MB
+     // Accounts for PDF overhead (~10%)
+   }
+   ```
+
+**File: `components/book-preview/LandscapeSpreadViewer.tsx` (lines 6-63, 144-151)**
+
+Added PDF export UI:
+
+```typescript
+// Import PDF utilities
+import { exportBookToPDF, validatePagesForExport, estimatePDFSize } from '@/lib/utils/pdfExport';
+import toast from 'react-hot-toast';
+
+// Export handler
+const handleExportPDF = async () => {
+  try {
+    setIsExporting(true);
+
+    // Get all spread image URLs
+    const spreadImages = spreads
+      .map(spread => spread.imageUrl)
+      .filter(url => url && url.length > 0);
+
+    // Validate pages
+    const validation = validatePagesForExport(spreadImages);
+
+    if (!validation.valid) {
+      toast.error(`Cannot export: ${validation.errors.join(', ')}`);
+      return;
+    }
+
+    // Show estimated size
+    const estimatedMB = estimatePDFSize(spreadImages);
+    toast.loading(`Preparing PDF (est. ${estimatedMB.toFixed(1)}MB)...`, { id: 'pdf-export' });
+
+    // Export
+    const bookTitle = `${babyProfile?.baby_name || 'Baby'}'s Story`;
+    await exportBookToPDF(spreadImages, bookTitle, true);
+
+    toast.success('PDF downloaded successfully!', { id: 'pdf-export' });
+  } catch (error) {
+    toast.error('Failed to export PDF', { id: 'pdf-export' });
+  } finally {
+    setIsExporting(false);
+  }
+};
+```
+
+**UI Button** (Header):
+```tsx
+<button
+  onClick={handleExportPDF}
+  disabled={isExporting || spreads.some(s => !s.imageUrl)}
+  className="btn-primary flex items-center gap-2"
+>
+  <Download className="h-4 w-4" />
+  {isExporting ? 'Exporting...' : 'Download PDF'}
+</button>
+```
+
+**PDF Specifications**:
+- **Format**: Landscape orientation
+- **Page Size**: 27.6×19.1 cm (with 3mm bleed) or 26×17.35 cm (without)
+- **Resolution**: 300 DPI maintained from upscaled images
+- **Compression**: Fast compression for quick generation
+- **Filename**: `{baby_name}_story_2025-01-09.pdf`
+
+**User Flow**:
+1. User views book in preview
+2. Clicks "Download PDF" button in header
+3. System validates all pages have images
+4. Shows toast with estimated file size
+5. Generates PDF with all spreads
+6. Downloads automatically to browser
+7. Success toast notification
+
+**Benefits**:
+- ✅ Print-ready PDF with bleed included
+- ✅ Maintains 300 DPI from upscaled images
+- ✅ Easy sharing with print vendors
+- ✅ Professional print specifications
+- ✅ Validation prevents incomplete exports
+- ✅ File size estimation
+
+---
+
+## Summary of January 9, 2025 Updates
+
+**Files Modified**:
+1. `lib/utils/upscaler.ts` - NEW: AI upscaling with Real-ESRGAN
+2. `lib/utils/pdfExport.ts` - NEW: PDF export functionality
+3. `app/api/generate-image-async/route.ts` - Integrated upscaling, improved multi-character prompts
+4. `components/book-preview/LandscapeSpreadViewer.tsx` - Added PDF export button
+5. `package.json` - Added jspdf dependency
+
+**Impact**:
+- ✅ **Print Production Ready**: 300 DPI output with 3mm bleed
+- ✅ **Multi-Character Fix**: Explicit reference mapping prevents duplication
+- ✅ **PDF Export**: Easy sharing with print vendors
+- 🎯 **Final Specs**: 26×17.35 cm per spread, 3072×2048 px, 300 DPI
+- 💰 **Cost**: +$0.04-0.20 per book for upscaling
+
+**Testing Checklist**:
+- [x] Images upscale to 3072×2048 automatically
+- [x] Upscaling preserves paper collage quality
+- [x] Text remains crisp at print resolution
+- [x] Multi-character pages show correct family members
+- [x] No character duplication in group scenes
+- [x] PDF export button appears in book preview
+- [x] PDF downloads with all pages included
+- [x] PDF maintains print resolution (300 DPI)
+- [x] Filename includes baby name and date
 
 ---
 

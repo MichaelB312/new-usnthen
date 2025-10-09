@@ -30,6 +30,7 @@ import {
   calculateNarrationBounds,
   getRefinementWordZones
 } from '@/lib/utils/inpaintingMasks';
+import { processPrintReady } from '@/lib/utils/upscaler';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -778,37 +779,76 @@ Soft pastel colors on character only. Clean paper collage cutout.`;
     const cameraDescription = pageData.shot_description || pageData.camera_prompt || '';
 
     // Build pose/gesture prompt with camera angle AND character descriptions
-    let posePrompt = `${pageData.visual_action || pageData.action_label || 'standing naturally'}.
+    let posePrompt = '';
+
+    if (charactersOnPage.length > 1) {
+      // MULTI-CHARACTER: Explicit reference mapping and spatial composition
+      posePrompt = `MULTI-CHARACTER COMPOSITION - ${pageData.visual_action || pageData.action_label || 'family together'}.
 Camera angle: ${cameraAngle}${cameraDescription ? '. ' + cameraDescription : ''}.
 
-Characters in this scene: `;
+REFERENCE IMAGE MAPPING (critical - follow exactly):`;
 
-    // Add character descriptions
-    const characterDescriptions: string[] = [];
-    for (const charId of charactersOnPage) {
-      const charName = cast[charId]?.displayName || charId;
-      const charDesc = cast[charId]?.features_lock || '';
+      let refIndex = 1;
+      for (const charId of ['baby', ...charactersOnPage.filter((c: PersonId) => c !== 'baby')]) {
+        if (!charactersOnPage.includes(charId)) continue;
 
-      if (charId === 'baby') {
-        characterDescriptions.push(`${babyName} (baby)${charDesc ? ': ' + charDesc : ''}`);
+        const charName = cast[charId]?.displayName || charId;
+        const charDesc = cast[charId]?.features_lock || '';
+
+        if (charId === 'baby') {
+          posePrompt += `\nReference ${refIndex}: ${babyName} (baby) - MAIN CHARACTER`;
+          if (charDesc) posePrompt += ` - ${charDesc}`;
+        } else {
+          posePrompt += `\nReference ${refIndex}: ${charName} (${charId})`;
+          if (charDesc) posePrompt += ` - ${charDesc}`;
+        }
+        refIndex++;
+      }
+
+      // Explicit spatial positioning based on action
+      const actionLower = (pageData.visual_action || '').toLowerCase();
+      posePrompt += `\n\nSPATIAL COMPOSITION:`;
+
+      if (actionLower.includes('in mom') || actionLower.includes("in mother's") || actionLower.includes('holding')) {
+        posePrompt += `\n- Mom: LEFT side, holding/carrying baby, full body visible, facing slightly right`;
+        posePrompt += `\n- ${babyName}: CENTER-LEFT, in Mom's arms, facing camera or slightly right`;
+        if (charactersOnPage.includes('dad')) {
+          posePrompt += `\n- Dad: RIGHT side, standing nearby, full body visible, facing slightly left`;
+        }
+      } else if (charactersOnPage.includes('mom') && charactersOnPage.includes('dad')) {
+        // Generic family positioning
+        posePrompt += `\n- Mom: LEFT third, full body visible, facing camera`;
+        posePrompt += `\n- ${babyName}: CENTER, between parents, full body visible, facing camera`;
+        posePrompt += `\n- Dad: RIGHT third, full body visible, facing camera`;
       } else {
-        characterDescriptions.push(`${charName}${charDesc ? ': ' + charDesc : ''}`);
+        // Baby with one parent
+        const otherChar = charactersOnPage.find((c: PersonId) => c !== 'baby');
+        const otherName = cast[otherChar]?.displayName || otherChar;
+        posePrompt += `\n- ${otherName}: LEFT side, near or holding baby, full body visible`;
+        posePrompt += `\n- ${babyName}: CENTER-RIGHT, with ${otherName}, full body visible`;
+      }
+
+      posePrompt += `\n\nPOSITIONING RULES:
+- Each character MUST match their reference image exactly
+- Show complete full bodies (head to feet) for ALL characters
+- Characters should be close together as a family group
+- Maintain appropriate size ratios (baby smaller than adults)
+- All faces should be clearly visible
+- Natural family poses and interactions`;
+
+    } else {
+      // SINGLE CHARACTER: Simple pose description
+      posePrompt = `${pageData.visual_action || pageData.action_label || 'standing naturally'}.
+Camera angle: ${cameraAngle}${cameraDescription ? '. ' + cameraDescription : ''}.
+
+Character: ${babyName} (baby)`;
+      const babyDesc = cast['baby']?.features_lock;
+      if (babyDesc) {
+        posePrompt += ` - ${babyDesc}`;
       }
     }
 
-    posePrompt += characterDescriptions.join(', ');
-
-    // Multi-character composition guidance
-    if (charactersOnPage.length > 1) {
-      posePrompt += `\n\nCOMPOSITION: Show full bodies naturally positioned together as a family group.
-- If baby with parent: parent holding or standing next to baby
-- Position characters close together, not isolated
-- Show complete figures (full bodies, not just faces)
-- Natural poses and interactions between characters
-- All characters should appear at appropriate relative sizes`;
-    }
-
-    posePrompt += `\n\nMaintain exact same face and features for baby as reference.
+    posePrompt += `\n\nMaintain exact same face and features as reference image(s).
 1024×1024 TRANSPARENT BACKGROUND, isolated character(s) cutout ONLY.
 NO scene elements, NO background objects, just the character(s).
 Paper collage style with soft edges.`;
@@ -971,7 +1011,24 @@ Paper collage style with soft edges.`;
     }
 
     const finalImageBase64 = await handleOpenAIResponse(layer3Response);
-    const finalDataUrl = `data:image/png;base64,${finalImageBase64}`;
+
+    job.progress = 85;
+
+    // -------------------- UPSCALING FOR PRINT --------------------
+    console.log(`[Job ${jobId}] UPSCALING: Processing for print (1536×1024 → 3072×2048)`);
+
+    let printReadyBase64: string;
+    try {
+      // Upscale 2× and add 3mm bleed
+      printReadyBase64 = await processPrintReady(finalImageBase64, true);
+      console.log(`[Job ${jobId}] ✅ Print-ready image complete (3072×2048 with bleed)`);
+    } catch (error: any) {
+      console.error(`[Job ${jobId}] Upscaling failed:`, error);
+      console.log(`[Job ${jobId}] Falling back to original resolution`);
+      printReadyBase64 = finalImageBase64; // Fallback to original if upscaling fails
+    }
+
+    const finalDataUrl = `data:image/png;base64,${printReadyBase64}`;
 
     job.progress = 90;
 

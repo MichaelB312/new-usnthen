@@ -3,9 +3,11 @@
 
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { useBookStore } from '@/lib/store/bookStore';
 import { buildSpreads } from '@/lib/utils/buildSpreads';
+import { exportBookToPDF, validatePagesForExport, estimatePDFSize } from '@/lib/utils/pdfExport';
+import toast from 'react-hot-toast';
 
 interface LandscapeSpreadViewerProps {
   onComplete: () => void;
@@ -14,12 +16,52 @@ interface LandscapeSpreadViewerProps {
 export function LandscapeSpreadViewer({ onComplete }: LandscapeSpreadViewerProps) {
   const { storyData, illustrations, babyProfile } = useBookStore();
   const [currentSpread, setCurrentSpread] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Build spreads array from pages
   const spreads = useMemo(() => {
     if (!storyData?.pages) return [];
     return buildSpreads(storyData.pages, illustrations || []);
   }, [storyData?.pages, illustrations]);
+
+  // Export handler
+  const handleExportPDF = async () => {
+    try {
+      setIsExporting(true);
+
+      // Get all spread image URLs
+      const spreadImages = spreads
+        .map(spread => spread.imageUrl)
+        .filter(url => url && url.length > 0);
+
+      // Validate pages
+      const validation = validatePagesForExport(spreadImages);
+
+      if (!validation.valid) {
+        toast.error(`Cannot export: ${validation.errors.join(', ')}`);
+        return;
+      }
+
+      if (validation.warnings.length > 0) {
+        console.warn('[PDF Export] Warnings:', validation.warnings);
+      }
+
+      // Show estimated size
+      const estimatedMB = estimatePDFSize(spreadImages);
+      toast.loading(`Preparing PDF (est. ${estimatedMB.toFixed(1)}MB)...`, { id: 'pdf-export' });
+
+      // Export
+      const bookTitle = `${babyProfile?.baby_name || 'Baby'}'s Story`;
+      await exportBookToPDF(spreadImages, bookTitle, true);
+
+      toast.success('PDF downloaded successfully!', { id: 'pdf-export' });
+    } catch (error) {
+      console.error('[PDF Export] Failed:', error);
+      toast.error('Failed to export PDF', { id: 'pdf-export' });
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   if (spreads.length === 0) return null;
 
@@ -93,8 +135,20 @@ export function LandscapeSpreadViewer({ onComplete }: LandscapeSpreadViewerProps
         <h2 className="font-patrick text-2xl gradient-text">
           {babyProfile?.baby_name}'s Story
         </h2>
-        <div className="text-sm text-gray-600">
-          Spread {currentSpread + 1} of {spreads.length}
+
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-gray-600">
+            Spread {currentSpread + 1} of {spreads.length}
+          </div>
+
+          <button
+            onClick={handleExportPDF}
+            disabled={isExporting || spreads.some(s => !s.imageUrl)}
+            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className="h-4 w-4" />
+            {isExporting ? 'Exporting...' : 'Download PDF'}
+          </button>
         </div>
       </div>
 

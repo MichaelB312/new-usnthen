@@ -35,9 +35,10 @@ interface GeneratedImage {
   elapsed_ms?: number;
 }
 
-const POLL_INTERVAL = 2000;
-const MAX_POLL_TIME = 480000; // 8 minutes max
+const POLL_INTERVAL = 2000; // Poll every 2 seconds
+const MAX_POLL_TIME = 600000; // 10 minutes max (increased from 8 to handle long jobs)
 const EXPECTED_TIME = 480000; // 8 minutes expected
+const MAX_POLL_ATTEMPTS = 300; // 300 attempts * 2s = 600s = 10 minutes (aligned with MAX_POLL_TIME)
 
 export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => void }) {
   const router = useRouter();
@@ -67,6 +68,8 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const visualProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const generatedImagesRef = useRef<GeneratedImage[]>([]);
+  const generationStartedRef = useRef(false); // Guard to prevent duplicate generation starts
+  const hasInitializedImagesRef = useRef(false); // Guard for image initialization
 
 
   // Update ref whenever generatedImages changes
@@ -76,8 +79,12 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
 
 
   // Initialize images from story data - Simple: one slot per page (always 4 pages)
+  // CRITICAL: Only run ONCE to prevent remounting issues
   useEffect(() => {
-    if (storyData?.pages) {
+    if (storyData?.pages && !hasInitializedImagesRef.current) {
+      console.log('[Init] Initializing image slots for', storyData.pages.length, 'pages');
+      hasInitializedImagesRef.current = true;
+
       const pageCount = storyData.pages.length; // Always 4 pages
       const initialImages: GeneratedImage[] = [];
 
@@ -188,7 +195,17 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     // Skip style selection, go directly to generate
     setPhase('generate');
     // Start generation automatically
-    setTimeout(() => generateAllAsync(), 100);
+    // Start generation automatically - but only once!
+    if (!generationStartedRef.current) {
+      console.log('[Guard] First time entering generate phase, will auto-start generation');
+      setTimeout(() => {
+        if (!generationStartedRef.current) {
+          generateAllAsync();
+        }
+      }, 100);
+    } else {
+      console.log('[Guard] Generation already started, skipping auto-start');
+    }
   };
 
   const startImageGeneration = async (page: any): Promise<string | null> => {
@@ -317,7 +334,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
             return;
           }
 
-          if (pollCount > 150) {
+          if (pollCount > MAX_POLL_ATTEMPTS) {
             console.log(`[Poll] Max attempts reached for job ${jobId}`);
             clearInterval(interval);
             pollingIntervalsRef.current.delete(jobId);
@@ -460,6 +477,19 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   };
 
   const generateAllAsync = async () => {
+    // CRITICAL: Guard against duplicate calls
+    if (generationStartedRef.current) {
+      console.log('[Guard] Generation already in progress, ignoring duplicate call');
+      return;
+    }
+
+    if (!storyData?.pages) {
+      console.error('[Guard] No story data pages, cannot generate');
+      return;
+    }
+
+    console.log('[Guard] Setting generation started flag');
+    generationStartedRef.current = true;
     if (!storyData?.pages) {
       return;
     }
@@ -484,6 +514,21 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
       return;
     }
 
+
+    // CRITICAL: Validate narration text exists for all pages
+    const pagesWithoutNarration = storyData.pages
+      .map((page, index) => ({ page, pageNum: index + 1 }))
+      .filter(({ page }) => !page.narration || page.narration.trim().length === 0);
+
+    if (pagesWithoutNarration.length > 0) {
+      const pageNumbers = pagesWithoutNarration.map(p => p.pageNum).join(', ');
+      toast.error(`Missing narration text for page${pagesWithoutNarration.length > 1 ? 's' : ''}: ${pageNumbers}`);
+      console.error('Pages without narration:', pagesWithoutNarration.map(p => ({
+        pageNum: p.pageNum,
+        narration: p.page.narration
+      })));
+      return;
+    }
     setGenerating(true);
     setJobs([]);
     setVisualProgress(0);
@@ -590,7 +635,9 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
 
         pagePromises.push(pagePromise);
 
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Add delay between starting each page to prevent overwhelming the API
+        // Increased from 300ms to 1000ms to handle 8-page generation more reliably
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
       await Promise.all(pagePromises);
@@ -630,26 +677,26 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
-        className="card-magical text-center py-20"
+        className="card-magical text-center py-12 sm:py-16 lg:py-20 px-4"
       >
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-          className="inline-block mb-8"
+          className="inline-block mb-6 sm:mb-8"
         >
-          <Scissors className="h-20 w-20 text-purple-600" />
+          <Scissors className="h-16 w-16 sm:h-20 sm:w-20 text-purple-600" />
         </motion.div>
 
-        <h2 className="text-4xl font-patrick mb-4 gradient-text">
+        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick mb-3 sm:mb-4 gradient-text">
           Creating Your Illustrations...
         </h2>
 
-        <p className="text-xl text-gray-600 mb-6">
+        <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-4 sm:mb-6 px-2">
           Crafting beautiful paper collage art for {babyProfile?.baby_name}
         </p>
 
-        <div className="max-w-md mx-auto">
-          <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
+        <div className="max-w-md mx-auto px-4">
+          <div className="bg-gray-200 rounded-full h-2 sm:h-3 overflow-hidden">
             <motion.div
               className="h-full bg-gradient-to-r from-purple-600 to-pink-600"
               initial={{ width: '0%' }}
@@ -664,7 +711,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
-              className="text-sm text-gray-500 mt-2"
+              className="text-xs sm:text-sm text-gray-500 mt-2"
             >
               {isOverTime
                 ? "Almost there! Just a little bit longer..."
@@ -684,7 +731,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-gradient-to-b from-white to-purple-50/30 z-50 flex items-center justify-center"
+          className="fixed inset-0 bg-gradient-to-b from-white to-purple-50/30 z-50 flex items-center justify-center px-4"
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
@@ -696,16 +743,16 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ delay: 0.2, type: "spring" }}
-              className="w-20 h-20 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center mx-auto mb-8"
+              className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center mx-auto mb-6 sm:mb-8"
             >
-              <Check className="h-10 w-10 text-white" strokeWidth={2} />
+              <Check className="h-8 w-8 sm:h-10 sm:w-10 text-white" strokeWidth={2} />
             </motion.div>
 
             <motion.h2
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
-              className="text-4xl font-patrick text-gray-800 mb-3"
+              className="text-2xl sm:text-3xl lg:text-4xl font-patrick text-gray-800 mb-2 sm:mb-3 px-2"
             >
               Your Paper Collage Book is Ready
             </motion.h2>
@@ -714,7 +761,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6 }}
-              className="text-lg text-gray-600"
+              className="text-base sm:text-lg text-gray-600 px-2"
             >
               Let's see your beautiful creation!
             </motion.p>
@@ -732,13 +779,13 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   if (phase === 'generate') {
     // This shows briefly before auto-starting generation
     return (
-      <div className="max-w-4xl mx-auto text-center py-20">
+      <div className="max-w-4xl mx-auto text-center py-12 sm:py-16 lg:py-20 px-4">
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           className="card-magical"
         >
-          <Scissors className="h-20 w-20 text-purple-600 mx-auto mb-6" />
+          <Scissors className="h-16 w-16 sm:h-20 sm:w-20 text-purple-600 mx-auto mb-4 sm:mb-6" />
           <h2 className="text-3xl font-patrick gradient-text mb-4">
             Ready to Create Your Paper Collage Book
           </h2>
@@ -757,11 +804,11 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
   if (phase === 'complete' && generatedImages.some(img => img.status !== 'pending')) {
     return (
       <motion.div className="card-magical">
-        <h3 className="text-2xl font-patrick gradient-text text-center mb-6">
+        <h3 className="text-xl sm:text-2xl font-patrick gradient-text text-center mb-4 sm:mb-6 px-2">
           Your Paper Collage Illustrations!
         </h3>
 
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
           {generatedImages.map((image) => (
             <motion.div
               key={image.page_number}
@@ -789,17 +836,18 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
                 </div>
               ) : image.status === 'error' ? (
                 <div className="aspect-square rounded-xl bg-red-50 flex items-center justify-center">
-                  <AlertCircle className="h-8 w-8 text-red-500" />
+                  <AlertCircle className="h-6 w-6 sm:h-8 sm:w-8 text-red-500" />
                 </div>
               ) : null}
             </motion.div>
           ))}
         </div>
 
-        <div className="flex gap-4 mt-8">
-          <button onClick={() => window.location.reload()} className="btn-secondary flex-1">
-            <RefreshCw className="h-5 w-5 mr-2" />
-            Regenerate All
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-6 sm:mt-8">
+          <button onClick={() => window.location.reload()} className="btn-secondary flex-1 flex items-center justify-center text-sm sm:text-base py-3">
+            <RefreshCw className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+            <span className="whitespace-nowrap">
+            Regenerate All</span>
           </button>
 
           <button onClick={onComplete} className="btn-primary flex-1">

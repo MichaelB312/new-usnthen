@@ -82,56 +82,56 @@ export function CharacterPageAssignment({ isOpen, onClose }: CharacterPageAssign
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2 sm:p-4"
         onClick={onClose}
       >
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
-          className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
+          className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Users className="h-8 w-8" />
-                <div>
-                  <h2 className="text-2xl font-patrick font-bold">Assign Characters to Pages</h2>
-                  <p className="text-purple-100 text-sm">Choose who appears on each page of the story</p>
+          <div className="bg-gradient-to-r from-purple-600 to-pink-600 p-4 sm:p-6 text-white">
+            <div className="flex items-start sm:items-center justify-between gap-2">
+              <div className="flex items-start sm:items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                <Users className="h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg sm:text-xl lg:text-2xl font-patrick font-bold truncate">Assign Characters to Pages</h2>
+                  <p className="text-purple-100 text-xs sm:text-sm">Choose who appears on each page</p>
                 </div>
               </div>
               <button
                 onClick={onClose}
-                className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                className="p-1.5 sm:p-2 hover:bg-white/20 rounded-full transition-colors flex-shrink-0"
               >
-                <X className="h-6 w-6" />
+                <X className="h-5 w-5 sm:h-6 sm:w-6" />
               </button>
             </div>
           </div>
 
           {/* Content */}
-          <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
-            <div className="space-y-6">
+          <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(95vh-180px)] sm:max-h-[calc(90vh-200px)]">
+            <div className="space-y-4 sm:space-y-6">
               {storyData.pages.map((page, index) => (
                 <div key={index} className="card-magical">
-                  <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0 w-16 h-16 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-lg">
+                  <div className="flex items-start gap-3 sm:gap-4">
+                    <div className="flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-base sm:text-lg">
                       {page.page_number}
                     </div>
 
-                    <div className="flex-1">
-                      <p className="text-lg font-patrick text-gray-700 mb-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm sm:text-base lg:text-lg font-patrick text-gray-700 mb-2 sm:mb-3">
                         "{page.narration}"
                       </p>
 
                       <div className="space-y-2">
-                        <p className="text-sm font-medium text-gray-600 mb-2">
+                        <p className="text-xs sm:text-sm font-medium text-gray-600 mb-2">
                           Characters on this page:
                         </p>
 
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-1.5 sm:gap-2">
                           {allCharacters.map(charId => {
                             const isSelected = (pageAssignments[index] || []).includes(charId);
                             const charName = charId === 'baby'
@@ -143,15 +143,15 @@ export function CharacterPageAssignment({ isOpen, onClose }: CharacterPageAssign
                               <button
                                 key={charId}
                                 onClick={() => toggleCharacter(index, charId)}
-                                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                                className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all ${
                                   isSelected
                                     ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
                                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                 }`}
                               >
-                                {isSelected && <Check className="inline h-4 w-4 mr-1" />}
-                                {charName}
-                                {!hasPhoto && <span className="ml-1 text-xs">⚠️</span>}
+                                {isSelected && <Check className="inline h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                <span className="whitespace-nowrap">{charName}</span>
+                                {!hasPhoto && <span className="ml-1 text-[10px] sm:text-xs">⚠️</span>}
                               </button>
                             );
                           })}
@@ -159,7 +159,7 @@ export function CharacterPageAssignment({ isOpen, onClose }: CharacterPageAssign
 
                         {/* Auto-detected badge */}
                         {page.characters_on_page && page.characters_on_page.length > 0 && (
-                          <p className="text-xs text-purple-600 mt-2">
+                          <p className="text-[10px] sm:text-xs text-purple-600 mt-2">
                             ✨ Auto-detected: {page.characters_on_page.map(id => CHARACTER_LABELS[id] || id).join(', ')}
                           </p>
                         )}
@@ -175,8 +175,8 @@ export function CharacterPageAssignment({ isOpen, onClose }: CharacterPageAssign
               const hasPhoto = cast[charId]?.identityAnchorUrl || (cast[charId]?.fallbackPhotos?.length ?? 0) > 0;
               return !hasPhoto;
             }) && (
-              <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                <p className="text-sm text-amber-800">
+              <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <p className="text-xs sm:text-sm text-amber-800">
                   ⚠️ <strong>Note:</strong> Characters marked with ⚠️ don't have photos yet.
                   Add photos in the Cast Manager for better illustrations.
                 </p>
@@ -185,21 +185,21 @@ export function CharacterPageAssignment({ isOpen, onClose }: CharacterPageAssign
           </div>
 
           {/* Footer */}
-          <div className="border-t border-gray-200 p-6 bg-gray-50">
-            <div className="flex items-center justify-between">
+          <div className="border-t border-gray-200 p-4 sm:p-6 bg-gray-50">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <button
                 onClick={onClose}
-                className="btn-secondary px-6"
+                className="btn-secondary px-4 sm:px-6 py-2 sm:py-2.5 text-sm sm:text-base order-2 sm:order-1"
               >
                 Cancel
               </button>
 
               <button
                 onClick={handleSave}
-                className="btn-primary px-8 flex items-center gap-2"
+                className="btn-primary px-6 sm:px-8 py-2 sm:py-2.5 flex items-center justify-center gap-2 text-sm sm:text-base order-1 sm:order-2"
               >
-                <Check className="h-5 w-5" />
-                Save & Continue
+                <Check className="h-4 w-4 sm:h-5 sm:w-5" />
+                <span className="whitespace-nowrap">Save & Continue</span>
               </button>
             </div>
           </div>

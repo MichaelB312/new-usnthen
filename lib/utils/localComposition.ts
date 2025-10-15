@@ -11,6 +11,7 @@ export interface CompositionConfig {
   characterImageBase64: string; // 1024×1024 transparent character
   narration: string;
   characterPosition: 'left' | 'right'; // Which panel for character
+  skipTextRendering?: boolean; // If true, only place character without text (for minimalist moments)
 }
 
 export interface TypographyRules {
@@ -83,15 +84,31 @@ export async function composeSpread(config: CompositionConfig): Promise<Composit
   ctx.drawImage(characterImage, charDrawX, charDrawY, scaledWidth, scaledHeight);
 
   // Step 2: Render narration text in opposite panel and capture actual bounds
-  const textBounds = await renderNarrationText(
-    ctx,
-    config.narration,
-    narX,
-    narY,
-    panelWidth,
-    panelHeight,
-    DEFAULT_TYPOGRAPHY
-  );
+  let textBounds: { x: number; y: number; width: number; height: number };
+
+  if (config.skipTextRendering) {
+    // For minimalist moments: skip text rendering, return minimal bounds
+    console.log('[LocalComposition] Skipping text rendering (minimalist moment)');
+    const verticalOffset = 80;
+    const padding = DEFAULT_TYPOGRAPHY.padding;
+    textBounds = {
+      x: narX + padding,
+      y: narY + padding + verticalOffset,
+      width: panelWidth - (padding * 2),
+      height: 0  // No text height
+    };
+  } else {
+    // Normal rendering: render text and capture bounds
+    textBounds = await renderNarrationText(
+      ctx,
+      config.narration,
+      narX,
+      narY,
+      panelWidth,
+      panelHeight,
+      DEFAULT_TYPOGRAPHY
+    );
+  }
 
   // Return image AND actual text bounds
   return {

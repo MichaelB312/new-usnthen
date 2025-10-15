@@ -294,16 +294,16 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
   );
   
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8 px-4">
       {/* Header */}
       <div className="card-magical text-center">
-        <div className="inline-flex p-4 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 mb-4">
-          <Users className="h-12 w-12 text-purple-600" />
+        <div className="inline-flex p-3 sm:p-4 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 mb-3 sm:mb-4">
+          <Users className="h-10 w-10 sm:h-12 sm:w-12 text-purple-600" />
         </div>
-        <h2 className="text-4xl font-patrick gradient-text mb-3">
+        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick gradient-text mb-2 sm:mb-3 px-2">
           Create Your Characters
         </h2>
-        <p className="text-xl text-gray-600">
+        <p className="text-base sm:text-lg lg:text-xl text-gray-600 px-2">
           Upload photos or describe characters for your story
         </p>
         
@@ -312,22 +312,22 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-200 relative"
+            className="mt-3 sm:mt-4 p-3 sm:p-4 bg-blue-50 rounded-xl border border-blue-200 relative mx-2"
           >
             <button
               onClick={() => setShowPrivacyNote(false)}
               className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3 w-3 sm:h-4 sm:w-4" />
             </button>
-            <div className="flex items-start gap-3">
-              <Shield className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div className="text-left">
-                <p className="text-sm text-blue-900 font-medium mb-1">
+            <div className="flex items-start gap-2 sm:gap-3">
+              <Shield className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="text-left pr-6">
+                <p className="text-xs sm:text-sm text-blue-900 font-medium mb-1">
                   Privacy Option Available
                 </p>
-                <p className="text-sm text-blue-700">
-                  No photos? No problem! Describe how each character looks and our AI will create 
+                <p className="text-xs sm:text-sm text-blue-700">
+                  No photos? No problem! Describe how each character looks and our AI will create
                   consistent illustrations based on your descriptions. Perfect for privacy!
                 </p>
               </div>
@@ -338,17 +338,17 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
       
       {/* Active Cast Members */}
       <div className="card-magical">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-2xl font-patrick">Characters in Your Story</h3>
-          <div className="text-sm text-gray-600">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 gap-2">
+          <h3 className="text-xl sm:text-2xl font-patrick">Characters in Your Story</h3>
+          <div className="text-xs sm:text-sm text-gray-600">
             {activeCastMembers.filter(id => stats[id]?.hasAnyInput).length} of {activeCastMembers.length} complete
           </div>
         </div>
-        <p className="text-gray-600 mb-6">
+        <p className="text-sm sm:text-base text-gray-600 mb-4 sm:mb-6">
           Add a photo or description for each character. You can mix and match!
         </p>
-        
-        <div className="grid md:grid-cols-3 gap-6">
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
           {activeCastMembers.map(charId => {
             const charOption = CHARACTER_OPTIONS.find(opt => opt.id === charId);
             if (!charOption) return null;
@@ -365,29 +365,29 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 whileHover={{ scale: 1.03 }}
-                className={`relative p-8 rounded-2xl border-3 text-center transition-all ${
+                className={`relative p-6 sm:p-8 rounded-xl sm:rounded-2xl border-2 sm:border-3 text-center transition-all ${
                   hasAnyInput
                     ? 'border-green-400 bg-green-50'
                     : 'border-gray-200 bg-white hover:border-purple-300'
                 }`}
               >
                 {!hasAnyInput && (
-                  <div className="absolute top-3 right-3">
-                    <span className="text-red-500 text-xs font-medium">
+                  <div className="absolute top-2 right-2 sm:top-3 sm:right-3">
+                    <span className="text-red-500 text-[10px] sm:text-xs font-medium">
                       Needs input
                     </span>
                   </div>
                 )}
-                
-                <div className={`inline-flex p-4 rounded-2xl bg-gradient-to-br ${charOption.gradient} mb-4 mx-auto`}>
-                  <Icon className="h-10 w-10 text-white" />
+
+                <div className={`inline-flex p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${charOption.gradient} mb-3 sm:mb-4 mx-auto`}>
+                  <Icon className="h-8 w-8 sm:h-10 sm:w-10 text-white" />
                 </div>
-                
-                <h3 className="text-xl font-semibold mb-2">
+
+                <h3 className="text-lg sm:text-xl font-semibold mb-2">
                   {charId === 'baby' ? babyProfile?.baby_name : charOption.label}
                 </h3>
                 
-                <div className="space-y-1 text-sm">
+                <div className="space-y-1 text-xs sm:text-sm">
                   {photoCount > 0 && (
                     <p className="text-gray-600">
                       <Camera className="inline h-3 w-3 mr-1" />
@@ -401,14 +401,14 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
                     </p>
                   )}
                 </div>
-                
+
                 {!hasAnyInput && (
                   <button
                     onClick={() => {
                       setSelectedCharacterForDescription(charId);
                       setInputMode('describe');
                     }}
-                    className="btn-secondary text-xs mt-3 px-3 py-1"
+                    className="btn-secondary text-[10px] sm:text-xs mt-2 sm:mt-3 px-2 sm:px-3 py-1"
                   >
                     Quick Describe
                   </button>
@@ -471,10 +471,10 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
       
       {/* Input Section */}
       <div className="card-magical">
-        <h3 className="text-2xl font-patrick mb-6">Add Character Details</h3>
-        
+        <h3 className="text-xl sm:text-2xl font-patrick mb-4 sm:mb-6">Add Character Details</h3>
+
         {inputMode === 'choice' && !currentPhotoUpload && (
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
             {/* Upload Photo Option */}
             <motion.div
               whileHover={{ scale: 1.02 }}
@@ -482,17 +482,17 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
               onClick={() => setInputMode('upload')}
               className="cursor-pointer"
             >
-              <div className="border-3 border-dashed border-purple-300 rounded-2xl p-8 hover:border-purple-500 transition-all hover:bg-purple-50 text-center">
-                <Camera className="h-16 w-16 text-purple-400 mx-auto mb-4" />
-                <h4 className="text-xl font-semibold mb-2">Upload Photo</h4>
-                <p className="text-sm text-gray-600">
+              <div className="border-2 sm:border-3 border-dashed border-purple-300 rounded-xl sm:rounded-2xl p-6 sm:p-8 hover:border-purple-500 transition-all hover:bg-purple-50 text-center">
+                <Camera className="h-12 w-12 sm:h-16 sm:w-16 text-purple-400 mx-auto mb-3 sm:mb-4" />
+                <h4 className="text-lg sm:text-xl font-semibold mb-2">Upload Photo</h4>
+                <p className="text-xs sm:text-sm text-gray-600">
                   Use real photos for authentic illustrations
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                  <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">
+                <div className="mt-3 sm:mt-4 flex flex-wrap gap-2 justify-center">
+                  <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-[10px] sm:text-xs">
                     Most Realistic
                   </span>
-                  <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+                  <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-[10px] sm:text-xs">
                     Best Results
                   </span>
                 </div>
@@ -511,17 +511,17 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
               }}
               className="cursor-pointer"
             >
-              <div className="border-3 border-dashed border-pink-300 rounded-2xl p-8 hover:border-pink-500 transition-all hover:bg-pink-50 text-center">
-                <FileText className="h-16 w-16 text-pink-400 mx-auto mb-4" />
-                <h4 className="text-xl font-semibold mb-2">Describe Character</h4>
-                <p className="text-sm text-gray-600">
+              <div className="border-2 sm:border-3 border-dashed border-pink-300 rounded-xl sm:rounded-2xl p-6 sm:p-8 hover:border-pink-500 transition-all hover:bg-pink-50 text-center">
+                <FileText className="h-12 w-12 sm:h-16 sm:w-16 text-pink-400 mx-auto mb-3 sm:mb-4" />
+                <h4 className="text-lg sm:text-xl font-semibold mb-2">Describe Character</h4>
+                <p className="text-xs sm:text-sm text-gray-600">
                   Use detailed descriptions for privacy
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                  <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">
+                <div className="mt-3 sm:mt-4 flex flex-wrap gap-2 justify-center">
+                  <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-[10px] sm:text-xs">
                     100% Private
                   </span>
-                  <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs">
+                  <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-[10px] sm:text-xs">
                     AI Generated
                   </span>
                 </div>
@@ -534,15 +534,15 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
         {inputMode === 'upload' && !currentPhotoUpload && (
           <div>
             <label className="block cursor-pointer">
-              <motion.div 
+              <motion.div
                 whileHover={{ scale: 1.01 }}
-                className="border-3 border-dashed border-purple-300 rounded-2xl p-12 hover:border-purple-500 transition-all hover:bg-purple-50"
+                className="border-2 sm:border-3 border-dashed border-purple-300 rounded-xl sm:rounded-2xl p-8 sm:p-12 hover:border-purple-500 transition-all hover:bg-purple-50"
               >
-                <Upload className="h-20 w-20 text-purple-400 mx-auto mb-4" />
-                <p className="text-xl font-medium text-center mb-2">
+                <Upload className="h-16 w-16 sm:h-20 sm:w-20 text-purple-400 mx-auto mb-3 sm:mb-4" />
+                <p className="text-lg sm:text-xl font-medium text-center mb-2">
                   Click to Upload Photo
                 </p>
-                <p className="text-sm text-gray-500 text-center">
+                <p className="text-xs sm:text-sm text-gray-500 text-center">
                   JPG, PNG or WebP (max 10MB)
                 </p>
                 <input
@@ -565,21 +565,21 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
         
         {/* Photo Upload Processing */}
         {currentPhotoUpload && (
-          <div className="space-y-6">
-            <div className="flex gap-6">
-              <img 
-                src={currentPhotoUpload.url} 
+          <div className="space-y-4 sm:space-y-6">
+            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+              <img
+                src={currentPhotoUpload.url}
                 alt="Upload preview"
-                className="w-48 h-48 rounded-xl object-cover"
+                className="w-full sm:w-48 h-48 rounded-xl object-cover"
               />
-              
+
               <div className="flex-1">
-                <h4 className="font-semibold mb-3">Who's in this photo?</h4>
-                <p className="text-sm text-gray-500 mb-3">
+                <h4 className="font-semibold mb-2 sm:mb-3 text-sm sm:text-base">Who's in this photo?</h4>
+                <p className="text-xs sm:text-sm text-gray-500 mb-2 sm:mb-3">
                   Select all people visible in this photo
                 </p>
-                
-                <div className="grid grid-cols-3 gap-2 mb-4">
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3 sm:mb-4">
                   {CHARACTER_OPTIONS.map(option => {
                     const Icon = option.icon;
                     const isSelected = currentPhotoUpload.selectedCharacters.includes(option.id);
@@ -634,10 +634,10 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
               <button
                 onClick={savePhotoWithTags}
                 disabled={currentPhotoUpload.selectedCharacters.length === 0}
-                className="btn-primary flex-1 flex items-center justify-center"
+                className="btn-primary flex-1 flex items-center justify-center py-2 sm:py-3"
               >
-                <Check className="h-5 w-5 mr-2" />
-                <span>Save Photo</span>
+                <Check className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                <span className="text-sm sm:text-base">Save Photo</span>
               </button>
               <button
                 onClick={() => {
@@ -645,10 +645,10 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
                   setInputMode('choice');
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
-                className="btn-secondary flex items-center justify-center px-6"
+                className="btn-secondary flex items-center justify-center px-4 sm:px-6 py-2 sm:py-3"
               >
-                <X className="h-5 w-5 mr-2" />
-                <span>Cancel</span>
+                <X className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                <span className="text-sm sm:text-base">Cancel</span>
               </button>
             </div>
           </div>
@@ -682,18 +682,18 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
       {/* Character Gallery */}
       {(uploadedPhotos.length > 0 || Object.keys(characterDescriptions).length > 0) && (
         <div className="card-magical">
-          <h3 className="text-2xl font-patrick mb-4">
+          <h3 className="text-xl sm:text-2xl font-patrick mb-3 sm:mb-4">
             Your Character Library
           </h3>
-          
+
           {/* Photos */}
           {uploadedPhotos.length > 0 && (
-            <div className="mb-6">
-              <h4 className="font-semibold mb-3 flex items-center gap-2">
-                <Camera className="h-5 w-5" />
+            <div className="mb-4 sm:mb-6">
+              <h4 className="font-semibold mb-2 sm:mb-3 flex items-center gap-2 text-sm sm:text-base">
+                <Camera className="h-4 w-4 sm:h-5 sm:w-5" />
                 Photos ({uploadedPhotos.length})
               </h4>
-              <div className="grid md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
                 {uploadedPhotos.map(photo => (
                   <div key={photo.id} className="relative group">
                     <div className="relative overflow-hidden rounded-lg">
@@ -791,10 +791,10 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
         <button
           onClick={onComplete}
           disabled={!allCharactersHaveInput}
-          className="btn-primary text-xl px-10 py-4"
+          className="btn-primary text-sm sm:text-base lg:text-xl px-6 sm:px-8 lg:px-10 py-3 sm:py-4 w-full sm:w-auto"
         >
-          {allCharactersHaveInput 
-            ? 'Continue to Illustrations' 
+          {allCharactersHaveInput
+            ? 'Continue to Illustrations'
             : `Add details for all characters (${
                 activeCastMembers.filter(id => {
                   const charStats = stats[id];

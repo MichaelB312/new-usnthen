@@ -24,19 +24,19 @@ function MessageBubble({ message }: { message: Message }) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 sm:mb-4 px-2 sm:px-0`}
     >
       {!isUser && (
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center mr-2 flex-shrink-0">
+        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center mr-1.5 sm:mr-2 flex-shrink-0">
           <span className="text-white text-xs">✨</span>
         </div>
       )}
-      <div className={`max-w-[70%] ${
+      <div className={`max-w-[85%] sm:max-w-[75%] md:max-w-[70%] ${
         isUser
           ? 'bg-gradient-to-br from-purple-600 to-pink-600 text-white rounded-2xl rounded-br-sm'
           : 'bg-gradient-to-br from-purple-50 to-pink-50 text-gray-800 rounded-2xl rounded-bl-sm'
-      } px-4 py-3 shadow-md`}>
-        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+      } px-3 py-2 sm:px-4 sm:py-3 shadow-md`}>
+        <p className="text-xs sm:text-sm whitespace-pre-wrap">{message.content}</p>
       </div>
     </motion.div>
   );
@@ -44,15 +44,15 @@ function MessageBubble({ message }: { message: Message }) {
 
 function TypingIndicator() {
   return (
-    <div className="flex justify-start mb-4">
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center mr-2">
+    <div className="flex justify-start mb-3 sm:mb-4 px-2 sm:px-0">
+      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center mr-1.5 sm:mr-2">
         <span className="text-white text-xs">✨</span>
       </div>
-      <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl rounded-bl-sm px-4 py-3 shadow-md">
+      <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl rounded-bl-sm px-3 py-2 sm:px-4 sm:py-3 shadow-md">
         <div className="flex gap-1">
-          <span className="typing-dot w-2 h-2 bg-purple-400 rounded-full"></span>
-          <span className="typing-dot w-2 h-2 bg-purple-400 rounded-full"></span>
-          <span className="typing-dot w-2 h-2 bg-purple-400 rounded-full"></span>
+          <span className="typing-dot w-1.5 h-1.5 sm:w-2 sm:h-2 bg-purple-400 rounded-full"></span>
+          <span className="typing-dot w-1.5 h-1.5 sm:w-2 sm:h-2 bg-purple-400 rounded-full"></span>
+          <span className="typing-dot w-1.5 h-1.5 sm:w-2 sm:h-2 bg-purple-400 rounded-full"></span>
         </div>
       </div>
     </div>
@@ -61,24 +61,24 @@ function TypingIndicator() {
 
 function ProgressBar({ progress, collectedFields }: { progress: number; collectedFields: string[] }) {
   return (
-    <div className="mb-4 p-3 bg-purple-50 rounded-lg">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-medium text-purple-700">Story Progress</span>
-        <span className="text-sm font-bold text-purple-600">{progress}%</span>
+    <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-purple-50 rounded-lg">
+      <div className="flex items-center justify-between mb-1.5 sm:mb-2">
+        <span className="text-xs sm:text-sm font-medium text-purple-700">Story Progress</span>
+        <span className="text-xs sm:text-sm font-bold text-purple-600">{progress}%</span>
       </div>
-      <div className="w-full bg-purple-200 rounded-full h-2 mb-2">
+      <div className="w-full bg-purple-200 rounded-full h-1.5 sm:h-2 mb-1.5 sm:mb-2">
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${progress}%` }}
           transition={{ duration: 0.5 }}
-          className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full"
+          className="bg-gradient-to-r from-purple-500 to-pink-500 h-1.5 sm:h-2 rounded-full"
         />
       </div>
       {collectedFields.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
+        <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
           {collectedFields.map(field => (
-            <div key={field} className="flex items-center gap-1 bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">
-              <CheckCircle2 className="h-3 w-3" />
+            <div key={field} className="flex items-center gap-1 bg-purple-100 text-purple-700 text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full">
+              <CheckCircle2 className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
               <span className="capitalize">{field.replace('_', ' ')}</span>
             </div>
           ))}
@@ -223,14 +223,14 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
 
   return (
     <div className="card-magical max-w-4xl mx-auto">
-      <div className="border-b border-purple-100 pb-6 mb-6">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center">
-            <Sparkles className="h-8 w-8 text-white" />
+      <div className="border-b border-purple-100 pb-4 sm:pb-6 mb-4 sm:mb-6">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center flex-shrink-0">
+            <Sparkles className="h-6 w-6 sm:h-7 sm:w-7 md:h-8 md:w-8 text-white" />
           </div>
           <div>
-            <h3 className="text-2xl font-patrick gradient-text">Story Wizard</h3>
-            <p className="text-gray-600">Let's capture {babyName}'s precious memory</p>
+            <h3 className="text-xl sm:text-2xl font-patrick gradient-text">Story Wizard</h3>
+            <p className="text-sm sm:text-base text-gray-600">Let's capture {babyName}'s precious memory</p>
           </div>
         </div>
       </div>
@@ -239,7 +239,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
       <ProgressBar progress={progress} collectedFields={collectedFields} />
 
       {/* Messages */}
-      <div className="h-[400px] overflow-y-auto space-y-4 mb-6 px-2">
+      <div className="h-[350px] sm:h-[400px] md:h-[450px] overflow-y-auto space-y-2 sm:space-y-4 mb-4 sm:mb-6">
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
@@ -248,8 +248,8 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
       </div>
 
       {/* Input Area */}
-      <div className="border-t border-purple-100 pt-6">
-        <div className="flex gap-3">
+      <div className="border-t border-purple-100 pt-4 sm:pt-6">
+        <div className="flex gap-2 sm:gap-3">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -260,15 +260,15 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
               }
             }}
             placeholder={isComplete ? "Story complete!" : "Share your memory..."}
-            className="input-magical flex-1"
+            className="input-magical flex-1 text-sm sm:text-base"
             disabled={isComplete || isTyping}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isComplete || isTyping}
-            className="btn-primary px-6"
+            className="btn-primary px-4 sm:px-6"
           >
-            <Send className="h-5 w-5" />
+            <Send className="h-4 w-4 sm:h-5 sm:w-5" />
           </button>
         </div>
       </div>

@@ -48,12 +48,24 @@ export function generateInpaintingMask(
 
   // Step 1: Preserve narration text area with VERY generous margin
   const textMargin = 80; // Increased from 50 to 80 for stronger protection
-  ctx.fillRect(
-    Math.max(0, narrationBounds.x - textMargin),
-    Math.max(0, narrationBounds.y - textMargin),
-    Math.min(1536 - narrationBounds.x, narrationBounds.width + (textMargin * 2)),
-    Math.min(1024 - narrationBounds.y, narrationBounds.height + (textMargin * 2))
+
+  // Calculate protected area bounds (with margin)
+  const protectX = Math.max(0, narrationBounds.x - textMargin);
+  const protectY = Math.max(0, narrationBounds.y - textMargin);
+  const protectWidth = Math.min(
+    1536 - protectX,  // Remaining canvas width from actual start position
+    narrationBounds.width + (textMargin * 2)
   );
+  const protectHeight = Math.min(
+    1024 - protectY,  // Remaining canvas height from actual start position
+    narrationBounds.height + (textMargin * 2)
+  );
+
+  // Draw protection area
+  ctx.fillRect(protectX, protectY, protectWidth, protectHeight);
+
+  console.log(`[InpaintingMask] Text protection: x=${protectX}, y=${protectY}, w=${protectWidth}, h=${protectHeight}`);
+  console.log(`[InpaintingMask] Original text bounds: x=${narrationBounds.x}, y=${narrationBounds.y}, w=${narrationBounds.width}, h=${narrationBounds.height}`);
 
   // Step 2: Preserve center area of character panel (protect character cutout)
   // REDUCED margins to be more conservative - only allow thin border zones

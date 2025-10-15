@@ -64,14 +64,14 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
       animate={{ opacity: 1, y: 0 }}
       className="card-magical max-w-2xl mx-auto"
     >
-      <div className="text-center mb-8">
-        <div className="inline-flex p-4 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 mb-4">
-          <Baby className="h-12 w-12 text-purple-600" />
+      <div className="text-center mb-6 sm:mb-8 px-2">
+        <div className="inline-flex p-3 sm:p-4 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 mb-3 sm:mb-4">
+          <Baby className="h-10 w-10 sm:h-12 sm:w-12 text-purple-600" />
         </div>
-        <h2 className="text-4xl font-patrick gradient-text mb-3">
+        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick gradient-text mb-2 sm:mb-3">
           Tell Us About Your Little One
         </h2>
-        <p className="text-gray-600 text-lg">
+        <p className="text-gray-600 text-base sm:text-lg">
           Let's start by getting to know your baby
         </p>
       </div>
@@ -123,14 +123,14 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Gender *
           </label>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <motion.button
               type="button"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => setGender('boy')}
               className={`
-                py-4 px-6 rounded-2xl border-2 font-semibold text-lg transition-all
+                py-3 px-4 sm:py-4 sm:px-6 rounded-xl sm:rounded-2xl border-2 font-semibold text-base sm:text-lg transition-all
                 ${gender === 'boy'
                   ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-lg'
                   : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'}
@@ -144,7 +144,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
               whileTap={{ scale: 0.98 }}
               onClick={() => setGender('girl')}
               className={`
-                py-4 px-6 rounded-2xl border-2 font-semibold text-lg transition-all
+                py-3 px-4 sm:py-4 sm:px-6 rounded-xl sm:rounded-2xl border-2 font-semibold text-base sm:text-lg transition-all
                 ${gender === 'girl'
                   ? 'border-pink-500 bg-pink-50 text-pink-700 shadow-lg'
                   : 'border-gray-200 hover:border-pink-300 hover:bg-pink-50/50'}
@@ -161,17 +161,17 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
           whileTap={{ scale: 0.98 }}
           type="submit"
           disabled={loading || !babyName || !birthdate || !gender}
-          className="btn-primary w-full text-lg py-4 flex items-center justify-center gap-3"
+          className="btn-primary w-full text-base sm:text-lg py-3 sm:py-4 flex items-center justify-center gap-2 sm:gap-3"
         >
           {loading ? (
             <>
-              <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin" />
-              Saving Profile...
+              <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 sm:border-3 border-white border-t-transparent rounded-full animate-spin" />
+              <span className="whitespace-nowrap">Saving Profile...</span>
             </>
           ) : (
             <>
-              <Sparkles className="h-5 w-5" />
-              Continue to Memory Chat
+              <Sparkles className="h-4 w-4 sm:h-5 sm:w-5" />
+              <span className="whitespace-nowrap">Continue to Memory Chat</span>
             </>
           )}
         </motion.button>

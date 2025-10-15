@@ -69,7 +69,7 @@ export function SaveProgressButton({
       onClick={handleSave}
       disabled={saving}
       className={`
-        flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all
+        flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all w-full sm:w-auto
         ${variant === 'primary'
           ? 'bg-purple-600 text-white hover:bg-purple-700'
           : 'border-2 border-gray-300 text-gray-700 hover:border-purple-400 hover:text-purple-700 hover:bg-purple-50'

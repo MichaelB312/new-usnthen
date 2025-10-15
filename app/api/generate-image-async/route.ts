@@ -5,7 +5,7 @@
  * Layer 2: Local composition (character + narration rendering)
  * Layer 3: Inpainting (scene details + refinement words)
  *
- * Quality set to "high" for production-quality results
+ * Using gpt-image-1 with medium quality for production results
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -27,14 +27,13 @@ import {
 } from '@/lib/utils/localComposition';
 import {
   generateInpaintingMask,
-  calculateNarrationBounds,
-  getRefinementWordZones
+  calculateNarrationBounds
 } from '@/lib/utils/inpaintingMasks';
 import { processPrintReady } from '@/lib/utils/upscaler';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 600; // Increased to 10 minutes to handle 8 parallel pages
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -45,18 +44,24 @@ const openai = new OpenAI({
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-// Quality set to high for production results
-const IMAGE_QUALITY = 'high' as const;
+// Quality set to medium for production results
+const IMAGE_QUALITY = 'medium' as const;
+
+// Job queue configuration
+const MAX_CONCURRENT_JOBS = 4; // Limit concurrent image generation to prevent overwhelming the system
+const processingJobIds = new Set<string>(); // Track currently processing jobs
+const jobQueue: Array<{ jobId: string; params: any }> = []; // Queue for pending jobs
 
 // Job storage
 const jobs = new Map<string, {
   id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued';
   progress: number;
   result?: any;
   error?: string;
   startTime: number;
   completedAt?: number;
+  queuePosition?: number; // Position in queue if queued
 }>();
 
 // Style anchor storage (now stores 1024×1024 transparent character)
@@ -102,6 +107,69 @@ async function prepareImageFile(imageUrl: string, name: string = 'ref.png'): Pro
     console.error(`Failed to prepare image:`, error);
     throw error;
   }
+}
+
+/**
+ * Retry helper with exponential backoff
+ * @param fn - Function to retry
+ * @param maxRetries - Maximum number of retry attempts (default 3)
+ * @param initialDelay - Initial delay in ms (default 1000)
+ * @param context - Context string for logging
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  initialDelay: number = 1000,
+  context: string = 'Operation'
+): Promise<T> {
+  let lastError: any;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = initialDelay * Math.pow(2, attempt - 1); // Exponential backoff
+        console.log(`[Retry] ${context} - Attempt ${attempt}/${maxRetries} after ${delay}ms delay`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
+      const result = await fn();
+
+      if (attempt > 0) {
+        console.log(`[Retry] ${context} - SUCCESS on attempt ${attempt}`);
+      }
+
+      return result;
+    } catch (error: any) {
+      lastError = error;
+      const isLastAttempt = attempt === maxRetries;
+
+      // Check if error is retryable
+      const isRetryable =
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ECONNRESET' ||
+        error.code === 'ENOTFOUND' ||
+        error.message?.includes('timeout') ||
+        error.message?.includes('ECONNREFUSED') ||
+        error.message?.includes('502') ||
+        error.message?.includes('503') ||
+        error.message?.includes('504') ||
+        error.status === 502 ||
+        error.status === 503 ||
+        error.status === 504 ||
+        error.status === 429; // Rate limit
+
+      if (!isRetryable || isLastAttempt) {
+        if (isLastAttempt && isRetryable) {
+          console.error(`[Retry] ${context} - FAILED after ${maxRetries} attempts:`, error.message);
+        }
+        throw error;
+      }
+
+      console.warn(`[Retry] ${context} - Attempt ${attempt} failed (${error.message}), retrying...`);
+    }
+  }
+
+  throw lastError;
 }
 
 /**
@@ -225,7 +293,7 @@ function buildContextAwareScenePrompt(
 ): string {
   const analysis = analyzeCharacterAction(action, setting);
 
-  let prompt = `Paper collage style environmental elements (NO characters, NO text edits).
+  let prompt = `Paper collage style environmental elements (NO characters should be added/modified).
 
 CRITICAL: Add elements that support the action and setting. Keep white background visible.
 
@@ -327,8 +395,9 @@ ABSOLUTE PROHIBITIONS (DO NOT DO THESE):
 ❌ DO NOT cover white space with texture or patterns
 ❌ DO NOT create heavy, dense, or overwhelming compositions
 ❌ DO NOT add elements that touch or overlap the center divider line
-❌ DO NOT modify, erase, or paint over existing narration text
+❌ DO NOT modify, erase, or paint over any EXISTING text (unless adding poetic overlay as instructed)
 ❌ DO NOT add background elements inside character panel's center area
+❌ DO NOT add or modify characters - they are already placed
 
 MUST DO (REQUIREMENTS):
 ✓ Keep composition LIGHT and AIRY - lots of breathing room
@@ -342,23 +411,115 @@ MUST DO (REQUIREMENTS):
 }
 
 /**
+ * PROACTIVE moderation prevention using Gemini
+ * Called BEFORE sending prompt to OpenAI to prevent issues
+ */
+async function sanitizePromptProactively(originalPrompt: string, context: string, contentType: 'character' | 'scene'): Promise<string> {
+  try {
+    console.log(`[Gemini Proactive] Pre-sanitizing ${contentType} prompt to prevent moderation issues`);
+
+    const systemPrompt = `You are an AI safety expert specializing in children's book content. Your job is to rewrite image generation prompts to be 100% moderation-safe while preserving creative intent.
+
+CONTEXT: This is for a wholesome children's storybook about a baby/toddler. The content is family-friendly, but we need to avoid ANY wording that might trigger false-positive moderation flags.
+
+CRITICAL SAFETY RULES FOR BABIES/CHILDREN:
+1. CAMERA ANGLES - Avoid problematic perspectives:
+   ❌ "extreme close-up of face" → ✅ "gentle portrait showing face and shoulders"
+   ❌ "macro shot of feet" → ✅ "wide view showing baby playing"
+   ❌ "close-up of hands" → ✅ "medium shot showing baby reaching"
+   ❌ "tight crop on body" → ✅ "full body view in scene"
+
+2. BODY DESCRIPTIONS - Use family-friendly language:
+   ❌ "bare feet" → ✅ "tiny feet" or "little toes"
+   ❌ "bare hands" → ✅ "small hands" or "little fingers"
+   ❌ "bare skin" → ✅ "soft cheeks" or "rosy face"
+   ❌ "naked" or "unclothed" → ✅ "wearing simple clothes" or omit entirely
+   ❌ ANY mention of body parts + "bare/naked/exposed" → ✅ rephrase neutrally
+
+3. CLOTHING - Always neutral, never detailed:
+   ❌ "no shirt" → ✅ "casual outfit"
+   ❌ "diaper only" → ✅ "comfortable clothing"
+   ❌ Detailed clothing descriptions → ✅ "wearing typical baby clothes"
+
+4. PHYSICAL POSITIONING - Avoid suggestive angles:
+   ❌ "lying down from above" → ✅ "sitting up, facing camera"
+   ❌ "from below looking up" → ✅ "eye-level view"
+   ❌ "crouching low" → ✅ "standing naturally"
+
+5. FOCUS AREAS - Keep it wholesome:
+   ❌ "focus on legs" → ✅ "full body in playful pose"
+   ❌ "zoom in on torso" → ✅ "medium shot of whole scene"
+   ❌ Isolated body part focus → ✅ Complete person in context
+
+TASK: Rewrite this prompt to be moderation-proof. Keep the artistic intent but use only safe, family-friendly wording.
+
+ORIGINAL PROMPT:
+${originalPrompt}
+
+CONTEXT: ${context}
+
+OUTPUT: Return ONLY the sanitized prompt. No explanations, just the safe version.`;
+
+    const result = await geminiModel.generateContent({
+      contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        temperature: 0.2, // Low temp for consistent safety
+      },
+    });
+
+    const sanitized = result.response.text().trim();
+    console.log(`[Gemini Proactive] Sanitized (${sanitized.length} chars)`);
+
+    // CRITICAL: Validate that sanitization didn't strip everything
+    if (!sanitized || sanitized.length < 10) {
+      console.warn(`[Gemini Proactive] Sanitization produced empty/too-short result (${sanitized.length} chars). Falling back to basic sanitization.`);
+      return sanitizePromptForModeration(originalPrompt);
+    }
+
+    // Apply basic sanitization as well for extra safety
+    const doubleSanitized = sanitizePromptForModeration(sanitized);
+
+    // Final validation - ensure we never return empty prompt
+    if (!doubleSanitized || doubleSanitized.length < 10) {
+      console.error(`[Gemini Proactive] CRITICAL: Final prompt is empty after sanitization. Using original with basic cleanup.`);
+      return sanitizePromptForModeration(originalPrompt);
+    }
+
+    return doubleSanitized;
+  } catch (error: any) {
+    // Handle Gemini blocking our innocent prompt (ironic!)
+    if (error.message?.includes('PROHIBITED_CONTENT') || error.response?.promptFeedback?.blockReason === 'PROHIBITED_CONTENT') {
+      console.warn('[Gemini Proactive] Gemini blocked our innocent prompt with PROHIBITED_CONTENT (false positive)');
+      console.warn('[Gemini Proactive] Falling back to basic sanitization - this is a known limitation');
+      // Fall back to basic sanitization when Gemini itself blocks the content
+      return sanitizePromptForModeration(originalPrompt);
+    }
+
+    console.error('[Gemini Proactive] Failed:', error.message || error);
+    // Fallback to basic sanitization for any other errors
+    return sanitizePromptForModeration(originalPrompt);
+  }
+}
+
+/**
  * Reactive moderation fix using Gemini
- * Only called when OpenAI moderation actually fails
+ * Only called when OpenAI moderation actually fails (backup to proactive)
  */
 async function fixModerationIssueWithGemini(originalPrompt: string, context: string): Promise<string> {
   try {
-    console.log(`[Gemini Moderation Fix] Attempting to rewrite prompt that triggered moderation`);
+    console.log(`[Gemini Reactive] Attempting to fix prompt that triggered moderation`);
 
     const systemPrompt = `You are a moderation safety expert helping to rewrite AI image generation prompts that triggered false-positive moderation flags.
 
 CONTEXT: This is for an innocent children's book about a baby/toddler. The content is 100% wholesome and family-friendly, but the AI moderation system flagged it incorrectly.
 
-TASK: Rewrite the prompt to preserve the creative intent while removing ANY words that might trigger moderation:
+TASK: Rewrite the prompt with MAXIMUM safety. Be MORE aggressive than normal:
 - Replace "bare" + body parts with alternatives (bare feet → tiny feet, bare hands → little hands)
 - Replace any clothing state references with neutral descriptions
 - Replace any body part close-ups with gentler phrasing
+- Change extreme camera angles to medium/wide shots
 - Keep the same artistic style, composition, and scene description
-- Maintain all character details and camera angles
+- Maintain all character details
 
 ORIGINAL PROMPT (flagged by moderation):
 ${originalPrompt}
@@ -376,13 +537,11 @@ OUTPUT: Return ONLY the rewritten prompt as plain text. No explanations, no JSON
     });
 
     const rewrittenPrompt = result.response.text().trim();
-    console.log(`[Gemini Moderation Fix] Rewritten prompt (${rewrittenPrompt.length} chars)`);
-    console.log(`[Gemini Moderation Fix] Original: ${originalPrompt.substring(0, 100)}...`);
-    console.log(`[Gemini Moderation Fix] Rewritten: ${rewrittenPrompt.substring(0, 100)}...`);
+    console.log(`[Gemini Reactive] Rewritten prompt (${rewrittenPrompt.length} chars)`);
 
-    return rewrittenPrompt;
+    return sanitizePromptForModeration(rewrittenPrompt);
   } catch (error: any) {
-    console.error('[Gemini Moderation Fix] Failed:', error);
+    console.error('[Gemini Reactive] Failed:', error);
     // Fallback to basic sanitization if Gemini fails
     return sanitizePromptForModeration(originalPrompt);
   }
@@ -495,6 +654,99 @@ async function waitForStyleAnchor(bookId: string, maxAttempts = 15): Promise<str
 }
 
 /**
+ * Process next job in queue if there's capacity
+ */
+function processNextInQueue() {
+  if (processingJobIds.size >= MAX_CONCURRENT_JOBS) {
+    console.log(`[Queue] At max capacity (${processingJobIds.size}/${MAX_CONCURRENT_JOBS}), waiting...`);
+    return;
+  }
+
+  if (jobQueue.length === 0) {
+    console.log(`[Queue] No jobs in queue`);
+    return;
+  }
+
+  const nextJob = jobQueue.shift();
+  if (!nextJob) return;
+
+  const { jobId, params } = nextJob;
+  const job = jobs.get(jobId);
+  if (!job) return;
+
+  console.log(`[Queue] Starting job ${jobId} (${processingJobIds.size + 1}/${MAX_CONCURRENT_JOBS} active, ${jobQueue.length} remaining in queue)`);
+
+  processingJobIds.add(jobId);
+  job.status = 'processing';
+  job.queuePosition = undefined;
+
+  // Update queue positions for remaining jobs
+  jobQueue.forEach((queuedJob, index) => {
+    const queuedJobData = jobs.get(queuedJob.jobId);
+    if (queuedJobData) {
+      queuedJobData.queuePosition = index + 1;
+    }
+  });
+
+  processThreeLayerPipeline(jobId, params)
+    .catch(error => {
+      console.error(`Job ${jobId} failed:`, error);
+      const job = jobs.get(jobId);
+      if (job) {
+        job.status = 'failed';
+        job.error = error.message || 'Unknown error occurred';
+        job.completedAt = Date.now();
+      }
+    })
+    .finally(() => {
+      // Remove from processing set and try to process next job
+      processingJobIds.delete(jobId);
+      console.log(`[Queue] Job ${jobId} completed, processing next (${processingJobIds.size}/${MAX_CONCURRENT_JOBS} active)`);
+      processNextInQueue();
+    });
+}
+
+/**
+ * Start job processing with queue management
+ */
+function startJobProcessing(jobId: string, params: any) {
+  const job = jobs.get(jobId);
+  if (!job) {
+    console.error(`[Queue] Job ${jobId} not found`);
+    return;
+  }
+
+  // Check if we can process immediately
+  if (processingJobIds.size < MAX_CONCURRENT_JOBS) {
+    console.log(`[Queue] Starting job ${jobId} immediately (${processingJobIds.size + 1}/${MAX_CONCURRENT_JOBS} active)`);
+    processingJobIds.add(jobId);
+    job.status = 'processing';
+
+    processThreeLayerPipeline(jobId, params)
+      .catch(error => {
+        console.error(`Job ${jobId} failed:`, error);
+        const job = jobs.get(jobId);
+        if (job) {
+          job.status = 'failed';
+          job.error = error.message || 'Unknown error occurred';
+          job.completedAt = Date.now();
+        }
+      })
+      .finally(() => {
+        processingJobIds.delete(jobId);
+        console.log(`[Queue] Job ${jobId} completed, processing next (${processingJobIds.size}/${MAX_CONCURRENT_JOBS} active)`);
+        processNextInQueue();
+      });
+  } else {
+    // Add to queue
+    jobQueue.push({ jobId, params });
+    job.status = 'queued';
+    job.queuePosition = jobQueue.length;
+    console.log(`[Queue] Job ${jobId} queued at position ${job.queuePosition} (${processingJobIds.size}/${MAX_CONCURRENT_JOBS} active, ${jobQueue.length} in queue)`);
+  }
+}
+
+/**
  * POST - Start image generation job
  */
 export async function POST(request: NextRequest) {
@@ -544,19 +796,14 @@ export async function POST(request: NextRequest) {
       ...body
     };
 
-    processThreeLayerPipeline(jobId, payload).catch(error => {
-      console.error(`Job ${jobId} failed:`, error);
-      const job = jobs.get(jobId);
-      if (job) {
-        job.status = 'failed';
-        job.error = error.message;
-      }
-    });
+    // Use queue management instead of direct processing
+    startJobProcessing(jobId, payload);
 
     return NextResponse.json({
       success: true,
       jobId,
-      message: `3-Layer pipeline started for page ${pageNumber}`
+      message: `3-Layer pipeline ${jobs.get(jobId)?.status === 'queued' ? 'queued' : 'started'} for page ${pageNumber}`,
+      queuePosition: jobs.get(jobId)?.queuePosition
     });
 
   } catch (error: any) {
@@ -661,43 +908,57 @@ Soft pastel colors on character only. Clean paper collage cutout.`;
 
       job.progress = 30;
 
-      console.log(`[Job ${jobId}] Calling GPT-Image-1 (quality=${IMAGE_QUALITY})`);
-      console.log(`[Job ${jobId}] Prompt:`, prompt);
+      console.log(`[Job ${jobId}] Original prompt:`, prompt);
+
+      // PROACTIVE: Sanitize prompt BEFORE sending to OpenAI
+      const context = `Creating character anchor for ${babyName} (${babyGender}). 1024×1024 transparent background.`;
+      const safePrompt = await sanitizePromptProactively(prompt, context, 'character');
+
+      console.log(`[Job ${jobId}] Calling GPT-Image-1 with sanitized prompt (quality=${IMAGE_QUALITY})`);
 
       let response;
       try {
-        response = await openai.images.edit({
-          model: 'gpt-image-1',
-          image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-          prompt,
-          n: 1,
-          size: '1024x1024', // SQUARE for character
-          quality: IMAGE_QUALITY,
-          input_fidelity: 'high',
-          background: 'transparent',
-          // @ts-expect-error: moderation exists but not in SDK types
-          moderation: 'low',
-        });
-      } catch (error: any) {
-        // Retry with Gemini-rewritten prompt if moderation blocked
-        if (error.code === 'moderation_blocked') {
-          console.log(`[Job ${jobId}] ANCHOR MODERATION BLOCKED - Using Gemini to rewrite prompt`);
-
-          const context = `Creating character anchor for ${babyName} (${babyGender}). 1024×1024 transparent background.`;
-          const fixedPrompt = await fixModerationIssueWithGemini(prompt, context);
-
-          response = await openai.images.edit({
+        response = await retryWithBackoff(
+          () => openai.images.edit({
             model: 'gpt-image-1',
             image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-            prompt: fixedPrompt,
+            prompt: safePrompt, // Use sanitized prompt
             n: 1,
-            size: '1024x1024',
+            size: '1024x1024', // SQUARE for character
             quality: IMAGE_QUALITY,
             input_fidelity: 'high',
             background: 'transparent',
             // @ts-expect-error: moderation exists but not in SDK types
             moderation: 'low',
-          });
+          }),
+          3, // Max 3 retries
+          2000, // 2 second initial delay
+          `Character anchor generation (Page 0)`
+        );
+      } catch (error: any) {
+        // REACTIVE: If proactive sanitization wasn't enough, try even more aggressive rewrite
+        if (error.code === 'moderation_blocked') {
+          console.log(`[Job ${jobId}] ANCHOR MODERATION BLOCKED (despite proactive sanitization) - Using reactive fix`);
+
+          const fixedPrompt = await fixModerationIssueWithGemini(safePrompt, context);
+
+          response = await retryWithBackoff(
+            () => openai.images.edit({
+              model: 'gpt-image-1',
+              image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+              prompt: fixedPrompt,
+              n: 1,
+              size: '1024x1024',
+              quality: IMAGE_QUALITY,
+              input_fidelity: 'high',
+              background: 'transparent',
+              // @ts-expect-error: moderation exists but not in SDK types
+              moderation: 'low',
+            }),
+            3,
+            2000,
+            `Character anchor (reactive fix, Page 0)`
+          );
         } else {
           throw error;
         }
@@ -854,36 +1115,22 @@ NO scene elements, NO background objects, just the character(s).
 Paper collage style with soft edges.`;
 
     console.log(`[Job ${jobId}] L1 Camera: ${cameraAngle}, Preserve Level: ${preserveLevel}`);
-    console.log(`[Job ${jobId}] L1 Prompt: ${posePrompt}`);
+    console.log(`[Job ${jobId}] L1 Original prompt: ${posePrompt}`);
+
+    // PROACTIVE: Sanitize prompt BEFORE sending to OpenAI
+    const l1Context = `Layer 1: Character variant. Page ${pageNumber}. Action: ${pageData.visual_action}. Camera: ${cameraAngle}. Characters: ${charactersOnPage.join(', ')}.`;
+    const safePosePrompt = await sanitizePromptProactively(posePrompt, l1Context, 'character');
+
+    console.log(`[Job ${jobId}] L1 Sanitized prompt ready`);
 
     let layer1Response;
     try {
-      layer1Response = await openai.images.edit({
-        model: 'gpt-image-1',
-        image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
-        mask: maskFile,
-        prompt: posePrompt,
-        n: 1,
-        size: '1024x1024',
-        quality: IMAGE_QUALITY,
-        input_fidelity: 'high',
-        background: 'transparent',
-        // @ts-expect-error: moderation exists but not in SDK types
-        moderation: 'low',
-      });
-    } catch (error: any) {
-      // Retry with Gemini-rewritten prompt if moderation blocked
-      if (error.code === 'moderation_blocked') {
-        console.log(`[Job ${jobId}] L1 MODERATION BLOCKED - Using Gemini to rewrite prompt`);
-
-        const context = `Layer 1: Character variant. Page ${pageNumber}. Action: ${pageData.visual_action}. Camera: ${cameraAngle}. Characters: ${charactersOnPage.join(', ')}.`;
-        const fixedPrompt = await fixModerationIssueWithGemini(posePrompt, context);
-
-        layer1Response = await openai.images.edit({
+      layer1Response = await retryWithBackoff(
+        () => openai.images.edit({
           model: 'gpt-image-1',
           image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
           mask: maskFile,
-          prompt: fixedPrompt,
+          prompt: safePosePrompt, // Use sanitized prompt
           n: 1,
           size: '1024x1024',
           quality: IMAGE_QUALITY,
@@ -891,7 +1138,36 @@ Paper collage style with soft edges.`;
           background: 'transparent',
           // @ts-expect-error: moderation exists but not in SDK types
           moderation: 'low',
-        });
+        }),
+        3, // Max 3 retries
+        2000, // 2 second initial delay
+        `Layer 1 character variant (Page ${pageNumber})`
+      );
+    } catch (error: any) {
+      // REACTIVE: If proactive sanitization wasn't enough, try even more aggressive rewrite
+      if (error.code === 'moderation_blocked') {
+        console.log(`[Job ${jobId}] L1 MODERATION BLOCKED (despite proactive sanitization) - Using reactive fix`);
+
+        const fixedPrompt = await fixModerationIssueWithGemini(safePosePrompt, l1Context);
+
+        layer1Response = await retryWithBackoff(
+          () => openai.images.edit({
+            model: 'gpt-image-1',
+            image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+            mask: maskFile,
+            prompt: fixedPrompt,
+            n: 1,
+            size: '1024x1024',
+            quality: IMAGE_QUALITY,
+            input_fidelity: 'high',
+            background: 'transparent',
+            // @ts-expect-error: moderation exists but not in SDK types
+            moderation: 'low',
+          }),
+          3,
+          2000,
+          `Layer 1 character variant (reactive fix, Page ${pageNumber})`
+        );
       } else {
         throw error;
       }
@@ -903,28 +1179,55 @@ Paper collage style with soft edges.`;
     job.progress = 40;
 
     // -------------------- LAYER 2: Local Composition --------------------
-    console.log(`[Job ${jobId}] LAYER 2: Composing character + narration (local rendering)`);
-
+    // SKIP Layer 2 for minimalist moment spreads (single poetic sentence, not rendered in Layer 2)
+    const isMinimalistMoment = pageData.is_minimalist_moment === true || pageData.is_refinement_only === true;
+    let composedDataUrl: string;
+    let actualTextBounds: any;
     const characterPosition = getCharacterPosition(pageNumber, pageData);
-    const narrationText = pageData.narration || '';
 
-    if (!narrationText) {
-      console.warn(`[Job ${jobId}] WARNING: No narration text for page ${pageNumber}!`);
+    if (isMinimalistMoment) {
+      console.log(`[Job ${jobId}] LAYER 2: SKIPPED (minimalist moment spread - single poetic sentence, no text rendering)`);
+      console.log(`[Job ${jobId}] Using character variant directly for Layer 3`);
+
+      // For minimalist moment spreads, convert character variant (1024x1024) to landscape format (1536x1024)
+      // by placing it on the appropriate side of a white landscape canvas
+      const { composeSpread } = require('@/lib/utils/localComposition');
+      const emptyComposition = await composeSpread({
+        characterImageBase64: characterVariantDataUrl,
+        narration: '', // No narration text rendering (single sentence handled in Layer 3)
+        characterPosition,
+        skipTextRendering: true // Flag to skip text rendering
+      });
+
+      composedDataUrl = emptyComposition.imageDataUrl;
+      actualTextBounds = { x: 0, y: 0, width: 0, height: 0 }; // No text bounds
+
+      console.log(`[Job ${jobId}] L2 Character placed on ${characterPosition} side, no narration text`);
+    } else {
+      console.log(`[Job ${jobId}] LAYER 2: Composing character + narration (local rendering)`);
+
+      const narrationText = pageData.narration || '';
+
+      if (!narrationText || narrationText.trim().length === 0) {
+        console.error(`[Job ${jobId}] CRITICAL: Empty or missing narration for page ${pageNumber}!`);
+        console.error(`[Job ${jobId}] Page data:`, JSON.stringify(pageData, null, 2));
+        throw new Error(`Page ${pageNumber} has no narration text - cannot proceed with Layer 2`);
+      }
+
+      console.log(`[Job ${jobId}] L2 Narration text (${narrationText.length} chars): "${narrationText.substring(0, 50)}..."`);
+
+      const compositionResult = await composeSpread({
+        characterImageBase64: characterVariantDataUrl,
+        narration: narrationText,
+        characterPosition
+      });
+
+      composedDataUrl = compositionResult.imageDataUrl;
+      actualTextBounds = compositionResult.actualTextBounds;
+
+      console.log(`[Job ${jobId}] L2 Complete: Character on ${characterPosition}, narration on opposite panel`);
+      console.log(`[Job ${jobId}] L2 Actual text bounds: x=${actualTextBounds.x}, y=${actualTextBounds.y}, w=${actualTextBounds.width}, h=${actualTextBounds.height}`);
     }
-
-    console.log(`[Job ${jobId}] L2 Narration text (${narrationText.length} chars): "${narrationText.substring(0, 50)}..."`);
-
-    const compositionResult = await composeSpread({
-      characterImageBase64: characterVariantDataUrl,
-      narration: narrationText,
-      characterPosition
-    });
-
-    const composedDataUrl = compositionResult.imageDataUrl;
-    const actualTextBounds = compositionResult.actualTextBounds;
-
-    console.log(`[Job ${jobId}] L2 Complete: Character on ${characterPosition}, narration on opposite panel`);
-    console.log(`[Job ${jobId}] L2 Actual text bounds: x=${actualTextBounds.x}, y=${actualTextBounds.y}, w=${actualTextBounds.width}, h=${actualTextBounds.height}`);
 
     job.progress = 60;
 
@@ -937,13 +1240,19 @@ Paper collage style with soft edges.`;
     // Generate inpainting mask with actual bounds
     const inpaintingMask = generateInpaintingMask(characterPosition, actualTextBounds);
 
-    // Extract refinement word from narration (hidden from parents, surprise for final book)
-    const refinementWord = extractRefinementWordFromNarration(pageData.narration || '', pageData.visual_action || '');
-    const refinementZones = getRefinementWordZones(characterPosition, pageNumber);
-
-    // Log refinement word extraction (for debugging)
-    if (refinementWord) {
-      console.log(`[Job ${jobId}] L3 Refinement word extracted: "${refinementWord}" (hidden from parents, surprise for book)`);
+    // Refinement words ONLY on dedicated minimalist moment spreads
+    // Normal spreads should NOT have refinement words at all
+    let refinementWord: string | undefined;
+    if (isMinimalistMoment) {
+      // For minimalist moment spreads, the narration IS the poetic sentence/refinement word
+      refinementWord = pageData.narration || undefined;
+      if (refinementWord) {
+        console.log(`[Job ${jobId}] L3 Minimalist moment spread - using narration as poetic overlay: "${refinementWord}"`);
+      }
+    } else {
+      // Normal spreads: NO refinement words
+      refinementWord = undefined;
+      console.log(`[Job ${jobId}] L3 Normal spread - no refinement words (only on minimalist moments)`);
     }
 
     // Get setting from spread_metadata (explicit setting from story generation)
@@ -960,51 +1269,73 @@ Paper collage style with soft edges.`;
       pageData.narration || ''
     );
 
-    // Add refinement words instruction if present
+    // Add refinement words instruction if present (for minimalist moment spreads)
     if (refinementWord) {
-      scenePrompt += `\n\nREFINEMENT WORD: Add decorative text "${refinementWord}" in paper-collage letter style (cut-paper look, slight rotation, subtle shadow). `;
-      scenePrompt += `Place in available corner zones ONLY, small scale, do NOT overlap character or main narration.`;
+      scenePrompt += `\n\n✓ POETIC TEXT OVERLAY (REQUIRED): Add decorative text "${refinementWord}" in paper-collage letter style.
+- Cut-paper letter look with gentle hand-crafted feel
+- Slight rotation and subtle shadow for depth
+- Place strategically in available space (not over character)
+- Medium-to-large scale, readable and artistic
+- This is the ONLY text for this spread - make it beautiful and prominent`;
+    } else {
+      // For normal spreads with narration text already rendered in Layer 2
+      scenePrompt += `\n\n❌ DO NOT ADD NEW TEXT - The narration text is already rendered on this spread`;
     }
 
-    console.log(`[Job ${jobId}] L3 Prompt:`, scenePrompt);
+    console.log(`[Job ${jobId}] L3 Original prompt:`, scenePrompt);
+
+    // PROACTIVE: Sanitize prompt BEFORE sending to OpenAI
+    const l3Context = `Layer 3: Scene inpainting. Page ${pageNumber}. Narration: "${pageData.narration}". Refinement word: ${refinementWord || 'none'}.`;
+    const safeScenePrompt = await sanitizePromptProactively(scenePrompt, l3Context, 'scene');
+
+    console.log(`[Job ${jobId}] L3 Sanitized prompt ready`);
 
     const composedFile = await prepareImageFile(composedDataUrl, 'composed.png');
     const inpaintMaskFile = await prepareImageFile(inpaintingMask, 'inpaint-mask.png');
 
     let layer3Response;
     try {
-      layer3Response = await openai.images.edit({
-        model: 'gpt-image-1',
-        image: composedFile,
-        mask: inpaintMaskFile,
-        prompt: scenePrompt,
-        n: 1,
-        size: '1536x1024', // LANDSCAPE spread
-        quality: IMAGE_QUALITY,
-        input_fidelity: 'high',
-        // @ts-expect-error: moderation exists but not in SDK types
-        moderation: 'low',
-      });
-    } catch (error: any) {
-      // Retry with Gemini-rewritten prompt if moderation blocked
-      if (error.code === 'moderation_blocked') {
-        console.log(`[Job ${jobId}] L3 MODERATION BLOCKED - Using Gemini to rewrite prompt`);
-
-        const context = `Layer 3: Scene inpainting. Page ${pageNumber}. Narration: "${pageData.narration}". Refinement word: ${refinementWord || 'none'}.`;
-        const fixedPrompt = await fixModerationIssueWithGemini(scenePrompt, context);
-
-        layer3Response = await openai.images.edit({
+      layer3Response = await retryWithBackoff(
+        () => openai.images.edit({
           model: 'gpt-image-1',
           image: composedFile,
           mask: inpaintMaskFile,
-          prompt: fixedPrompt,
+          prompt: safeScenePrompt, // Use sanitized prompt
           n: 1,
-          size: '1536x1024',
+          size: '1536x1024', // LANDSCAPE spread
           quality: IMAGE_QUALITY,
           input_fidelity: 'high',
           // @ts-expect-error: moderation exists but not in SDK types
           moderation: 'low',
-        });
+        }),
+        3, // Max 3 retries
+        2000, // 2 second initial delay
+        `Layer 3 scene inpainting (Page ${pageNumber})`
+      );
+    } catch (error: any) {
+      // REACTIVE: If proactive sanitization wasn't enough, try even more aggressive rewrite
+      if (error.code === 'moderation_blocked') {
+        console.log(`[Job ${jobId}] L3 MODERATION BLOCKED (despite proactive sanitization) - Using reactive fix`);
+
+        const fixedPrompt = await fixModerationIssueWithGemini(safeScenePrompt, l3Context);
+
+        layer3Response = await retryWithBackoff(
+          () => openai.images.edit({
+            model: 'gpt-image-1',
+            image: composedFile,
+            mask: inpaintMaskFile,
+            prompt: fixedPrompt,
+            n: 1,
+            size: '1536x1024',
+            quality: IMAGE_QUALITY,
+            input_fidelity: 'high',
+            // @ts-expect-error: moderation exists but not in SDK types
+            moderation: 'low',
+          }),
+          3,
+          2000,
+          `Layer 3 scene inpainting (reactive fix, Page ${pageNumber})`
+        );
       } else {
         throw error;
       }
@@ -1015,17 +1346,28 @@ Paper collage style with soft edges.`;
     job.progress = 85;
 
     // -------------------- UPSCALING FOR PRINT --------------------
-    console.log(`[Job ${jobId}] UPSCALING: Processing for print (1536×1024 → 3072×2048)`);
-
+    const skipUpscaling = process.env.SKIP_UPSCALING === 'true';
     let printReadyBase64: string;
-    try {
-      // Upscale 2× and add 3mm bleed
-      printReadyBase64 = await processPrintReady(finalImageBase64, true);
-      console.log(`[Job ${jobId}] ✅ Print-ready image complete (3072×2048 with bleed)`);
-    } catch (error: any) {
-      console.error(`[Job ${jobId}] Upscaling failed:`, error);
-      console.log(`[Job ${jobId}] Falling back to original resolution`);
-      printReadyBase64 = finalImageBase64; // Fallback to original if upscaling fails
+
+    if (skipUpscaling) {
+      console.log(`[Job ${jobId}] UPSCALING: SKIPPED (SKIP_UPSCALING=true) - using original resolution for testing`);
+      printReadyBase64 = finalImageBase64;
+    } else {
+      console.log(`[Job ${jobId}] UPSCALING: Processing for print (1536×1024 → 3072×2048)`);
+      try {
+        // Upscale 2× and add 3mm bleed with retry logic
+        printReadyBase64 = await retryWithBackoff(
+          () => processPrintReady(finalImageBase64, true),
+          3, // Max 3 retries
+          2000, // 2 second initial delay
+          `Upscaling page ${pageNumber}`
+        );
+        console.log(`[Job ${jobId}] ✅ Print-ready image complete (3072×2048 with bleed)`);
+      } catch (error: any) {
+        console.error(`[Job ${jobId}] Upscaling failed after retries:`, error);
+        console.log(`[Job ${jobId}] Falling back to original resolution`);
+        printReadyBase64 = finalImageBase64; // Fallback to original if upscaling fails
+      }
     }
 
     const finalDataUrl = `data:image/png;base64,${printReadyBase64}`;
@@ -1051,10 +1393,50 @@ Paper collage style with soft edges.`;
     };
 
   } catch (error: any) {
-    console.error(`[Job ${jobId}] Failed:`, error);
+    console.error(`[Job ${jobId}] Pipeline failed:`, error);
+
+    // Classify error type for better user messaging
+    let errorType = 'unknown';
+    let userMessage = error.message || 'An unknown error occurred';
+
+    if (error.code === 'moderation_blocked') {
+      errorType = 'moderation';
+      userMessage = `Content moderation blocked the request. This is typically a false positive for family-friendly content. Please try again.`;
+    } else if (error.message?.includes('timeout') || error.code === 'ETIMEDOUT') {
+      errorType = 'timeout';
+      userMessage = `Request timed out. The system may be under heavy load. Please try again in a moment.`;
+    } else if (error.message?.includes('502') || error.status === 502) {
+      errorType = 'gateway';
+      userMessage = `Gateway error (502). The image generation service is temporarily unavailable. Please try again.`;
+    } else if (error.message?.includes('503') || error.status === 503) {
+      errorType = 'service_unavailable';
+      userMessage = `Service temporarily unavailable (503). Please try again in a moment.`;
+    } else if (error.message?.includes('429') || error.status === 429) {
+      errorType = 'rate_limit';
+      userMessage = `Rate limit exceeded. Please wait a moment and try again.`;
+    } else if (error.message?.includes('Character anchor not available')) {
+      errorType = 'missing_anchor';
+      userMessage = `Character anchor not ready. Please ensure page 0 completes first.`;
+    } else if (error.message?.includes('No baby photo') || error.message?.includes('no narration')) {
+      errorType = 'missing_data';
+      userMessage = error.message;
+    } else if (error.message?.includes('Image exceeds')) {
+      errorType = 'file_size';
+      userMessage = error.message;
+    }
+
     job.status = 'failed';
-    job.error = error.message;
+    job.error = userMessage;
     job.completedAt = Date.now();
+
+    console.error(`[Job ${jobId}] Error type: ${errorType}`);
+    console.error(`[Job ${jobId}] User message: ${userMessage}`);
+    console.error(`[Job ${jobId}] Full error:`, {
+      message: error.message,
+      code: error.code,
+      status: error.status,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n') // First 3 lines of stack
+    });
   }
 }
 
@@ -1082,6 +1464,7 @@ export async function GET(request: NextRequest) {
       progress: job.progress,
       result: job.result,
       error: job.error,
+      queuePosition: job.queuePosition,
       duration: job.completedAt
         ? job.completedAt - job.startTime
         : Date.now() - job.startTime
@@ -1097,10 +1480,12 @@ export async function DELETE() {
     jobs.clear();
     styleAnchors.clear();
     characterReferences.clear();
+    processingJobIds.clear();
+    jobQueue.length = 0; // Clear array
 
     return NextResponse.json({
       success: true,
-      message: 'Cleaned up temporary data'
+      message: 'Cleaned up temporary data (jobs, anchors, queue)'
     });
   } catch (error) {
     return NextResponse.json(

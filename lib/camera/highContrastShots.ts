@@ -20,11 +20,11 @@ export const CAMERA_ANGLES: Record<string, CameraAngle> = {
     best_for: ['playing', 'lying down', 'crawling', 'overhead perspective']
   },
 
-  extreme_macro_detail: {
-    id: 'extreme_macro_detail',
-    name: 'Extreme Macro',
-    description: "Ultra close-up focusing on tiny detail like baby's hand texture, foot, or eye",
-    best_for: ['hands', 'feet', 'eyes', 'tiny details', 'texture']
+  discovery_moment: {
+    id: 'discovery_moment',
+    name: 'Discovery Moment',
+    description: "Medium-close shot capturing baby's expression as they reach toward or discover something new, focus on wonder and curiosity",
+    best_for: ['reaching', 'discovering', 'curiosity', 'exploration', 'wonder']
   },
 
   establishing_wide: {
@@ -60,6 +60,20 @@ export const CAMERA_ANGLES: Record<string, CameraAngle> = {
     name: 'Reflection Shot',
     description: "Focuses on baby's reflection in mirror, water, or shiny surface",
     best_for: ['water play', 'mirrors', 'discovery', 'dreamlike moments']
+  },
+
+  peek_through_frame: {
+    id: 'peek_through_frame',
+    name: 'Peek Through Frame',
+    description: "Baby viewed through a natural frame (doorway, parent's embracing arms, gap in curtains, tree branches) creating intimate, protected feeling",
+    best_for: ['intimate moments', 'protection', 'discovery', 'peek-a-boo', 'cozy scenes']
+  },
+
+  shadow_silhouette: {
+    id: 'shadow_silhouette',
+    name: 'Shadow & Silhouette',
+    description: "Artistic shot using backlighting, shadows, or silhouettes to create an ethereal, poetic moment emphasizing shapes and emotion over details",
+    best_for: ['sunset/sunrise', 'window light', 'peaceful moments', 'artistic storytelling', 'dreamy atmosphere']
   }
 };
 

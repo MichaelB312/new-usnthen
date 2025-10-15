@@ -253,10 +253,6 @@ export default function CreateBookPage() {
     setGenerationProgress(100);
     setGenerationMessage('Story complete!');
 
-    const pageCount = story?.pages?.length || 10;
-    const spreadCount = Math.ceil(pageCount / 2);
-    toast.success(`Created a ${spreadCount}-spread story for ${babyProfile?.baby_name}!`);
-
     setTimeout(() => {
       setIsGeneratingStory(false);
       setCurrentStep(3);
@@ -314,7 +310,7 @@ export default function CreateBookPage() {
   };
 
   return (
-    <div className="min-h-screen p-6 pt-24">
+    <div className="min-h-screen p-4 sm:p-6 pt-20 sm:pt-24">
       {showConfetti && <Confetti width={width} height={height} />}
 
       {/* Resume Progress Modal */}
@@ -328,21 +324,22 @@ export default function CreateBookPage() {
 
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-2">
-            <button onClick={handleBack} className="btn-ghost flex items-center gap-2">
-              <ArrowLeft className="h-5 w-5" />
-              Back
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6 sm:mb-8">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button onClick={handleBack} className="btn-ghost flex items-center gap-2 text-sm sm:text-base px-2 sm:px-4">
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+              <span className="hidden sm:inline">Back</span>
             </button>
-            <button onClick={() => router.push('/')} className="btn-ghost flex items-center gap-2">
-              <Home className="h-5 w-5" />
-              Home
+            <button onClick={() => router.push('/')} className="btn-ghost flex items-center gap-2 text-sm sm:text-base px-2 sm:px-4">
+              <Home className="h-4 w-4 sm:h-5 sm:w-5" />
+              <span className="hidden sm:inline">Home</span>
             </button>
           </div>
 
-          <h1 className="font-patrick text-3xl gradient-text pb-1 absolute left-1/2 transform -translate-x-1/2">Create Your Magical Storybook</h1>
+          <h1 className="font-patrick text-xl sm:text-2xl lg:text-3xl gradient-text pb-1 text-center">Create Your Magical Storybook</h1>
 
-          <div className="flex items-center gap-2">
+          {/* Desktop only - hide on mobile */}
+          <div className="hidden sm:flex items-center gap-2 w-full sm:w-auto justify-end">
             {currentStep < 6 && !isGeneratingStory && (
               <SaveProgressButton
                 currentStep={currentStep}
@@ -358,10 +355,10 @@ export default function CreateBookPage() {
 
         {/* Progress Bar */}
         {!isGeneratingStory && (
-          <div className="mb-12">
-            <div className="card-magical">
-              <div className="flex justify-between items-center relative">
-                <div className="absolute top-8 left-0 right-0 h-1 bg-gray-200 z-0">
+          <div className="mb-8 sm:mb-12">
+            <div className="card-magical px-2 sm:px-4">
+              <div className="grid grid-cols-6 gap-1 sm:gap-2 items-start relative">
+                <div className="absolute top-4 sm:top-6 md:top-8 left-4 right-4 sm:left-8 sm:right-8 h-0.5 sm:h-1 bg-gray-200 z-0">
                   <motion.div
                     className="h-full bg-gradient-to-r from-purple-600 to-pink-600"
                     initial={{ width: '0%' }}
@@ -372,35 +369,39 @@ export default function CreateBookPage() {
 
                 {steps.map((step) => {
                   const Icon = step.icon;
+                  const isCurrentStep = currentStep === step.id;
+                  const isPastStep = currentStep > step.id;
+
                   return (
-                    <div key={step.id} className="flex-1 relative z-10">
-                      <div className="flex flex-col items-center">
+                    <div key={step.id} className="relative z-10">
+                      <div className="flex flex-col items-center justify-start">
                         <motion.div
                           initial={{ scale: 0.8 }}
                           animate={{
-                            scale: currentStep === step.id ? 1.2 : currentStep > step.id ? 1 : 0.9
+                            scale: isCurrentStep ? 1.1 : 0.95
                           }}
-                          className={`w-16 h-16 rounded-full flex items-center justify-center bg-white border-4 transition-all ${
-                            currentStep === step.id
+                          className={`w-8 h-8 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center bg-white border-2 sm:border-3 md:border-4 transition-all flex-shrink-0 ${
+                            isCurrentStep
                               ? 'border-purple-600 shadow-lg'
-                              : currentStep > step.id
+                              : isPastStep
                               ? 'border-green-500'
                               : 'border-gray-300'
                           }`}
                         >
-                          {currentStep > step.id ? (
-                            <Check className="h-6 w-6 text-green-500" />
+                          {isPastStep ? (
+                            <Check className="h-3 w-3 sm:h-5 sm:w-5 md:h-6 md:w-6 text-green-500" />
                           ) : (
                             <Icon
-                              className={`h-6 w-6 ${
-                                currentStep === step.id ? 'text-purple-600' : 'text-gray-400'
+                              className={`h-3 w-3 sm:h-5 sm:w-5 md:h-6 md:w-6 ${
+                                isCurrentStep ? 'text-purple-600' : 'text-gray-400'
                               }`}
                             />
                           )}
                         </motion.div>
+                        {/* Only show name on mobile if it's the current step */}
                         <p
-                          className={`mt-2 text-sm font-medium ${
-                            currentStep === step.id ? 'text-purple-600' : 'text-gray-600'
+                          className={`mt-1 sm:mt-2 text-[10px] sm:text-xs font-medium text-center px-1 transition-opacity leading-tight whitespace-nowrap ${
+                            isCurrentStep ? 'text-purple-600 opacity-100' : 'text-gray-600 opacity-0 sm:opacity-100'
                           }`}
                         >
                           {step.name}
@@ -422,22 +423,22 @@ export default function CreateBookPage() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="card-magical text-center py-20"
+              className="card-magical text-center py-12 sm:py-16 lg:py-20 px-4"
             >
               <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-                className="inline-block mb-8"
+                className="inline-block mb-6 sm:mb-8"
               >
-                <Wand2 className="h-20 w-20 text-purple-600" />
+                <Wand2 className="h-16 w-16 sm:h-20 sm:w-20 text-purple-600" />
               </motion.div>
-              <h2 className="text-4xl font-patrick mb-4 gradient-text">Creating Your Story...</h2>
-              <p className="text-xl text-gray-600 mb-6">
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick mb-3 sm:mb-4 gradient-text">Creating Your Story...</h2>
+              <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-4 sm:mb-6 px-2">
                 Our AI is crafting a beautiful tale for {babyProfile?.baby_name}
               </p>
-              
-              <div className="max-w-md mx-auto">
-                <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
+
+              <div className="max-w-md mx-auto px-4">
+                <div className="bg-gray-200 rounded-full h-2 sm:h-3 overflow-hidden">
                   <motion.div
                     className="h-full bg-gradient-to-r from-purple-600 to-pink-600"
                     initial={{ width: '0%' }}
@@ -445,7 +446,7 @@ export default function CreateBookPage() {
                     transition={{ duration: 0.5 }}
                   />
                 </div>
-                <p className="text-sm text-gray-500 mt-2">
+                <p className="text-xs sm:text-sm text-gray-500 mt-2">
                   {generationMessage}
                 </p>
               </div>
@@ -468,9 +469,9 @@ export default function CreateBookPage() {
               )}
 
               {currentStep === 3 && storyData && (
-                <StoryReviewSpreads 
-                  onContinue={handleStoryContinue} 
-                  onRegenerate={handleStoryRegenerate} 
+                <StoryReviewSpreads
+                  onContinue={handleStoryContinue}
+                  onRegenerate={handleStoryRegenerate}
                 />
               )}
 
@@ -483,34 +484,49 @@ export default function CreateBookPage() {
               )}
 
               {currentStep === 6 && (
-                <div className="card-magical text-center py-20">
+                <div className="card-magical text-center py-12 sm:py-16 lg:py-20 px-4">
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring' }}
-                    className="inline-block mb-8"
+                    className="inline-block mb-6 sm:mb-8"
                   >
-                    <div className="w-24 h-24 rounded-full bg-green-500 flex items-center justify-center">
-                      <Check className="h-12 w-12 text-white" />
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-green-500 flex items-center justify-center">
+                      <Check className="h-10 w-10 sm:h-12 sm:w-12 text-white" />
                     </div>
                   </motion.div>
-                  <h2 className="text-4xl font-patrick mb-4 gradient-text">Your Book is Ready!</h2>
-                  <p className="text-xl text-gray-600 mb-4">
+                  <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick mb-3 sm:mb-4 gradient-text">Your Book is Ready!</h2>
+                  <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-3 sm:mb-4 px-2">
                     {Math.ceil((storyData?.pages?.length || 0) / 2)} beautiful spreads featuring {babyProfile?.baby_name}
                   </p>
-                  <p className="text-lg text-gray-600">
+                  <p className="text-sm sm:text-base lg:text-lg text-gray-600 px-2">
                     With sound effects and beautiful illustrations!
                   </p>
-                  <div className="mt-8 flex gap-4 justify-center">
-                    <button className="btn-primary">
+                  <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-4 justify-center px-4">
+                    <button className="btn-primary text-sm sm:text-base px-6 py-3">
                       Order Printed Copy
                     </button>
                   </div>
                 </div>
               )}
+
+              {/* Mobile only - Save button below step content */}
+              {currentStep < 6 && (
+                <div className="sm:hidden mt-6">
+                  <SaveProgressButton
+                    currentStep={currentStep}
+                    babyProfile={babyProfile}
+                    conversation={useBookStore.getState().conversation}
+                    storyData={storyData}
+                    generatedImages={useBookStore.getState().illustrations}
+                    bookId={bookId || undefined}
+                  />
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
+
       </div>
     </div>
   );

@@ -17,89 +17,84 @@ interface PageData {
   pageLabel: string;
   text: string;
   pageNumber: number;
+  visualAction: string;
+  simpleDescription: string; // User-friendly simple description
 }
 
 /**
- * Detect and highlight onomatopoeia (sound words) in text
+ * Extract ONLY the user-editable parts from visual_action
+ * Users can ONLY edit: who is present + what they're doing (action/posture)
+ * Everything else is LOCKED (camera angles, scene/setting, backgrounds, technical details)
  */
-function highlightOnomatopoeia(text: string): JSX.Element[] {
-  // Common onomatopoeia patterns
-  const soundWords = [
-    'splash', 'woosh', 'thump', 'bang', 'crash', 'pop', 'boom', 'zip',
-    'giggle', 'laugh', 'cry', 'wah', 'haha', 'heehee', 'giggle',
-    'swoosh', 'swish', 'whoosh', 'whizz', 'zoom',
-    'munch', 'crunch', 'chomp', 'slurp', 'gulp',
-    'knock', 'tap', 'click', 'clack', 'tick', 'tock',
-    'beep', 'honk', 'vroom', 'choo', 'quack', 'moo', 'woof', 'meow',
-    'squelch', 'squish', 'splat', 'plop', 'drip',
-    'rustle', 'crackle', 'snap', 'crinkle',
-    'pitter', 'patter', 'flutter', 'whisper'
-  ];
+function extractSimpleDescription(visualAction: string, charactersOnPage: string[]): string {
+  if (!visualAction) return '';
 
-  // Pattern 1: Uppercase words (e.g., SPLASH, WOOSH)
-  // Pattern 2: Repeated words (e.g., splash, splash)
-  // Pattern 3: Known sound words with punctuation (e.g., Splash!)
+  // Remove ALL camera angle names and shot types
+  let simple = visualAction
+    .replace(/camera angle:.*?(?=\n|$)/gi, '')
+    .replace(/shot:.*?(?=\n|$)/gi, '')
+    .replace(/establishing wide|bird's-eye view|birds eye|discovery moment|over-the-shoulder|following behind|perfect profile|reflection shot|peek through frame|shadow silhouette|shadow & silhouette/gi, '')
+    .replace(/close-up|wide shot|medium shot|macro|low angle|high angle|dutch angle|overhead|profile|silhouette/gi, '')
+    // Remove ALL setting/scene/location descriptions
+    .replace(/\b(beach|ocean|sea|water|sand|waves|shore|pool|park|garden|backyard|home|room|house|indoor|outdoor|setting|location|environment|scene|background|landscape)\b/gi, '')
+    // Remove ALL technical photo/composition terms
+    .replace(/lighting:.*?(?=\n|$)/gi, '')
+    .replace(/color palette:.*?(?=\n|$)/gi, '')
+    .replace(/background:.*?(?=\n|$)/gi, '')
+    .replace(/composition:.*?(?=\n|$)/gi, '')
+    .replace(/\b(lighting|shadows|highlights|contrast|exposure|focus|depth|framing|angle|perspective|view|shot)\b/gi, '')
+    // Remove weather/time descriptions
+    .replace(/\b(sunny|cloudy|rainy|sunset|sunrise|morning|afternoon|evening|night|golden hour|bright|dark)\b/gi, '')
+    .trim();
 
-  const parts: JSX.Element[] = [];
-  const regex = /\b([A-Z]{2,}(?:,?\s+[A-Z]{2,})*!?)|(\b\w+,\s*\w+!?)|(Splash!|Woosh!|Bang!|Thump!|Giggle!|Pop!|Boom!)/g;
+  // Clean up extra whitespace and punctuation
+  simple = simple
+    .replace(/\s+/g, ' ')
+    .replace(/[,.\s]+$/g, '')
+    .replace(/^[,.\s]+/g, '')
+    .trim();
 
-  let lastIndex = 0;
-  let match;
-  let keyIndex = 0;
-
-  while ((match = regex.exec(text)) !== null) {
-    const matchedText = match[0];
-    const matchStart = match.index;
-
-    // Check if it's uppercase or a known sound word
-    const isUppercase = /^[A-Z]/.test(matchedText);
-    const lowerMatch = matchedText.toLowerCase().replace(/[!,.\s]+/g, '');
-    const isKnownSound = soundWords.some(word => lowerMatch.includes(word));
-    const isRepeated = /(\w+),\s*\1/i.test(matchedText); // e.g., "splash, splash"
-
-    if (isUppercase || isKnownSound || isRepeated) {
-      // Add text before the match
-      if (matchStart > lastIndex) {
-        parts.push(<span key={`text-${keyIndex++}`}>{text.slice(lastIndex, matchStart)}</span>);
-      }
-
-      // Add highlighted sound word
-      parts.push(
-        <span
-          key={`sound-${keyIndex++}`}
-          className="onomatopoeia font-bold bg-gradient-to-r from-yellow-100 to-yellow-200 px-1.5 py-0.5 rounded-md inline-block mx-0.5"
-        >
-          {matchedText}
-        </span>
-      );
-
-      lastIndex = matchStart + matchedText.length;
+  // If result is too short or empty, extract just the action verbs
+  if (simple.length < 10) {
+    // Try to extract action patterns like "sitting", "reaching", "playing", etc.
+    const actionMatch = visualAction.match(/\b(sitting|standing|lying|crawling|reaching|grabbing|playing|laughing|smiling|looking|watching|holding|hugging|walking|running|jumping|splashing|discovering|exploring)\b/gi);
+    if (actionMatch && actionMatch.length > 0) {
+      const actors = charactersOnPage.length > 0 ? charactersOnPage.join(' and ') : 'Baby';
+      simple = `${actors} ${actionMatch[0].toLowerCase()}`;
     }
   }
 
-  // Add remaining text
-  if (lastIndex < text.length) {
-    parts.push(<span key={`text-${keyIndex++}`}>{text.slice(lastIndex)}</span>);
+  // Truncate if too long (max 100 chars for simple description)
+  if (simple.length > 100) {
+    const firstSentence = simple.match(/^[^.!?]+[.!?]/)?.[0];
+    simple = firstSentence || simple.substring(0, 100) + '...';
   }
 
-  return parts.length > 0 ? parts : [<span key="all">{text}</span>];
+  // Fallback if everything was filtered out
+  return simple || `${charactersOnPage.join(' and ') || 'Baby'} in the scene`;
 }
+
+// Removed highlightOnomatopoeia function - no longer highlighting sound words
 
 export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProps) {
   const { storyData, babyProfile } = useBookStore();
   const [editingPage, setEditingPage] = useState<number | null>(null);
   const [editedNarration, setEditedNarration] = useState('');
+  const [editedSimpleDescription, setEditedSimpleDescription] = useState(''); // Only simple description
   const [currentPage, setCurrentPage] = useState(0);
 
   // Build pages array (NEW: Each page is displayed separately)
   const pages: PageData[] = [];
   if (storyData?.pages) {
     storyData.pages.forEach((page, index) => {
+      const visualAction = page.visual_action || page.visual_prompt || '';
       pages.push({
         pageIndex: index,
         pageLabel: `Page ${page.page_number}`,
         text: page.narration || '',
-        pageNumber: page.page_number
+        pageNumber: page.page_number,
+        visualAction: visualAction, // Keep full technical version
+        simpleDescription: extractSimpleDescription(visualAction, page.characters_on_page || [])
       });
     });
   }
@@ -109,16 +104,33 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
     if (page) {
       setEditingPage(pageIndex);
       setEditedNarration(page.text);
+      setEditedSimpleDescription(page.simpleDescription); // Edit only simple description
     }
   };
 
   const savePageEdit = () => {
     if (editingPage === null || !storyData) return;
 
-    // Update the specific page's narration
+    // Update the specific page's narration and MERGE the simple description
+    // Keep all technical details (camera angles, etc.) intact
     const updatedPages = storyData.pages.map((page, idx) => {
       if (idx === editingPage) {
-        return { ...page, narration: editedNarration };
+        // Keep the original visual_action structure but update the core description
+        // This preserves camera angles, lighting, etc. that the user shouldn't change
+        const originalVisualAction = page.visual_action || page.visual_prompt || '';
+
+        // Simple merge: if user edited the description, use it
+        // Otherwise keep original
+        const updatedVisualAction = editedSimpleDescription !== pages[editingPage].simpleDescription
+          ? editedSimpleDescription
+          : originalVisualAction;
+
+        return {
+          ...page,
+          narration: editedNarration,
+          visual_action: updatedVisualAction,
+          visual_prompt: updatedVisualAction // Also update visual_prompt for compatibility
+        };
       }
       return page;
     });
@@ -139,28 +151,28 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
   const totalPages = pages.length;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8">
       {/* Header */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="card-magical text-center"
       >
-        <div className="inline-flex p-4 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 mb-4">
-          <BookOpen className="h-12 w-12 text-purple-600" />
+        <div className="inline-flex p-3 sm:p-4 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 mb-3 sm:mb-4">
+          <BookOpen className="h-10 w-10 sm:h-12 sm:w-12 text-purple-600" />
         </div>
-        <h2 className="text-4xl font-patrick gradient-text mb-3">
+        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick gradient-text mb-2 sm:mb-3 px-4">
           {storyData.title}
         </h2>
-        <p className="text-xl text-gray-600">
+        <p className="text-base sm:text-lg lg:text-xl text-gray-600 px-4">
           A magical story for {babyProfile?.baby_name}
         </p>
         {storyData.refrain && (
-          <motion.p 
+          <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
-            className="text-purple-600 font-medium mt-3 italic"
+            className="text-purple-600 font-medium mt-2 sm:mt-3 italic text-sm sm:text-base px-4"
           >
             ✨ "{storyData.refrain}" ✨
           </motion.p>
@@ -178,55 +190,63 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
             className="space-y-6"
           >
             {/* Page Content */}
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-8 min-h-[300px] flex items-center justify-center">
+            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 min-h-[250px] sm:min-h-[300px] flex items-center justify-center">
               {editingPage === currentPage ? (
-                <div className="w-full space-y-4">
-                  <textarea
-                    value={editedNarration}
-                    onChange={(e) => setEditedNarration(e.target.value)}
-                    className="w-full p-4 text-lg font-patrick text-gray-700 bg-white rounded-xl resize-none focus:outline-none focus:ring-4 focus:ring-purple-200 shadow-inner"
-                    rows={6}
-                    autoFocus
-                  />
-                  <div className="flex gap-3 justify-center">
+                <div className="w-full space-y-3 sm:space-y-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-medium text-gray-600 mb-1 sm:mb-2">
+                      Story Text
+                    </label>
+                    <textarea
+                      value={editedNarration}
+                      onChange={(e) => setEditedNarration(e.target.value)}
+                      className="w-full p-3 sm:p-4 text-base sm:text-lg font-patrick text-gray-700 bg-white rounded-lg sm:rounded-xl resize-none focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-purple-200 shadow-inner"
+                      rows={5}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex gap-2 sm:gap-3 justify-center">
                     <button
                       onClick={savePageEdit}
-                      className="btn-primary text-sm py-2 px-6 flex items-center gap-2"
+                      className="btn-primary text-xs sm:text-sm py-2 px-4 sm:px-6 flex items-center gap-2"
                     >
-                      <Check className="h-4 w-4" />
+                      <Check className="h-3 w-3 sm:h-4 sm:w-4" />
                       Save
                     </button>
                     <button
                       onClick={() => setEditingPage(null)}
-                      className="btn-secondary text-sm py-2 px-6"
+                      className="btn-secondary text-xs sm:text-sm py-2 px-4 sm:px-6"
                     >
                       Cancel
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="text-center space-y-4 max-w-2xl">
-                  <motion.p
-                    className="text-2xl font-patrick text-gray-700 leading-relaxed"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    {highlightOnomatopoeia(pages[currentPage].text)}
-                  </motion.p>
+                <div className="w-full space-y-4 sm:space-y-6 max-w-3xl mx-auto px-2">
+                  {/* Story Text */}
+                  <div className="text-center">
+                    <motion.p
+                      className="text-lg sm:text-xl md:text-2xl font-patrick text-gray-700 leading-relaxed"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      {pages[currentPage].text}
+                    </motion.p>
+                  </div>
 
                   <button
                     onClick={() => handleEditPage(currentPage)}
-                    className="text-purple-600 hover:text-purple-700 text-sm font-medium flex items-center gap-1 mx-auto mt-4"
+                    className="text-purple-600 hover:text-purple-700 text-xs sm:text-sm font-medium flex items-center gap-1 mx-auto mt-3 sm:mt-4"
                   >
-                    <Edit2 className="h-4 w-4" />
-                    Edit
+                    <Edit2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                    Edit Page
                   </button>
                 </div>
               )}
             </div>
 
             {/* Progress indicator */}
-            <div className="flex items-center justify-center text-sm">
+            <div className="flex items-center justify-center text-xs sm:text-sm">
               <span className="text-purple-600 font-medium">
                 Page {currentPage + 1} of {totalPages}
               </span>
@@ -235,26 +255,27 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
         </AnimatePresence>
 
         {/* Navigation */}
-        <div className="flex items-center justify-between mt-8">
+        <div className="flex items-center justify-between mt-6 sm:mt-8 gap-2 sm:gap-4">
           <button
             onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
             disabled={currentPage === 0}
-            className="btn-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-secondary flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-3 sm:px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <ChevronLeft className="h-5 w-5" />
-            Previous
+            <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+            <span className="hidden sm:inline">Previous</span>
+            <span className="sm:hidden">Prev</span>
           </button>
 
           {/* Progress Dots */}
-          <div className="flex gap-2">
+          <div className="flex gap-1.5 sm:gap-2 overflow-x-auto max-w-[150px] sm:max-w-none">
             {pages.map((_, index) => (
               <button
                 key={index}
                 onClick={() => setCurrentPage(index)}
-                className={`transition-all ${
+                className={`transition-all flex-shrink-0 ${
                   currentPage === index
-                    ? 'w-8 h-2 bg-purple-600 rounded-full'
-                    : 'w-2 h-2 bg-gray-300 hover:bg-gray-400 rounded-full'
+                    ? 'w-6 sm:w-8 h-1.5 sm:h-2 bg-purple-600 rounded-full'
+                    : 'w-1.5 sm:w-2 h-1.5 sm:h-2 bg-gray-300 hover:bg-gray-400 rounded-full'
                 }`}
                 aria-label={`Go to page ${index + 1}`}
               />
@@ -264,40 +285,41 @@ export function StoryReviewSpreads({ onContinue, onRegenerate }: StoryReviewProp
           <button
             onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
             disabled={currentPage >= totalPages - 1}
-            className="btn-secondary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-secondary flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-3 sm:px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Next
-            <ChevronRight className="h-5 w-5" />
+            <span className="hidden sm:inline">Next</span>
+            <span className="sm:hidden">Next</span>
+            <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5" />
           </button>
         </div>
       </div>
 
       {/* Action Buttons */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
         className="card-magical"
       >
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <button
             onClick={onRegenerate}
-            className="btn-secondary flex items-center justify-center gap-2"
+            className="btn-secondary flex items-center justify-center gap-2 text-sm sm:text-base py-3"
           >
-            <RefreshCw className="h-5 w-5" />
-            Regenerate Story
+            <RefreshCw className="h-4 w-4 sm:h-5 sm:w-5" />
+            <span className="whitespace-nowrap">Regenerate Story</span>
           </button>
-          
+
           <button
             onClick={onContinue}
-            className="btn-primary flex items-center justify-center gap-2"
+            className="btn-primary flex items-center justify-center gap-2 text-sm sm:text-base py-3"
           >
-            <Sparkles className="h-5 w-5" />
-            Continue to Illustrations
+            <Sparkles className="h-4 w-4 sm:h-5 sm:w-5" />
+            <span className="whitespace-nowrap">Continue to Illustrations</span>
           </button>
         </div>
 
-        <p className="text-center text-sm text-gray-500 mt-4">
+        <p className="text-center text-xs sm:text-sm text-gray-500 mt-3 sm:mt-4 px-2">
           Review your story and make any edits before continuing
         </p>
       </motion.div>

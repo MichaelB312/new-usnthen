@@ -69,9 +69,9 @@ export function LandscapeSpreadViewer({ onComplete }: LandscapeSpreadViewerProps
     const spread = spreads[spreadIndex];
 
     return (
-      <div className="relative w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-purple-50/30 to-pink-50/30 p-8">
+      <div className="relative w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-purple-50/30 to-pink-50/30 px-2 py-1 sm:p-4 lg:p-8">
         {/* Landscape Image Container - 1536×1024 ratio, IS the book (not on a book) */}
-        <div className="relative w-full max-w-7xl shadow-2xl overflow-hidden rounded-sm" style={{ aspectRatio: '1536/1024' }}>
+        <div className="relative w-full max-w-[98vw] sm:max-w-[90vw] lg:max-w-6xl shadow-2xl overflow-hidden rounded-sm" style={{ aspectRatio: '1536/1024' }}>
           {/* The landscape spread image */}
           {spread.imageUrl ? (
             <div className="relative w-full h-full">
@@ -121,7 +121,7 @@ export function LandscapeSpreadViewer({ onComplete }: LandscapeSpreadViewerProps
         </div>
 
         {/* Page range label below the spread */}
-        <div className="mt-4 text-sm font-medium text-gray-600 bg-white/80 px-4 py-2 rounded-full shadow">
+        <div className="mt-2 sm:mt-4 text-xs sm:text-sm font-medium text-gray-600 bg-white/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full shadow">
           {spread.pageRangeLabel}
         </div>
       </div>
@@ -131,12 +131,12 @@ export function LandscapeSpreadViewer({ onComplete }: LandscapeSpreadViewerProps
   return (
     <div className="w-full h-screen flex flex-col bg-gray-50">
       {/* Header */}
-      <div className="p-4 bg-white shadow-sm flex items-center justify-between">
-        <h2 className="font-patrick text-2xl gradient-text">
+      <div className="p-4 bg-white shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+        <h2 className="font-patrick text-xl sm:text-2xl gradient-text">
           {babyProfile?.baby_name}'s Story
         </h2>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
           <div className="text-sm text-gray-600">
             Spread {currentSpread + 1} of {spreads.length}
           </div>
@@ -144,10 +144,11 @@ export function LandscapeSpreadViewer({ onComplete }: LandscapeSpreadViewerProps
           <button
             onClick={handleExportPDF}
             disabled={isExporting || spreads.some(s => !s.imageUrl)}
-            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed py-2 sm:py-3 px-3 sm:px-4 text-sm sm:text-base"
           >
             <Download className="h-4 w-4" />
-            {isExporting ? 'Exporting...' : 'Download PDF'}
+            <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Download PDF'}</span>
+            <span className="sm:hidden">{isExporting ? 'Export' : 'PDF'}</span>
           </button>
         </div>
       </div>

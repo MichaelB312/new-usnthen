@@ -11,9 +11,9 @@ import { CAMERA_ANGLES } from '@/lib/camera/highContrastShots';
 import { generateSpreadSequence } from '@/lib/sequence/spreadSequence';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
-const STORY_MODEL = 'gemini-2.5-flash';
+const STORY_MODEL = 'gemini-2.5-pro';
 
 // Job storage
 interface StoryJob {

@@ -136,7 +136,7 @@ interface BookStore {
     prompt?: string;
     model?: string;
   }[];
-  illustrationStyle: 'paper-collage';  // UPDATED: Single style only
+  illustrationStyle: 'paper-collage' | 'watercolor-ink';  // Two available styles
 
   // Refinement words - Hidden surprise elements for final book only
   refinementWords: {
@@ -155,7 +155,7 @@ interface BookStore {
   setConversation: (conversation: any[]) => void;
   setStory: (story: any) => void;
   setIllustrations: (illustrations: any[]) => void;
-  setIllustrationStyle: (style: 'paper-collage') => void;  // UPDATED: Single style only
+  setIllustrationStyle: (style: 'paper-collage' | 'watercolor-ink') => void;  // Two available styles
   setPageLayout: (pageNumber: number, layout: any) => void;
 
   // Refinement words actions (hidden from parents during creation)
@@ -271,7 +271,7 @@ export const useBookStore = create<BookStore>()(
       setConversation: (conversation) => set({ conversation }),
       setStory: (story) => set({ storyData: story }),
       setIllustrations: (illustrations) => set({ illustrations }),
-      setIllustrationStyle: (style) => set({ illustrationStyle: style }),  // Now only accepts 'paper-collage'
+      setIllustrationStyle: (style) => set({ illustrationStyle: style }),  // Accepts both styles
       setPageLayout: (pageNumber, layout) => {
         set((state) => ({
           layouts: { ...state.layouts, [pageNumber]: layout }
@@ -359,7 +359,7 @@ export const useBookStore = create<BookStore>()(
         refinementWords: [],  // Clear hidden refinement words
         layouts: {},
         version: '',
-        illustrationStyle: 'paper-collage'  // UPDATED: Reset to default single style
+        illustrationStyle: 'paper-collage'  // Default to paper-collage (recommended)
       })
     }),
     {

@@ -5,7 +5,7 @@
  * Layer 2: Local composition (character + narration rendering)
  * Layer 3: Inpainting (scene details + refinement words)
  *
- * Using gpt-image-1 with medium quality for production results
+ * Using gpt-image-1 with high quality for production results
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,6 +13,11 @@ import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PersonId, CastMember, UploadedPhoto, Page } from '@/lib/store/bookStore';
+import {
+  IllustrationStyleId,
+  getStyleConfig,
+  getDefaultStyle
+} from '@/lib/styles/illustrationStyles';
 
 // Layer utilities
 import {
@@ -44,8 +49,8 @@ const openai = new OpenAI({
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-// Quality set to medium for production results
-const IMAGE_QUALITY = 'medium' as const;
+// Quality set to high for high-quality production results
+const IMAGE_QUALITY = 'high' as const;
 
 // Job queue configuration
 const MAX_CONCURRENT_JOBS = 4; // Limit concurrent image generation to prevent overwhelming the system
@@ -289,11 +294,13 @@ function buildContextAwareScenePrompt(
   action: string,
   setting: string,
   characterPosition: 'left' | 'right',
-  narration: string
+  narration: string,
+  styleConfig: any
 ): string {
   const analysis = analyzeCharacterAction(action, setting);
 
-  let prompt = `Paper collage style environmental elements (NO characters should be added/modified).
+  // Use style prefix instead of hardcoded "Paper collage"
+  let prompt = `${styleConfig.sceneStylePrefix}
 
 CRITICAL: Add elements that support the action and setting. Keep white background visible.
 
@@ -381,12 +388,11 @@ BACKGROUND: Indoor accents at far edges ONLY - MINIMAL
   prompt += `
 CRITICAL PLACEMENT RULES:
 - Character is on ${characterPosition} side, so place accent elements on opposite side or balanced
-- PRESERVE WHITE BACKGROUND: At least 60% of composition MUST remain white/clean
+- PRESERVE WHITE BACKGROUND: At least ${styleConfig.negativeSpaceMinimum}% of composition MUST remain white/clean
 - Elements are SMALL ACCENTS ONLY - think minimalist children's book illustration
 - DO NOT fill entire areas - add small decorative pieces, not full coverage
-- Soft pastel colors, torn paper edges, gentle and sparse
+${styleConfig.sceneStyleRules}
 - If in doubt, add LESS rather than more
-- Elements should whisper, not shout
 
 ABSOLUTE PROHIBITIONS (DO NOT DO THESE):
 ❌ DO NOT create full-page backgrounds
@@ -404,8 +410,7 @@ MUST DO (REQUIREMENTS):
 ✓ Elements must be SMALL SCALE decorative accents
 ✓ Preserve large areas of clean white background
 ✓ Place elements ONLY in specified narrow zones (60px borders)
-✓ Use soft pastel colors with transparency/lightness
-✓ Think "a few strategic touches" not "full scene"`;
+${styleConfig.sceneStyleRules}`;
 
   return prompt;
 }
@@ -752,7 +757,7 @@ function startJobProcessing(jobId: string, params: any) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { bookId, pageNumber, pageData: page, babyProfile, cast, allPages } = body;
+    const { bookId, pageNumber, pageData: page, babyProfile, cast, allPages, illustrationStyle } = body;
 
     if (!bookId || pageNumber === undefined || pageNumber === null || !page) {
       return NextResponse.json(
@@ -760,6 +765,12 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Get style configuration
+    const styleId = (illustrationStyle as IllustrationStyleId) || 'paper-collage';
+    const styleConfig = getStyleConfig(styleId);
+
+    console.log(`[Style] Using illustration style: ${styleConfig.name} (${styleId})`);
 
     const pageData = {
       ...page,
@@ -782,7 +793,7 @@ export async function POST(request: NextRequest) {
       startTime: Date.now()
     });
 
-    console.log(`[Job ${jobId}] Page ${pageNumber} - 3-Layer Pipeline (quality=${IMAGE_QUALITY})`);
+    console.log(`[Job ${jobId}] Page ${pageNumber} - 3-Layer Pipeline (quality=${IMAGE_QUALITY}, style=${styleId})`);
 
     // Pass payload to processing
     const payload: any = {
@@ -793,6 +804,7 @@ export async function POST(request: NextRequest) {
       cast: cast,
       babyGender,
       allPages: allPages,
+      styleConfig,
       ...body
     };
 
@@ -839,6 +851,9 @@ async function processThreeLayerPipeline(jobId: string, params: any) {
 
     const babyName = babyProfile?.baby_name || 'Baby';
 
+    // Get style configuration from params (declared once for entire pipeline)
+    const styleConfig = params.styleConfig || getDefaultStyle();
+
     // ============================================================
     // PAGE 0: CHARACTER ANCHOR (NOT part of 3-layer pipeline)
     // Simple isolated character on transparent background
@@ -869,7 +884,7 @@ async function processThreeLayerPipeline(jobId: string, params: any) {
         imageFiles = [baseFile];
       }
 
-      // Build anchor prompt
+      // Build anchor prompt using style configuration
       const genderText = babyGender === 'boy' ? 'boy' : babyGender === 'girl' ? 'girl' : 'baby';
       const genderCharacteristics = babyGender === 'boy'
         ? 'Clear baby boy characteristics. Boyish features, short hair.'
@@ -877,34 +892,11 @@ async function processThreeLayerPipeline(jobId: string, params: any) {
         ? 'Clear baby girl characteristics. Feminine features, may have bow or headband.'
         : 'Neutral baby characteristics.';
 
-      let prompt = `CHARACTER ANCHOR - Isolated character ONLY on transparent background.
-
-CRITICAL: This is a character cutout template, NOT a scene or composition.
-
-Style: Soft paper collage with gentle torn edges
-Size: 1024×1024 square
-Background: PURE TRANSPARENT (alpha channel, NO white, NO colors)
-
-Character: Adorable, cute ${genderText} baby
-- ${genderCharacteristics}
-- Soft face, delicate features, small eyebrows, sweet expression
-- Standing or sitting pose, centered in frame
-- Full body visible
-
-ABSOLUTE REQUIREMENTS:
-✓ ONLY the character - nothing else
-✓ Completely isolated cutout with crisp edges
-✓ Pure transparent background (no white, no texture, no elements)
-✓ NO ground, NO shadows, NO decorative elements
-✓ NO text, NO scene objects, NO background colors
-✓ Character should be transferable to any background later
-
-Soft pastel colors on character only. Clean paper collage cutout.`;
-
-      if (!babyReference && babyDescription) {
-        prompt += `\n\nBaby character description: ${babyDescription}`;
-        prompt += '\nCreate adorable paper collage baby matching this exact description.';
-      }
+      let prompt = styleConfig.characterAnchorPrompt({
+        genderText,
+        genderCharacteristics,
+        babyDescription
+      });
 
       job.progress = 30;
 
@@ -980,7 +972,8 @@ Soft pastel colors on character only. Clean paper collage cutout.`;
         page_number: pageNumber,
         dataUrl,
         sizeKB: Math.round(Buffer.from(imageBase64, 'base64').length / 1024),
-        style: 'character-anchor', // NOT part of 3-layer pipeline
+        style: styleConfig?.id || 'paper-collage', // Actual style ID
+        pipeline_stage: 'character-anchor', // NOT part of 3-layer pipeline
         gender: babyGender,
         elapsed_ms: Date.now() - job.startTime
       };
@@ -1109,10 +1102,7 @@ Character: ${babyName} (baby)`;
       }
     }
 
-    posePrompt += `\n\nMaintain exact same face and features as reference image(s).
-1024×1024 TRANSPARENT BACKGROUND, isolated character(s) cutout ONLY.
-NO scene elements, NO background objects, just the character(s).
-Paper collage style with soft edges.`;
+    posePrompt += styleConfig.characterVariantSuffix;
 
     console.log(`[Job ${jobId}] L1 Camera: ${cameraAngle}, Preserve Level: ${preserveLevel}`);
     console.log(`[Job ${jobId}] L1 Original prompt: ${posePrompt}`);
@@ -1261,19 +1251,19 @@ Paper collage style with soft edges.`;
 
     console.log(`[Job ${jobId}] L3 Context - Setting: "${setting}", Action: "${action}", Character: ${characterPosition}`);
 
-    // Build context-aware scene prompt based on action analysis
+    // Build context-aware scene prompt based on action analysis AND STYLE
     let scenePrompt = buildContextAwareScenePrompt(
       action,
       setting,
       characterPosition,
-      pageData.narration || ''
+      pageData.narration || '',
+      styleConfig
     );
 
     // Add refinement words instruction if present (for minimalist moment spreads)
     if (refinementWord) {
-      scenePrompt += `\n\n✓ POETIC TEXT OVERLAY (REQUIRED): Add decorative text "${refinementWord}" in paper-collage letter style.
-- Cut-paper letter look with gentle hand-crafted feel
-- Slight rotation and subtle shadow for depth
+      scenePrompt += `\n\n✓ POETIC TEXT OVERLAY (REQUIRED): Add decorative text "${refinementWord}".
+${styleConfig.poeticTextOverlayStyle}
 - Place strategically in available space (not over character)
 - Medium-to-large scale, readable and artistic
 - This is the ONLY text for this spread - make it beautiful and prominent`;
@@ -1383,7 +1373,8 @@ Paper collage style with soft edges.`;
       page_number: pageNumber,
       dataUrl: finalDataUrl,
       sizeKB: Math.round(Buffer.from(finalImageBase64, 'base64').length / 1024),
-      style: '3-layer-pipeline',
+      style: styleConfig?.id || 'paper-collage', // Actual style ID
+      pipeline_stage: '3-layer-pipeline',
       gender: babyGender,
       character_position: characterPosition,
       preserve_level: preserveLevel,

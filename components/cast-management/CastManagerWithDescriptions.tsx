@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useBookStore, PersonId, CastMember, UploadedPhoto } from '@/lib/store/bookStore';
 import { CharacterDescriptionModal } from '@/components/character-description/CharacterDescriptionModal';
+import { StyleSelector } from '@/components/illustrations/StyleSelector';
 import toast from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -785,7 +786,12 @@ export function CastManagerWithDescriptions({ onComplete }: CastManagerProps) {
           )}
         </div>
       )}
-      
+
+      {/* Illustration Style Selector */}
+      <div className="card-magical">
+        <StyleSelector />
+      </div>
+
       {/* Continue Button */}
       <div className="flex justify-center">
         <button

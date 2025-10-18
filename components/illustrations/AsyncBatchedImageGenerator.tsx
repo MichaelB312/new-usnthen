@@ -49,6 +49,7 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
     cast,
     uploadedPhotos,
     setIllustrations,
+    illustrationStyle,
     setStyleAnchor,
     addRefinementWord
   } = useBookStore();
@@ -234,7 +235,9 @@ export function AsyncBatchedImageGenerator({ onComplete }: { onComplete: () => v
         // Pass cast with descriptions
         cast: cast,
         // CRITICAL: Pass all pages for sequential storytelling
-        allPages: storyData?.pages || []
+        allPages: storyData?.pages || [],
+        // Pass selected illustration style
+        illustrationStyle: illustrationStyle
       };
 
       // For page 0 (character anchor) or page 1, we need baby photo/description

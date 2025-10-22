@@ -11,6 +11,7 @@ This is "Us & Then" - an AI-powered web application for transforming precious ba
 - **Frontend**: Next.js 14.2.3 with React 18, TypeScript
 - **Styling**: Tailwind CSS with custom fonts (Inter, Patrick Hand, Caveat)
 - **State Management**: Zustand with localStorage persistence
+- **Internationalization**: next-intl for multilanguage support (6 languages)
 - **Backend**: Next.js API routes with Supabase integration
 - **Database**: Supabase (PostgreSQL)
 - **AI Services**: OpenAI API, Replicate API
@@ -33,21 +34,28 @@ This is "Us & Then" - an AI-powered web application for transforming precious ba
 ### Core Directory Structure
 
 - **`app/`** - Next.js app router pages and API routes
-  - `page.tsx` - Landing page
-  - `create/page.tsx` - Main book creation wizard
-  - `dashboard/page.tsx` - User dashboard
-  - `api/` - Server-side API routes for AI generation, payments
+  - `[locale]/` - Internationalized pages (en, de, fr, es, pt, it)
+    - `page.tsx` - Landing page
+    - `create/page.tsx` - Main book creation wizard
+    - `dashboard/page.tsx` - User dashboard
+    - `order/` - Order success/cancel pages
+  - `api/` - Server-side API routes for AI generation, payments, transcription
 - **`components/`** - Reusable React components organized by feature
   - `baby-profile/` - Profile creation forms
-  - `story-wizard/` - Chat interface for story creation
+  - `story-wizard/` - Chat interface for story creation with voice recording
   - `book-preview/` - Book rendering and preview
   - `cast-management/` - Character/person management
+  - `common/` - Shared UI components (LanguageSwitcher, SaveProgressButton, etc.)
   - `providers/` - React context providers
 - **`lib/`** - Shared utilities and core logic
-  - `store/bookStore.ts` - Central Zustand store
+  - `store/bookStore.ts` - Central Zustand store with locale management
+  - `store/progressStore.ts` - Progress save/resume system
   - `supabase/` - Database client and helpers
   - `layout/` - Text layout and positioning engines
   - `decorations/` - AI decoration generation
+  - `hooks/` - Custom React hooks (useAudioRecording)
+- **`messages/`** - Translation files for all supported languages
+  - `en.json`, `de.json`, `fr.json`, `es.json`, `pt.json`, `it.json`
 
 ### State Management (Zustand Store)
 
@@ -57,13 +65,18 @@ The application uses a centralized Zustand store (`lib/store/bookStore.ts`) that
 - **Story data**: Conversation, generated story with pages, titles, metadata
 - **Illustrations**: AI-generated images in paper-collage style only
 - **Character management**: Cast members with photo references and identity anchors
+- **Locale**: User's selected language for UI and story generation
 - **Persistence**: Smart localStorage with size management to handle large image data
+
+Additional state management:
+- **Progress Store** (`lib/store/progressStore.ts`) - Save/resume functionality for partial book creation
 
 Key types:
 - `PersonId`: Character identifiers ('baby', 'mom', 'dad', etc.)
 - `CastMember`: Character with photos and descriptions
 - `Page`: Story page with narration, visual prompts, illustration URLs, and character assignments
 - `UploadedPhoto`: User photos with character associations
+- `SavedProgress`: Saved session state for resuming book creation
 
 ### AI Integration
 
@@ -87,6 +100,72 @@ Sophisticated text layout system (`lib/layout/EnhancedLayoutEngine.ts`) handles:
 - Font sizing and fitting
 - Page template management
 - Text wrapping and overflow handling
+
+### Multilanguage Support (Internationalization)
+
+The application supports 6 languages with complete UI translation:
+
+**Supported Languages:**
+- 🇬🇧 English (en) - Default
+- 🇩🇪 German (de)
+- 🇫🇷 French (fr)
+- 🇪🇸 Spanish (es)
+- 🇵🇹 Portuguese (pt)
+- 🇮🇹 Italian (it)
+
+**Implementation Details:**
+
+1. **Routing Structure** (`app/[locale]/`)
+   - All pages use dynamic `[locale]` parameter
+   - Middleware (`middleware.ts`) handles automatic locale detection and routing
+   - Navigation helper (`navigation.ts`) provides type-safe locale-aware navigation
+   - URLs follow pattern: `/en/create`, `/de/create`, `/fr/create`, etc.
+
+2. **Translation System** (next-intl)
+   - Translation files in `messages/` directory (one JSON file per language)
+   - 267+ translation keys covering all UI elements
+   - Supports variable interpolation: `{babyName}`, `{count}`, `{duration}`, etc.
+   - Organized by feature: `nav`, `landing`, `profile`, `storyWizard`, `dashboard`, etc.
+
+3. **Locale Management**
+   - Locale stored in Zustand store (`bookStore.ts`)
+   - Language switcher component (`components/common/LanguageSwitcher.tsx`)
+   - Persists user language preference
+   - Used for AI story generation in correct language
+
+4. **Translated Components**
+   - **ProfileForm** - Baby profile creation interface
+   - **HybridChatInterface** - Story wizard with voice recording
+   - **ResumeProgressModal** - Welcome back dialog for saved progress
+   - **SaveProgressButton** - Save and continue later functionality
+   - **Landing Page** - All marketing content and CTAs
+   - **Navigation** - All menu items and buttons
+   - **Dashboard** - Book management interface
+   - **Error Messages** - All user feedback and toast notifications
+
+5. **Configuration Files**
+   - `i18n.ts` - Main i18n configuration and locale definitions
+   - `next.config.js` - Next.js i18n plugin configuration
+   - `middleware.ts` - Locale detection and routing logic
+
+6. **Translation Guidelines**
+   - All translations are natural and idiomatic for each language
+   - Consistent warm, friendly, and magical tone
+   - Professional and error-free translations
+   - Variable placeholders preserved exactly as in English
+   - Emojis and special characters maintained
+
+7. **Voice Recording Support**
+   - Audio transcription API (`api/transcribe-audio/`) supports multiple languages
+   - Locale passed to transcription service for accurate speech-to-text
+   - Emotion detection from voice for richer story generation
+
+**Adding a New Language:**
+1. Add locale code to `i18n.ts` in `locales` and `localeNames`
+2. Create new translation file in `messages/[locale].json`
+3. Copy structure from `messages/en.json` and translate all values
+4. Test all pages and components in new language
+5. Verify build succeeds with `npm run build`
 
 ## Development Guidelines
 

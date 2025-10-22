@@ -3,7 +3,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/navigation';
+import { useTranslations } from 'next-intl';
 import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Home, ArrowLeft } from 'lucide-react';
 import { ChatInterface } from '@/components/story-wizard/ChatInterface';
 import { HybridChatInterface } from '@/components/story-wizard/HybridChatInterface';
@@ -22,22 +23,26 @@ import Confetti from 'react-confetti';
 import { useWindowSize } from 'react-use';
 import { v4 as uuidv4 } from 'uuid';
 
-const steps = [
-  { id: 1, name: 'Baby Profile', icon: Baby },
-  { id: 2, name: 'Memory Chat', icon: MessageCircle },
-  { id: 3, name: 'Story Review', icon: BookOpen },
-  { id: 4, name: 'Illustrations', icon: Image },
-  { id: 5, name: 'Book Layout', icon: Eye },
-  { id: 6, name: 'Order', icon: CreditCard }
-];
+// Steps will be populated with translations in the component
 
 const POLL_INTERVAL = 2000;
 const MAX_POLL_TIME = 120000;
 
 export default function CreateBookPage() {
   const router = useRouter();
+  const t = useTranslations();
   const { width, height } = useWindowSize();
   const [currentStep, setCurrentStep] = useState(1);
+
+  // Define steps with translations
+  const steps = [
+    { id: 1, name: t('createPage.steps.babyProfile'), icon: Baby },
+    { id: 2, name: t('createPage.steps.memoryChat'), icon: MessageCircle },
+    { id: 3, name: t('createPage.steps.storyReview'), icon: BookOpen },
+    { id: 4, name: t('createPage.steps.illustrations'), icon: Image },
+    { id: 5, name: t('createPage.steps.bookLayout'), icon: Eye },
+    { id: 6, name: t('createPage.steps.order'), icon: CreditCard }
+  ];
   const [showConfetti, setShowConfetti] = useState(false);
   const [isGeneratingStory, setIsGeneratingStory] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
@@ -58,6 +63,7 @@ export default function CreateBookPage() {
     setConversation,
     setStory,
     illustrationStyle,
+    locale,
     reset
   } = useBookStore();
 
@@ -145,7 +151,7 @@ export default function CreateBookPage() {
     try {
       const storyLengthEntry = conversation.find((c: any) => c.question === 'story_length');
       const storyLength = storyLengthEntry?.answer || 'medium';
-      
+
       const res = await fetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -153,7 +159,8 @@ export default function CreateBookPage() {
           babyProfile,
           conversation,
           illustrationStyle,
-          storyLength
+          storyLength,
+          locale
         })
       });
 
@@ -328,15 +335,15 @@ export default function CreateBookPage() {
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button onClick={handleBack} className="btn-ghost flex items-center gap-2 text-sm sm:text-base px-2 sm:px-4">
               <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
-              <span className="hidden sm:inline">Back</span>
+              <span className="hidden sm:inline">{t('createPage.back')}</span>
             </button>
             <button onClick={() => router.push('/')} className="btn-ghost flex items-center gap-2 text-sm sm:text-base px-2 sm:px-4">
               <Home className="h-4 w-4 sm:h-5 sm:w-5" />
-              <span className="hidden sm:inline">Home</span>
+              <span className="hidden sm:inline">{t('nav.home')}</span>
             </button>
           </div>
 
-          <h1 className="font-patrick text-xl sm:text-2xl lg:text-3xl gradient-text pb-1 text-center">Create Your Magical Storybook</h1>
+          <h1 className="font-patrick text-xl sm:text-2xl lg:text-3xl gradient-text pb-1 text-center">{t('createPage.title')}</h1>
 
           {/* Desktop only - hide on mobile */}
           <div className="hidden sm:flex items-center gap-2 w-full sm:w-auto justify-end">
@@ -432,9 +439,9 @@ export default function CreateBookPage() {
               >
                 <Wand2 className="h-16 w-16 sm:h-20 sm:w-20 text-purple-600" />
               </motion.div>
-              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick mb-3 sm:mb-4 gradient-text">Creating Your Story...</h2>
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick mb-3 sm:mb-4 gradient-text">{t('createPage.generating.title')}</h2>
               <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-4 sm:mb-6 px-2">
-                Our AI is crafting a beautiful tale for {babyProfile?.baby_name}
+                {t('createPage.generating.subtitle', {babyName: babyProfile?.baby_name || ''})}
               </p>
 
               <div className="max-w-md mx-auto px-4">
@@ -495,16 +502,16 @@ export default function CreateBookPage() {
                       <Check className="h-10 w-10 sm:h-12 sm:w-12 text-white" />
                     </div>
                   </motion.div>
-                  <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick mb-3 sm:mb-4 gradient-text">Your Book is Ready!</h2>
+                  <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick mb-3 sm:mb-4 gradient-text">{t('createPage.completion.title')}</h2>
                   <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-3 sm:mb-4 px-2">
-                    {Math.ceil((storyData?.pages?.length || 0) / 2)} beautiful spreads featuring {babyProfile?.baby_name}
+                    {t('createPage.completion.spreadsCount', {count: Math.ceil((storyData?.pages?.length || 0) / 2), babyName: babyProfile?.baby_name || ''})}
                   </p>
                   <p className="text-sm sm:text-base lg:text-lg text-gray-600 px-2">
-                    With sound effects and beautiful illustrations!
+                    {t('createPage.completion.withEffects')}
                   </p>
                   <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-4 justify-center px-4">
                     <button className="btn-primary text-sm sm:text-base px-6 py-3">
-                      Order Printed Copy
+                      {t('createPage.completion.orderPrinted')}
                     </button>
                   </div>
                 </div>

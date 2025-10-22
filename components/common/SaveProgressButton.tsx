@@ -5,7 +5,8 @@ import { Save } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { saveProgress, SavedProgress } from '@/lib/store/progressStore';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/navigation';
+import { useTranslations } from 'next-intl';
 
 interface SaveProgressButtonProps {
   currentStep: number;
@@ -26,6 +27,7 @@ export function SaveProgressButton({
   bookId,
   variant = 'secondary'
 }: SaveProgressButtonProps) {
+  const t = useTranslations('saveProgress');
   const [saving, setSaving] = useState(false);
   const router = useRouter();
 
@@ -45,7 +47,7 @@ export function SaveProgressButton({
 
       saveProgress(progress);
 
-      toast.success('Progress saved! You can continue later.', {
+      toast.success(t('successMessage'), {
         duration: 3000,
         icon: '💾'
       });
@@ -55,7 +57,7 @@ export function SaveProgressButton({
         router.push('/');
       }, 1500);
     } catch (error) {
-      toast.error('Failed to save progress');
+      toast.error(t('errorMessage'));
       console.error(error);
     } finally {
       setSaving(false);
@@ -80,12 +82,12 @@ export function SaveProgressButton({
       {saving ? (
         <>
           <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-          Saving...
+          {t('saving')}
         </>
       ) : (
         <>
           <Save className="h-4 w-4" />
-          Save & Continue Later
+          {t('button')}
         </>
       )}
     </motion.button>

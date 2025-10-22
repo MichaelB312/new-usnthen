@@ -30,6 +30,12 @@ interface ConversationRequest {
   babyName: string;
   userMessage?: string;
   action: 'start' | 'continue' | 'extract';
+  locale?: string;
+  emotionContext?: {
+    primary_emotion: string;
+    intensity: string;
+    mood_keywords: string[];
+  };
 }
 
 /**
@@ -39,7 +45,7 @@ interface ConversationRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: ConversationRequest = await request.json();
-    const { sessionId, babyName, userMessage, action } = body;
+    const { sessionId, babyName, userMessage, action, emotionContext, locale = 'en' } = body;
 
     if (!sessionId || !babyName) {
       return NextResponse.json(
@@ -51,7 +57,7 @@ export async function POST(request: NextRequest) {
     // Get or create director for this session
     let director = sessions.get(sessionId);
     if (!director) {
-      director = new StoryMemoryDirector(sessionId, babyName);
+      director = new StoryMemoryDirector(sessionId, babyName, locale);
       sessions.set(sessionId, director);
     }
 
@@ -67,7 +73,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        return handleContinue(director, userMessage);
+        return handleContinue(director, userMessage, emotionContext);
 
       case 'extract':
         return handleExtract(director);
@@ -122,13 +128,32 @@ ${nextPromptInstruction}`;
 /**
  * Continue the conversation with user input
  */
-async function handleContinue(director: StoryMemoryDirector, userMessage: string) {
+async function handleContinue(
+  director: StoryMemoryDirector,
+  userMessage: string,
+  emotionContext?: { primary_emotion: string; intensity: string; mood_keywords: string[] }
+) {
   try {
+    // Log emotion context if provided from voice input
+    if (emotionContext) {
+      console.log('[Story Conversation] Emotion detected from voice:', emotionContext);
+      // Store emotion context in director's collected data for use in story generation
+      director.updateCollectedData({
+        voice_emotion: emotionContext.primary_emotion,
+        emotional_intensity: emotionContext.intensity,
+        emotional_mood: emotionContext.mood_keywords.join(', ')
+      });
+    }
+
     // Add user message to history
     director.addMessage('user', userMessage);
 
     // Step 1: Extract structured data from user input
-    const extractionPrompt = director.getExtractionPrompt(userMessage);
+    // If emotion context is available, include it in the extraction prompt for richer understanding
+    let extractionPrompt = director.getExtractionPrompt(userMessage);
+    if (emotionContext) {
+      extractionPrompt += `\n\nNote: The parent spoke with a ${emotionContext.intensity} ${emotionContext.primary_emotion} tone. Consider this emotional context when understanding their memory.`;
+    }
     const extractionResult = await model.generateContent(extractionPrompt);
 
     let extractedData = {};

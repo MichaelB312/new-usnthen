@@ -1,0 +1,266 @@
+{
+  "nav": {
+    "myBooks": "My Books",
+    "create": "Create",
+    "home": "Home"
+  },
+  "landing": {
+    "badge": "AI-Powered Story Magic ✨",
+    "title": "Us & Then",
+    "subtitle": "Transform your baby's precious memories into",
+    "subtitleHighlight": "magical storybooks",
+    "description": "Upload a photo, share a memory, and watch as AI creates a beautiful, professionally illustrated children's book starring your little one. Ready to print and treasure forever.",
+    "ctaPrimary": "Create Your First Book",
+    "ctaSecondary": "View My Books",
+    "howItWorks": {
+      "title": "How It Works",
+      "subtitle": "Create a magical storybook in 6 simple steps"
+    },
+    "features": {
+      "shareMemory": {
+        "title": "Share Your Memory",
+        "description": "Tell us about a special moment with your baby through our friendly Story Wizard"
+      },
+      "aiMagic": {
+        "title": "AI Creates Magic",
+        "description": "Our AI generates a beautiful, age-appropriate story with consistent illustrations"
+      },
+      "babyStars": {
+        "title": "Your Baby Stars",
+        "description": "Upload one photo and see your baby consistently illustrated throughout the book"
+      },
+      "artStyle": {
+        "title": "Choose Art Style",
+        "description": "Select from watercolor, crayon, or colored pencil illustrations"
+      },
+      "preview": {
+        "title": "Preview & Edit",
+        "description": "Review your book and make changes before finalizing"
+      },
+      "download": {
+        "title": "Print-Ready PDF",
+        "description": "Download a high-quality 300 DPI PDF ready for professional printing"
+      }
+    },
+    "footer": {
+      "copyright": "© 2024 Us & Then. Made with 💜 for parents everywhere."
+    }
+  },
+  "profile": {
+    "title": "Baby Profile",
+    "heading": "Tell Us About Your Little One",
+    "subtitle": "Let's start by getting to know your baby",
+    "babyName": "Baby's Name",
+    "babyNameLabel": "Baby's Name *",
+    "babyNamePlaceholder": "Enter your baby's name...",
+    "birthdate": "Birthdate",
+    "birthdateLabel": "Birthdate *",
+    "ageGroup": "Age group:",
+    "gender": "Gender",
+    "genderLabel": "Gender *",
+    "genderBoy": "Boy",
+    "genderGirl": "Girl",
+    "genderNeutral": "Neutral",
+    "uploadPhoto": "Upload Photo",
+    "photoOptional": "(optional)",
+    "continue": "Continue",
+    "continueToMemoryChat": "Continue to Memory Chat",
+    "savingProfile": "Saving Profile...",
+    "back": "Back",
+    "fillAllFields": "Please fill in all required fields",
+    "failedToSave": "Failed to save profile"
+  },
+  "storyWizard": {
+    "title": "Story Wizard",
+    "subtitle": "Let's capture {babyName}'s precious memory",
+    "placeholder": "Tell me about a special moment with your baby...",
+    "placeholderVoice": "Tap to record your story",
+    "placeholderTyping": "Type or hold mic to speak...",
+    "placeholderRecording": "Recording...",
+    "placeholderTranscribing": "Transcribing...",
+    "placeholderComplete": "Story complete!",
+    "send": "Send",
+    "recording": "Recording...",
+    "recordingTime": "Recording... {time}",
+    "recordingTimeRemaining": "(30s remaining)",
+    "stopRecording": "Stop Recording",
+    "processing": "Processing...",
+    "thinking": "Thinking...",
+    "welcome": "Welcome! Let's create a magical story together.",
+    "welcomeInitial": "I'm here to help create a magical story! Let's start by hearing about a special moment you'd like to capture.",
+    "askMemory": "Tell me about a special memory or moment with your baby.",
+    "generating": "Generating your story...",
+    "generatingImages": "Creating magical illustrations...",
+    "storyProgress": "Story Progress",
+    "didntCatch": "I didn't quite catch that. Could you tell me more about this special moment?",
+    "tryAgain": "I'm having trouble understanding. Could you try describing that again?",
+    "voiceSuccess": "Voice recorded successfully!",
+    "noSpeechDetected": "No speech detected. Please try again and speak clearly.",
+    "recordingError": "Recording error. Please try again.",
+    "transcriptionError": "Could not transcribe audio. Please try again.",
+    "generalError": "Something went wrong. Please try again.",
+    "transcribing": "Transcribing your voice...",
+    "micAccessDenied": "Microphone access denied. Please enable it in your browser settings.",
+    "noMicFound": "No microphone found. Please connect a microphone.",
+    "recordingFailed": "Failed to start recording. Please try again.",
+    "noAudioDetected": "No audio detected. Please try again.",
+    "recordingTooShort": "Recording too short. Please hold the button longer and speak clearly.",
+    "holdToRecord": "Hold to record your voice",
+    "helpText": "Press and hold the microphone button while speaking, or type your message",
+    "helpTextRecording": "Recording: {duration}s - Release to stop (max 5 min)"
+  },
+  "castManager": {
+    "title": "Cast Management",
+    "addCharacter": "Add Character",
+    "characters": "Characters",
+    "uploadPhoto": "Upload Photo",
+    "setIdentityAnchor": "Set as Identity Anchor",
+    "characterName": "Character Name",
+    "baby": "Baby",
+    "mom": "Mom",
+    "dad": "Dad",
+    "grandma": "Grandma",
+    "grandpa": "Grandpa",
+    "sibling": "Sibling",
+    "aunt": "Aunt",
+    "uncle": "Uncle",
+    "friend": "Friend"
+  },
+  "bookPreview": {
+    "title": "Book Preview",
+    "page": "Page",
+    "spread": "Spread",
+    "previous": "Previous",
+    "next": "Next",
+    "saveProgress": "Save Progress",
+    "finalize": "Finalize Book",
+    "regenerate": "Regenerate",
+    "edit": "Edit"
+  },
+  "dashboard": {
+    "title": "My Books",
+    "noBooks": "No books yet",
+    "createFirst": "Create your first magical storybook",
+    "createNew": "Create New Book",
+    "status": "Status",
+    "createdAt": "Created",
+    "actions": "Actions",
+    "view": "View",
+    "delete": "Delete",
+    "download": "Download",
+    "statusDraft": "Draft",
+    "statusComplete": "Complete",
+    "statusProcessing": "Processing"
+  },
+  "common": {
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "confirm": "Confirm",
+    "yes": "Yes",
+    "no": "No",
+    "error": "Error",
+    "success": "Success"
+  },
+  "errors": {
+    "uploadFailed": "Upload failed. Please try again.",
+    "networkError": "Network error. Check your connection.",
+    "generationFailed": "Story generation failed. Please try again.",
+    "saveFailed": "Failed to save. Please try again.",
+    "invalidInput": "Invalid input. Please check your information.",
+    "audioTranscriptionFailed": "Failed to transcribe audio. Please try again.",
+    "noSpeechDetected": "No speech detected. Please speak clearly and try again."
+  },
+  "toasts": {
+    "saved": "Saved successfully!",
+    "deleted": "Deleted successfully!",
+    "copied": "Copied to clipboard!",
+    "uploaded": "Uploaded successfully!",
+    "error": "Something went wrong. Please try again."
+  },
+  "createPage": {
+    "title": "Create Your Magical Storybook",
+    "back": "Back",
+    "steps": {
+      "babyProfile": "Baby Profile",
+      "memoryChat": "Memory Chat",
+      "storyReview": "Story Review",
+      "illustrations": "Illustrations",
+      "bookLayout": "Book Layout",
+      "order": "Order"
+    },
+    "generating": {
+      "title": "Creating Your Story...",
+      "subtitle": "Our AI is crafting a beautiful tale for {babyName}",
+      "progress": "Generating story..."
+    },
+    "completion": {
+      "title": "Your Book is Ready!",
+      "spreadsCount": "{count} beautiful spreads featuring {babyName}",
+      "withEffects": "With sound effects and beautiful illustrations!",
+      "orderPrinted": "Order Printed Copy"
+    }
+  },
+  "orderSuccess": {
+    "title": "Order Confirmed!",
+    "subtitle": "Your magical storybook is on its way!",
+    "emailConfirmation": "We'll send you an email confirmation with tracking details once your book ships.",
+    "orderId": "Order ID: {id}",
+    "whatHappensNext": "What happens next?",
+    "steps": {
+      "printing": "Your book is being printed on premium quality paper",
+      "binding": "Carefully bound with a beautiful hardcover",
+      "shipping": "Shipped to your door within 7-10 business days"
+    },
+    "backToHome": "Back to Home",
+    "viewMyBooks": "View My Books"
+  },
+  "orderCancel": {
+    "title": "Order Cancelled",
+    "subtitle": "Your order was not completed",
+    "description": "Don't worry! Your beautiful storybook is still waiting for you. You can complete your order anytime.",
+    "needHelp": "Need help?",
+    "helpText": "If you encountered any issues during checkout or have questions about pricing, feel free to reach out to our support team at support@usandthen.com",
+    "backToHome": "Back to Home",
+    "returnToBook": "Return to Book"
+  },
+  "resumeProgress": {
+    "title": "Welcome Back!",
+    "subtitle": "You have saved progress from before",
+    "savedProgress": "Saved Progress:",
+    "storyFor": "Story for {babyName}",
+    "continueButton": "Continue Where I Left Off",
+    "startNewButton": "Start a New Book",
+    "expirationNote": "Saved progress expires after 30 days"
+  },
+  "saveProgress": {
+    "button": "Save & Continue Later",
+    "saving": "Saving...",
+    "successMessage": "Progress saved! You can continue later.",
+    "errorMessage": "Failed to save progress"
+  },
+  "progressSteps": {
+    "gettingStarted": "Getting Started",
+    "babyProfile": "Baby Profile",
+    "memoryChat": "Memory Chat",
+    "storyReview": "Story Review",
+    "illustrations": "Illustrations",
+    "bookPreview": "Book Preview",
+    "complete": "Complete",
+    "unknownStep": "Unknown Step",
+    "saved": "Saved"
+  },
+  "timeAgo": {
+    "justNow": "just now",
+    "minuteAgo": "{count} minute ago",
+    "minutesAgo": "{count} minutes ago",
+    "hourAgo": "{count} hour ago",
+    "hoursAgo": "{count} hours ago",
+    "dayAgo": "{count} day ago",
+    "daysAgo": "{count} days ago",
+    "overMonthAgo": "over a month ago"
+  }
+}

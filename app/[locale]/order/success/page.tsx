@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
+import { useRouter } from '@/navigation';
+import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { CheckCircle, Home, BookOpen, ArrowRight } from 'lucide-react';
 import Confetti from 'react-confetti';
@@ -9,6 +11,7 @@ import { useWindowSize } from 'react-use';
 
 function OrderSuccessContent() {
   const router = useRouter();
+  const t = useTranslations();
   const searchParams = useSearchParams();
   const { width, height } = useWindowSize();
   const [showConfetti, setShowConfetti] = useState(true);
@@ -41,36 +44,36 @@ function OrderSuccessContent() {
           </motion.div>
 
           <h1 className="text-4xl md:text-5xl font-patrick gradient-text mb-4">
-            Order Confirmed!
+            {t('orderSuccess.title')}
           </h1>
 
           <p className="text-xl text-gray-700 mb-3">
-            Your magical storybook is on its way!
+            {t('orderSuccess.subtitle')}
           </p>
 
           <p className="text-gray-600 mb-8">
-            We'll send you an email confirmation with tracking details once your book ships.
+            {t('orderSuccess.emailConfirmation')}
             {sessionId && (
               <span className="block mt-2 text-sm text-gray-500">
-                Order ID: {sessionId.slice(-8)}
+                {t('orderSuccess.orderId', {id: sessionId.slice(-8)})}
               </span>
             )}
           </p>
 
           <div className="bg-purple-50 rounded-lg p-6 mb-8">
-            <h2 className="font-semibold text-lg mb-3">What happens next?</h2>
+            <h2 className="font-semibold text-lg mb-3">{t('orderSuccess.whatHappensNext')}</h2>
             <ul className="text-left space-y-2 text-gray-700">
               <li className="flex items-start gap-2">
                 <span className="text-purple-600">1.</span>
-                <span>Your book is being printed on premium quality paper</span>
+                <span>{t('orderSuccess.steps.printing')}</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-purple-600">2.</span>
-                <span>Carefully bound with a beautiful hardcover</span>
+                <span>{t('orderSuccess.steps.binding')}</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-purple-600">3.</span>
-                <span>Shipped to your door within 7-10 business days</span>
+                <span>{t('orderSuccess.steps.shipping')}</span>
               </li>
             </ul>
           </div>
@@ -81,7 +84,7 @@ function OrderSuccessContent() {
               className="btn-ghost flex items-center justify-center gap-2 flex-1"
             >
               <Home className="h-5 w-5" />
-              Back to Home
+              {t('orderSuccess.backToHome')}
             </button>
 
             <button
@@ -89,7 +92,7 @@ function OrderSuccessContent() {
               className="btn-primary flex items-center justify-center gap-2 flex-1"
             >
               <BookOpen className="h-5 w-5" />
-              View My Books
+              {t('orderSuccess.viewMyBooks')}
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>

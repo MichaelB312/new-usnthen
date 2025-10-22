@@ -2,8 +2,12 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Send, Sparkles, CheckCircle2, Mic, Loader2 } from 'lucide-react';
 import { convertToLegacyFormat, validateConversationData } from '@/lib/agents/conversationAdapter';
+import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
+import { useBookStore } from '@/lib/store/bookStore';
+import { useTranslations } from 'next-intl';
+import toast from 'react-hot-toast';
 
 interface Message {
   id: string;
@@ -59,11 +63,11 @@ function TypingIndicator() {
   );
 }
 
-function ProgressBar({ progress, collectedFields }: { progress: number; collectedFields: string[] }) {
+function ProgressBar({ progress, collectedFields, t }: { progress: number; collectedFields: string[]; t: any }) {
   return (
     <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-purple-50 rounded-lg">
       <div className="flex items-center justify-between mb-1.5 sm:mb-2">
-        <span className="text-xs sm:text-sm font-medium text-purple-700">Story Progress</span>
+        <span className="text-xs sm:text-sm font-medium text-purple-700">{t('storyProgress')}</span>
         <span className="text-xs sm:text-sm font-bold text-purple-600">{progress}%</span>
       </div>
       <div className="w-full bg-purple-200 rounded-full h-1.5 sm:h-2 mb-1.5 sm:mb-2">
@@ -89,6 +93,8 @@ function ProgressBar({ progress, collectedFields }: { progress: number; collecte
 }
 
 export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfaceProps) {
+  const t = useTranslations('storyWizard');
+  const locale = useBookStore((state) => state.locale);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -96,8 +102,21 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
   const [progress, setProgress] = useState(0);
   const [collectedFields, setCollectedFields] = useState<string[]>([]);
   const [isComplete, setIsComplete] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [emotionContext, setEmotionContext] = useState<any>(null);
   const hasInitialized = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Voice recording hook
+  const {
+    isRecording,
+    audioBlob,
+    recordingDuration,
+    error: recordingError,
+    startRecording,
+    stopRecording,
+    reset: resetRecording
+  } = useAudioRecording();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -121,6 +140,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
         body: JSON.stringify({
           sessionId,
           babyName,
+          locale,
           action: 'start'
         })
       });
@@ -132,11 +152,11 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
         setProgress(data.progress || 0);
         setCollectedFields(data.collectedFields || []);
       } else {
-        addWizardMessage("I'm here to help create a magical story! Let's start by hearing about a special moment you'd like to capture.");
+        addWizardMessage(t('welcomeInitial'));
       }
     } catch (error) {
       console.error('Failed to start conversation:', error);
-      addWizardMessage("I'm here to help create a magical story! Let's start by hearing about a special moment you'd like to capture.");
+      addWizardMessage(t('welcomeInitial'));
     } finally {
       setIsTyping(false);
     }
@@ -177,8 +197,10 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
         body: JSON.stringify({
           sessionId,
           babyName,
+          locale,
           userMessage: userInput,
-          action: 'continue'
+          action: 'continue',
+          emotionContext // Include detected emotion for richer story generation
         })
       });
 
@@ -211,15 +233,109 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
           }, 2000);
         }
       } else {
-        addWizardMessage("I didn't quite catch that. Could you tell me more about this special moment?");
+        addWizardMessage(t('didntCatch'));
       }
     } catch (error) {
       console.error('Failed to continue conversation:', error);
-      addWizardMessage("I'm having trouble understanding. Could you try describing that again?");
+      addWizardMessage(t('tryAgain'));
     } finally {
       setIsTyping(false);
     }
   };
+
+  // Handle audio transcription
+  const handleTranscribe = async (blob: Blob) => {
+    setIsTranscribing(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('audio', blob);
+      formData.append('babyName', babyName);
+      formData.append('duration', recordingDuration.toString());
+      formData.append('locale', locale);
+
+      const response = await fetch('/api/transcribe-audio', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Add transcribed text to input field for review
+        setInput(prev => {
+          const newText = data.transcription;
+          // If there's existing text, add a space before appending
+          return prev ? `${prev} ${newText}` : newText;
+        });
+
+        // Store emotion context for story generation
+        if (data.emotion) {
+          setEmotionContext(data.emotion);
+        }
+
+        toast.success(t('voiceSuccess'));
+      } else {
+        // Handle specific error cases
+        if (data.error === 'no_speech_detected') {
+          toast.error(t('noSpeechDetected'));
+        } else if (data.error === 'transcription_too_long') {
+          toast.error(t('recordingError'));
+        } else {
+          toast.error(t('transcriptionError'));
+        }
+      }
+    } catch (error) {
+      console.error('[Voice] Transcription error:', error);
+      toast.error(t('generalError'));
+    } finally {
+      setIsTranscribing(false);
+      resetRecording();
+    }
+  };
+
+  // Handle voice button interactions
+  const handleVoiceStart = async () => {
+    try {
+      await startRecording();
+    } catch (error: any) {
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        toast.error(t('micAccessDenied'));
+      } else if (error.name === 'NotFoundError') {
+        toast.error(t('noMicFound'));
+      } else {
+        toast.error(t('recordingFailed'));
+      }
+    }
+  };
+
+  // Watch for recording completion
+  useEffect(() => {
+    if (audioBlob && !isRecording) {
+      // Check minimum audio size (avoid empty recordings)
+      if (audioBlob.size < 1000) {
+        toast.error(t('noAudioDetected'));
+        resetRecording();
+        return;
+      }
+
+      // Check minimum recording duration (at least 1 second)
+      if (recordingDuration < 1) {
+        toast.error(t('recordingTooShort'));
+        resetRecording();
+        return;
+      }
+
+      handleTranscribe(audioBlob);
+    }
+  }, [audioBlob, isRecording, recordingDuration]);
+
+  // Show recording error if any
+  useEffect(() => {
+    if (recordingError) {
+      toast.error(recordingError);
+    }
+  }, [recordingError]);
 
   return (
     <div className="card-magical max-w-4xl mx-auto">
@@ -229,14 +345,14 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
             <Sparkles className="h-6 w-6 sm:h-7 sm:w-7 md:h-8 md:w-8 text-white" />
           </div>
           <div>
-            <h3 className="text-xl sm:text-2xl font-patrick gradient-text">Story Wizard</h3>
-            <p className="text-sm sm:text-base text-gray-600">Let's capture {babyName}'s precious memory</p>
+            <h3 className="text-xl sm:text-2xl font-patrick gradient-text">{t('title')}</h3>
+            <p className="text-sm sm:text-base text-gray-600">{t('subtitle', { babyName })}</p>
           </div>
         </div>
       </div>
 
       {/* Progress Indicator */}
-      <ProgressBar progress={progress} collectedFields={collectedFields} />
+      {progress > 0 && <ProgressBar progress={progress} collectedFields={collectedFields} t={t} />}
 
       {/* Messages */}
       <div className="h-[350px] sm:h-[400px] md:h-[450px] overflow-y-auto space-y-2 sm:space-y-4 mb-4 sm:mb-6">
@@ -249,7 +365,33 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
 
       {/* Input Area */}
       <div className="border-t border-purple-100 pt-4 sm:pt-6">
+        {/* Recording Indicator */}
+        {isRecording && (
+          <div className="mb-3 flex items-center justify-center gap-2 text-sm text-purple-600 bg-purple-50 rounded-lg py-2">
+            <motion.div
+              animate={{ scale: [1, 1.2, 1] }}
+              transition={{ repeat: Infinity, duration: 1.5 }}
+              className="w-3 h-3 bg-red-500 rounded-full"
+            />
+            <span className="font-medium">
+              {t('recordingTime', {
+                time: `${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')}`
+              })}
+              {recordingDuration >= 270 && <span className="ml-2 text-xs">{t('recordingTimeRemaining')}</span>}
+            </span>
+          </div>
+        )}
+
+        {/* Transcribing Indicator */}
+        {isTranscribing && (
+          <div className="mb-3 flex items-center justify-center gap-2 text-sm text-purple-600 bg-purple-50 rounded-lg py-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="font-medium">{t('transcribing')}</span>
+          </div>
+        )}
+
         <div className="flex gap-2 sm:gap-3">
+          {/* Text Input */}
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -259,18 +401,76 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
                 handleSend();
               }
             }}
-            placeholder={isComplete ? "Story complete!" : "Share your memory..."}
+            placeholder={
+              isComplete ? t('placeholderComplete') :
+              isRecording ? t('placeholderRecording') :
+              isTranscribing ? t('placeholderTranscribing') :
+              t('placeholderTyping')
+            }
             className="input-magical flex-1 text-sm sm:text-base"
-            disabled={isComplete || isTyping}
+            disabled={isComplete || isTyping || isRecording || isTranscribing}
           />
+
+          {/* Voice Button (Hold to Record) */}
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              handleVoiceStart();
+            }}
+            onMouseUp={(e) => {
+              e.preventDefault();
+              stopRecording();
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              handleVoiceStart();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              stopRecording();
+            }}
+            disabled={isComplete || isTyping || isTranscribing}
+            className={`
+              px-4 sm:px-5 py-2 sm:py-3 rounded-xl font-semibold
+              transition-all duration-200 shadow-md
+              ${isRecording
+                ? 'bg-red-500 hover:bg-red-600 text-white scale-105'
+                : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white'
+              }
+              disabled:opacity-50 disabled:cursor-not-allowed
+              ${!isComplete && !isTyping && !isTranscribing ? 'ring-2 ring-purple-300 ring-offset-2' : ''}
+            `}
+            title={t('holdToRecord')}
+          >
+            {isRecording ? (
+              <motion.div
+                animate={{ scale: [1, 1.1, 1] }}
+                transition={{ repeat: Infinity, duration: 1 }}
+              >
+                <Mic className="h-4 w-4 sm:h-5 sm:w-5" />
+              </motion.div>
+            ) : (
+              <Mic className="h-4 w-4 sm:h-5 sm:w-5" />
+            )}
+          </button>
+
+          {/* Send Button */}
           <button
             onClick={handleSend}
-            disabled={!input.trim() || isComplete || isTyping}
+            disabled={!input.trim() || isComplete || isTyping || isRecording || isTranscribing}
             className="btn-primary px-4 sm:px-6"
           >
             <Send className="h-4 w-4 sm:h-5 sm:w-5" />
           </button>
         </div>
+
+        {/* Help Text */}
+        <p className="text-xs text-gray-500 text-center mt-2">
+          {isRecording
+            ? t('helpTextRecording', { duration: recordingDuration })
+            : t('helpText')
+          }
+        </p>
       </div>
     </div>
   );

@@ -1,16 +1,19 @@
-import type { Metadata } from 'next';
 import { Patrick_Hand, Inter, Caveat } from 'next/font/google';
-import './globals.css';
+import { NextIntlClientProvider } from 'next-intl';
+import { getMessages } from 'next-intl/server';
+import { notFound } from 'next/navigation';
+import { locales } from '@/i18n';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/components/providers/AuthProvider';
+import '../globals.css';
 
-const patrickHand = Patrick_Hand({ 
+const patrickHand = Patrick_Hand({
   weight: '400',
   subsets: ['latin'],
   variable: '--font-patrick'
 });
 
-const inter = Inter({ 
+const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter'
 });
@@ -20,25 +23,33 @@ const caveat = Caveat({
   variable: '--font-caveat'
 });
 
-export const metadata: Metadata = {
-  title: 'Us & Then - Baby Memory Storybooks',
-  description: 'Transform your precious baby memories into magical AI-illustrated storybooks',
-  icons: {
-    icon: '/favicon.ico'
-  }
-};
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale }));
+}
 
-export default function RootLayout({
+export default async function LocaleLayout({
   children,
+  params: { locale }
 }: {
   children: React.ReactNode;
+  params: { locale: string };
 }) {
+  // Validate that the incoming locale is valid
+  if (!locales.includes(locale as any)) {
+    notFound();
+  }
+
+  // Fetch messages for the current locale
+  const messages = await getMessages({ locale });
+
   return (
-    <html lang="en" className={`${inter.variable} ${patrickHand.variable} ${caveat.variable}`}>
+    <html lang={locale} suppressHydrationWarning className={`${inter.variable} ${patrickHand.variable} ${caveat.variable}`}>
       <body className="font-sans bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 min-h-screen">
         <AuthProvider>
-          {children}
-          <Toaster 
+          <NextIntlClientProvider locale={locale} messages={messages}>
+            {children}
+          </NextIntlClientProvider>
+          <Toaster
             position="top-center"
             toastOptions={{
               duration: 4000,

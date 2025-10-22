@@ -1,0 +1,266 @@
+{
+  "nav": {
+    "myBooks": "I Miei Libri",
+    "create": "Crea",
+    "home": "Home"
+  },
+  "landing": {
+    "badge": "Magia delle Storie con IA ✨",
+    "title": "Us & Then",
+    "subtitle": "Trasforma i preziosi ricordi del tuo bambino in",
+    "subtitleHighlight": "libri di storie magici",
+    "description": "Carica una foto, condividi un ricordo e guarda l'IA creare un bellissimo libro per bambini illustrato professionalmente con protagonista il tuo piccolo. Pronto per la stampa e da custodire per sempre.",
+    "ctaPrimary": "Crea il Tuo Primo Libro",
+    "ctaSecondary": "Vedi i Miei Libri",
+    "howItWorks": {
+      "title": "Come Funziona",
+      "subtitle": "Crea un libro di storie magico in 6 semplici passaggi"
+    },
+    "features": {
+      "shareMemory": {
+        "title": "Condividi il Tuo Ricordo",
+        "description": "Raccontaci di un momento speciale con il tuo bambino attraverso il nostro amichevole Mago delle Storie"
+      },
+      "aiMagic": {
+        "title": "L'IA Crea Magia",
+        "description": "La nostra IA genera una bella storia appropriata all'età con illustrazioni coerenti"
+      },
+      "babyStars": {
+        "title": "Il Tuo Bambino è la Stella",
+        "description": "Carica una foto e vedi il tuo bambino illustrato in modo coerente in tutto il libro"
+      },
+      "artStyle": {
+        "title": "Scegli lo Stile Artistico",
+        "description": "Seleziona tra illustrazioni ad acquerello, pastello o matita colorata"
+      },
+      "preview": {
+        "title": "Anteprima e Modifica",
+        "description": "Rivedi il tuo libro e apporta modifiche prima di finalizzare"
+      },
+      "download": {
+        "title": "PDF Pronto per la Stampa",
+        "description": "Scarica un PDF di alta qualità a 300 DPI pronto per la stampa professionale"
+      }
+    },
+    "footer": {
+      "copyright": "© 2024 Us & Then. Fatto con 💜 per i genitori ovunque."
+    }
+  },
+  "profile": {
+    "title": "Profilo del Bambino",
+    "heading": "Raccontaci del Tuo Piccolo",
+    "subtitle": "Iniziamo conoscendo il tuo bambino",
+    "babyName": "Nome del Bambino",
+    "babyNameLabel": "Nome del Bambino *",
+    "babyNamePlaceholder": "Inserisci il nome del tuo bambino...",
+    "birthdate": "Data di Nascita",
+    "birthdateLabel": "Data di Nascita *",
+    "ageGroup": "Fascia d'età:",
+    "gender": "Genere",
+    "genderLabel": "Genere *",
+    "genderBoy": "Maschio",
+    "genderGirl": "Femmina",
+    "genderNeutral": "Neutro",
+    "uploadPhoto": "Carica Foto",
+    "photoOptional": "(opzionale)",
+    "continue": "Continua",
+    "continueToMemoryChat": "Continua alla Chat dei Ricordi",
+    "savingProfile": "Salvataggio Profilo...",
+    "back": "Indietro",
+    "fillAllFields": "Si prega di compilare tutti i campi obbligatori",
+    "failedToSave": "Salvataggio del profilo non riuscito"
+  },
+  "storyWizard": {
+    "title": "Mago delle Storie",
+    "subtitle": "Catturiamo il prezioso ricordo di {babyName}",
+    "placeholder": "Raccontami di un momento speciale con il tuo bambino...",
+    "placeholderVoice": "Tocca per registrare la tua storia",
+    "placeholderTyping": "Digita o tieni premuto il microfono per parlare...",
+    "placeholderRecording": "Registrazione...",
+    "placeholderTranscribing": "Trascrizione...",
+    "placeholderComplete": "Storia completa!",
+    "send": "Invia",
+    "recording": "Registrazione...",
+    "recordingTime": "Registrazione... {time}",
+    "recordingTimeRemaining": "(30s rimanenti)",
+    "stopRecording": "Ferma Registrazione",
+    "processing": "Elaborazione...",
+    "thinking": "Pensando...",
+    "welcome": "Benvenuto! Creiamo insieme una storia magica.",
+    "welcomeInitial": "Sono qui per aiutare a creare una storia magica! Iniziamo ascoltando un momento speciale che vorresti catturare.",
+    "askMemory": "Raccontami di un ricordo o momento speciale con il tuo bambino.",
+    "generating": "Generazione della tua storia...",
+    "generatingImages": "Creazione di illustrazioni magiche...",
+    "storyProgress": "Progresso della Storia",
+    "didntCatch": "Non ho capito bene. Potresti dirmi di più su questo momento speciale?",
+    "tryAgain": "Ho difficoltà a capire. Potresti provare a descriverlo di nuovo?",
+    "voiceSuccess": "Voce registrata con successo!",
+    "noSpeechDetected": "Nessun discorso rilevato. Per favore riprova e parla chiaramente.",
+    "recordingError": "Errore di registrazione. Per favore riprova.",
+    "transcriptionError": "Impossibile trascrivere l'audio. Per favore riprova.",
+    "generalError": "Qualcosa è andato storto. Per favore riprova.",
+    "transcribing": "Trascrizione della tua voce...",
+    "micAccessDenied": "Accesso al microfono negato. Per favore abilitalo nelle impostazioni del browser.",
+    "noMicFound": "Nessun microfono trovato. Per favore collega un microfono.",
+    "recordingFailed": "Impossibile avviare la registrazione. Per favore riprova.",
+    "noAudioDetected": "Nessun audio rilevato. Per favore riprova.",
+    "recordingTooShort": "Registrazione troppo breve. Per favore tieni premuto il pulsante più a lungo e parla chiaramente.",
+    "holdToRecord": "Tieni premuto per registrare la tua voce",
+    "helpText": "Premi e tieni premuto il pulsante del microfono mentre parli, o digita il tuo messaggio",
+    "helpTextRecording": "Registrazione: {duration}s - Rilascia per fermare (max 5 min)"
+  },
+  "castManager": {
+    "title": "Gestione Personaggi",
+    "addCharacter": "Aggiungi Personaggio",
+    "characters": "Personaggi",
+    "uploadPhoto": "Carica Foto",
+    "setIdentityAnchor": "Imposta come Ancoraggio Identità",
+    "characterName": "Nome del Personaggio",
+    "baby": "Bambino",
+    "mom": "Mamma",
+    "dad": "Papà",
+    "grandma": "Nonna",
+    "grandpa": "Nonno",
+    "sibling": "Fratello/Sorella",
+    "aunt": "Zia",
+    "uncle": "Zio",
+    "friend": "Amico"
+  },
+  "bookPreview": {
+    "title": "Anteprima del Libro",
+    "page": "Pagina",
+    "spread": "Doppia Pagina",
+    "previous": "Precedente",
+    "next": "Successivo",
+    "saveProgress": "Salva Progresso",
+    "finalize": "Finalizza Libro",
+    "regenerate": "Rigenera",
+    "edit": "Modifica"
+  },
+  "dashboard": {
+    "title": "I Miei Libri",
+    "noBooks": "Nessun libro ancora",
+    "createFirst": "Crea il tuo primo libro di storie magico",
+    "createNew": "Crea Nuovo Libro",
+    "status": "Stato",
+    "createdAt": "Creato",
+    "actions": "Azioni",
+    "view": "Visualizza",
+    "delete": "Elimina",
+    "download": "Scarica",
+    "statusDraft": "Bozza",
+    "statusComplete": "Completo",
+    "statusProcessing": "In elaborazione"
+  },
+  "common": {
+    "loading": "Caricamento...",
+    "save": "Salva",
+    "cancel": "Annulla",
+    "delete": "Elimina",
+    "edit": "Modifica",
+    "close": "Chiudi",
+    "confirm": "Conferma",
+    "yes": "Sì",
+    "no": "No",
+    "error": "Errore",
+    "success": "Successo"
+  },
+  "errors": {
+    "uploadFailed": "Caricamento fallito. Riprova.",
+    "networkError": "Errore di rete. Controlla la tua connessione.",
+    "generationFailed": "Generazione della storia fallita. Riprova.",
+    "saveFailed": "Salvataggio fallito. Riprova.",
+    "invalidInput": "Input non valido. Controlla le tue informazioni.",
+    "audioTranscriptionFailed": "Trascrizione audio fallita. Riprova.",
+    "noSpeechDetected": "Nessun discorso rilevato. Parla chiaramente e riprova."
+  },
+  "toasts": {
+    "saved": "Salvato con successo!",
+    "deleted": "Eliminato con successo!",
+    "copied": "Copiato negli appunti!",
+    "uploaded": "Caricato con successo!",
+    "error": "Qualcosa è andato storto. Riprova."
+  },
+  "createPage": {
+    "title": "Crea il Tuo Libro di Storie Magico",
+    "back": "Indietro",
+    "steps": {
+      "babyProfile": "Profilo del Bambino",
+      "memoryChat": "Chat dei Ricordi",
+      "storyReview": "Revisione della Storia",
+      "illustrations": "Illustrazioni",
+      "bookLayout": "Layout del Libro",
+      "order": "Ordine"
+    },
+    "generating": {
+      "title": "Creazione della Tua Storia...",
+      "subtitle": "La nostra IA sta creando un racconto meraviglioso per {babyName}",
+      "progress": "Generazione della storia..."
+    },
+    "completion": {
+      "title": "Il Tuo Libro è Pronto!",
+      "spreadsCount": "{count} bellissime doppie pagine con protagonista {babyName}",
+      "withEffects": "Con effetti sonori e bellissime illustrazioni!",
+      "orderPrinted": "Ordina Copia Stampata"
+    }
+  },
+  "orderSuccess": {
+    "title": "Ordine Confermato!",
+    "subtitle": "Il tuo libro di storie magico è in arrivo!",
+    "emailConfirmation": "Ti invieremo una conferma via email con i dettagli di tracciamento una volta spedito il tuo libro.",
+    "orderId": "ID Ordine: {id}",
+    "whatHappensNext": "Cosa succede dopo?",
+    "steps": {
+      "printing": "Il tuo libro viene stampato su carta di qualità premium",
+      "binding": "Rilegato con cura con una bellissima copertina rigida",
+      "shipping": "Spedito a casa tua entro 7-10 giorni lavorativi"
+    },
+    "backToHome": "Torna alla Home",
+    "viewMyBooks": "Vedi i Miei Libri"
+  },
+  "orderCancel": {
+    "title": "Ordine Annullato",
+    "subtitle": "Il tuo ordine non è stato completato",
+    "description": "Non preoccuparti! Il tuo bellissimo libro di storie ti sta ancora aspettando. Puoi completare il tuo ordine in qualsiasi momento.",
+    "needHelp": "Hai bisogno di aiuto?",
+    "helpText": "Se hai riscontrato problemi durante il checkout o hai domande sui prezzi, non esitare a contattare il nostro team di supporto all'indirizzo support@usandthen.com",
+    "backToHome": "Torna alla Home",
+    "returnToBook": "Torna al Libro"
+  },
+  "resumeProgress": {
+    "title": "Bentornato!",
+    "subtitle": "Hai dei progressi salvati in precedenza",
+    "savedProgress": "Progresso Salvato:",
+    "storyFor": "Storia per {babyName}",
+    "continueButton": "Riprendi da dove ho lasciato",
+    "startNewButton": "Inizia un Nuovo Libro",
+    "expirationNote": "I progressi salvati scadono dopo 30 giorni"
+  },
+  "saveProgress": {
+    "button": "Salva e Continua Più Tardi",
+    "saving": "Salvataggio...",
+    "successMessage": "Progresso salvato! Puoi continuare più tardi.",
+    "errorMessage": "Impossibile salvare il progresso"
+  },
+  "progressSteps": {
+    "gettingStarted": "Per Iniziare",
+    "babyProfile": "Profilo del Bambino",
+    "memoryChat": "Chat dei Ricordi",
+    "storyReview": "Revisione della Storia",
+    "illustrations": "Illustrazioni",
+    "bookPreview": "Anteprima del Libro",
+    "complete": "Completo",
+    "unknownStep": "Passaggio Sconosciuto",
+    "saved": "Salvato"
+  },
+  "timeAgo": {
+    "justNow": "proprio ora",
+    "minuteAgo": "{count} minuto fa",
+    "minutesAgo": "{count} minuti fa",
+    "hourAgo": "{count} ora fa",
+    "hoursAgo": "{count} ore fa",
+    "dayAgo": "{count} giorno fa",
+    "daysAgo": "{count} giorni fa",
+    "overMonthAgo": "più di un mese fa"
+  }
+}

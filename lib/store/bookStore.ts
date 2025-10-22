@@ -1,6 +1,9 @@
-// lib/store/bookStore.ts - Updated with Paper Collage as single style
+// lib/store/bookStore.ts - Updated with Paper Collage as single style + i18n support
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+
+// Locale types
+export type Locale = 'en' | 'de' | 'fr' | 'es' | 'pt' | 'it';
 
 // Character types
 export type PersonId = 'baby' | 'mom' | 'dad' | 'grandma' | 'grandpa' | 'sibling' | 'aunt' | 'uncle' | 'friend';
@@ -95,6 +98,9 @@ export interface Page {
 }
 
 interface BookStore {
+  // Locale/Language
+  locale: Locale;
+
   // Basic info
   bookId: string | null;
   babyProfile: {
@@ -150,6 +156,7 @@ interface BookStore {
   };
   
   // Actions
+  setLocale: (locale: Locale) => void;
   setBookId: (id: string) => void;
   setProfile: (profile: any) => void;
   setConversation: (conversation: any[]) => void;
@@ -179,6 +186,15 @@ interface BookStore {
 
 // Custom storage handler
 const customStorage = createJSONStorage(() => {
+  // Check if we're on the client side
+  if (typeof window === 'undefined') {
+    return {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {}
+    };
+  }
+
   return {
     getItem: (name: string) => {
       try {
@@ -253,6 +269,7 @@ const customStorage = createJSONStorage(() => {
 export const useBookStore = create<BookStore>()(
   persist(
     (set, get) => ({
+      locale: 'en',  // Default locale
       bookId: null,
       babyProfile: null,
       cast: {},
@@ -266,6 +283,7 @@ export const useBookStore = create<BookStore>()(
       layouts: {},
       version: '',
 
+      setLocale: (locale) => set({ locale }),
       setBookId: (id) => set({ bookId: id }),
       setProfile: (profile) => set({ babyProfile: profile }),
       setConversation: (conversation) => set({ conversation }),
@@ -344,10 +362,13 @@ export const useBookStore = create<BookStore>()(
       },
       
       clearStorage: () => {
-        localStorage.removeItem('us-and-then-book');
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('us-and-then-book');
+        }
       },
       
       reset: () => set({
+        locale: get().locale,  // Preserve locale across resets
         bookId: null,
         babyProfile: null,
         cast: {},
@@ -366,6 +387,7 @@ export const useBookStore = create<BookStore>()(
       name: 'us-and-then-book',
       storage: customStorage,
       partialize: (state) => ({
+        locale: state.locale,
         bookId: state.bookId,
         babyProfile: state.babyProfile ? {
           ...state.babyProfile,

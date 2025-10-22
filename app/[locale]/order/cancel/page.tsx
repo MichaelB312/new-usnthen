@@ -1,11 +1,13 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/navigation';
+import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { XCircle, Home, ArrowLeft, HelpCircle } from 'lucide-react';
 
 export default function OrderCancelPage() {
   const router = useRouter();
+  const t = useTranslations();
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-gray-50 to-white">
@@ -26,26 +28,24 @@ export default function OrderCancelPage() {
           </motion.div>
 
           <h1 className="text-4xl md:text-5xl font-patrick text-gray-800 mb-4">
-            Order Cancelled
+            {t('orderCancel.title')}
           </h1>
 
           <p className="text-xl text-gray-700 mb-3">
-            Your order was not completed
+            {t('orderCancel.subtitle')}
           </p>
 
           <p className="text-gray-600 mb-8">
-            Don't worry! Your beautiful storybook is still waiting for you.
-            You can complete your order anytime.
+            {t('orderCancel.description')}
           </p>
 
           <div className="bg-blue-50 rounded-lg p-6 mb-8">
             <div className="flex items-start gap-3">
               <HelpCircle className="h-6 w-6 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-left">
-                <h2 className="font-semibold text-lg mb-2">Need help?</h2>
+                <h2 className="font-semibold text-lg mb-2">{t('orderCancel.needHelp')}</h2>
                 <p className="text-gray-700 text-sm">
-                  If you encountered any issues during checkout or have questions about pricing,
-                  feel free to reach out to our support team at support@usandthen.com
+                  {t('orderCancel.helpText')}
                 </p>
               </div>
             </div>
@@ -57,7 +57,7 @@ export default function OrderCancelPage() {
               className="btn-ghost flex items-center justify-center gap-2 flex-1"
             >
               <Home className="h-5 w-5" />
-              Back to Home
+              {t('orderCancel.backToHome')}
             </button>
 
             <button
@@ -65,7 +65,7 @@ export default function OrderCancelPage() {
               className="btn-primary flex items-center justify-center gap-2 flex-1"
             >
               <ArrowLeft className="h-4 w-4" />
-              Return to Book
+              {t('orderCancel.returnToBook')}
             </button>
           </div>
         </div>

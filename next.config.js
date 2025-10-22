@@ -1,10 +1,15 @@
+const withNextIntl = require('next-intl/plugin')(
+  // Specify the path to the request config
+  './i18n.ts'
+);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
     serverActions: {
       allowedOrigins: [
         'localhost:3000',
-        'localhost:3001', 
+        'localhost:3001',
         'localhost:3002',
         '*.github.dev',
         '*.app.github.dev'
@@ -21,4 +26,4 @@ const nextConfig = {
   },
 }
 
-module.exports = nextConfig
+module.exports = withNextIntl(nextConfig)

@@ -6,6 +6,16 @@
  * it just keeps a checklist and validates data.
  */
 
+// Language name mapping
+const LANGUAGE_NAMES: Record<string, string> = {
+  'en': 'English',
+  'de': 'German',
+  'fr': 'French',
+  'es': 'Spanish',
+  'pt': 'Portuguese',
+  'it': 'Italian'
+};
+
 export interface RequiredField {
   id: string;
   name: string;
@@ -17,6 +27,7 @@ export interface RequiredField {
 export interface ConversationState {
   sessionId: string;
   babyName: string;
+  locale: string;
   collectedData: Record<string, any>;
   completedFields: Set<string>;
   conversationHistory: Array<{
@@ -111,10 +122,11 @@ export class StoryMemoryDirector {
 
   private state: ConversationState;
 
-  constructor(sessionId: string, babyName: string) {
+  constructor(sessionId: string, babyName: string, locale: string = 'en') {
     this.state = {
       sessionId,
       babyName,
+      locale,
       collectedData: {},
       completedFields: new Set(),
       conversationHistory: [],
@@ -126,7 +138,11 @@ export class StoryMemoryDirector {
    * Get the system prompt for the Gemini AI
    */
   getSystemPrompt(): string {
+    const languageName = LANGUAGE_NAMES[this.state.locale] || 'English';
+
     return `You are a warm, friendly Story Wizard helping parents capture precious memories of their baby ${this.state.babyName}.
+
+**IMPORTANT: Communicate with the user ONLY in ${languageName.toUpperCase()} language. All your questions and responses must be in ${languageName}.**
 
 Your goal is to gather details for a beautiful children's storybook through natural conversation.
 

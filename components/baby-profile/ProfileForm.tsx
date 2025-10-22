@@ -5,12 +5,14 @@ import { motion } from 'framer-motion';
 import { Baby, Calendar, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+import { useTranslations } from 'next-intl';
 
 interface ProfileFormProps {
   onComplete: (profile: any) => void;
 }
 
 export function ProfileForm({ onComplete }: ProfileFormProps) {
+  const t = useTranslations('profile');
   const [babyName, setBabyName] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [gender, setGender] = useState('');
@@ -33,9 +35,9 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!babyName || !birthdate || !gender) {
-      toast.error('Please fill in all required fields');
+      toast.error(t('fillAllFields'));
       return;
     }
 
@@ -51,7 +53,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
 
       onComplete(profile);
     } catch (error) {
-      toast.error('Failed to save profile');
+      toast.error(t('failedToSave'));
       console.error(error);
     } finally {
       setLoading(false);
@@ -69,10 +71,10 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
           <Baby className="h-10 w-10 sm:h-12 sm:w-12 text-purple-600" />
         </div>
         <h2 className="text-2xl sm:text-3xl lg:text-4xl font-patrick gradient-text mb-2 sm:mb-3">
-          Tell Us About Your Little One
+          {t('heading')}
         </h2>
         <p className="text-gray-600 text-base sm:text-lg">
-          Let's start by getting to know your baby
+          {t('subtitle')}
         </p>
       </div>
 
@@ -80,7 +82,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
         {/* Baby's Name */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Baby's Name *
+            {t('babyNameLabel')}
           </label>
           <div className="relative">
             <input
@@ -88,7 +90,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
               value={babyName}
               onChange={(e) => setBabyName(e.target.value)}
               className="input-magical pl-12"
-              placeholder="Enter your baby's name..."
+              placeholder={t('babyNamePlaceholder')}
               required
             />
             <Baby className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-purple-400" />
@@ -98,7 +100,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
         {/* Birthdate */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Birthdate *
+            {t('birthdateLabel')}
           </label>
           <div className="relative">
             <input
@@ -113,7 +115,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
           </div>
           {birthdate && (
             <p className="mt-2 text-sm text-gray-500">
-              Age group: {calculateAgeGroup(birthdate).replace('_', ' ')}
+              {t('ageGroup')} {calculateAgeGroup(birthdate).replace('_', ' ')}
             </p>
           )}
         </div>
@@ -121,7 +123,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
         {/* Gender */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Gender *
+            {t('genderLabel')}
           </label>
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <motion.button
@@ -136,7 +138,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
                   : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'}
               `}
             >
-              Boy
+              {t('genderBoy')}
             </motion.button>
             <motion.button
               type="button"
@@ -150,7 +152,7 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
                   : 'border-gray-200 hover:border-pink-300 hover:bg-pink-50/50'}
               `}
             >
-              Girl
+              {t('genderGirl')}
             </motion.button>
           </div>
         </div>
@@ -166,12 +168,12 @@ export function ProfileForm({ onComplete }: ProfileFormProps) {
           {loading ? (
             <>
               <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 sm:border-3 border-white border-t-transparent rounded-full animate-spin" />
-              <span className="whitespace-nowrap">Saving Profile...</span>
+              <span className="whitespace-nowrap">{t('savingProfile')}</span>
             </>
           ) : (
             <>
               <Sparkles className="h-4 w-4 sm:h-5 sm:w-5" />
-              <span className="whitespace-nowrap">Continue to Memory Chat</span>
+              <span className="whitespace-nowrap">{t('continueToMemoryChat')}</span>
             </>
           )}
         </motion.button>

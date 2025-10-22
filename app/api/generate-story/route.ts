@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { PersonId } from '@/lib/store/bookStore';
+import { PersonId, type Locale } from '@/lib/store/bookStore';
 import { CAMERA_ANGLES } from '@/lib/camera/highContrastShots';
 import { generateSpreadSequence } from '@/lib/sequence/spreadSequence';
 
@@ -14,6 +14,16 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
 const STORY_MODEL = 'gemini-2.5-pro';
+
+// Language name mapping for Gemini prompts
+const LANGUAGE_NAMES: Record<Locale, string> = {
+  'en': 'English',
+  'de': 'German',
+  'fr': 'French',
+  'es': 'Spanish',
+  'pt': 'Portuguese',
+  'it': 'Italian'
+};
 
 // Job storage
 interface StoryJob {
@@ -393,7 +403,7 @@ async function processStoryGeneration(jobId: string, params: any) {
     job.progress = 10;
     job.message = 'Reading your precious memory...';
 
-    const { babyProfile, conversation, illustrationStyle, storyLength } = params;
+    const { babyProfile, conversation, illustrationStyle, storyLength, locale = 'en' } = params;
 
     // Extract memory details - ENHANCED with new fields
     const memory = conversation.find((c: any) => c.question === 'memory_anchor')?.answer || '';
@@ -454,8 +464,14 @@ async function processStoryGeneration(jobId: string, params: any) {
     // Poetic style parameter (can be passed in or default to lyrical prose)
     const poeticStyle = params.poeticStyle || 'Lyrical Prose'; // Options: 'Lyrical Prose', 'Rhyming Couplets', 'Subtle Rhyme'
 
+    // Get language name for prompt
+    const languageName = LANGUAGE_NAMES[locale as Locale] || 'English';
+
     // Master prompt for children's book generation
     const prompt = `You are a master children's book author and poet, renowned for your ability to capture the profound wonder of early childhood. You write with a lyrical, warm voice, turning simple memories into timeless, emotionally resonant stories. You understand that for a child, every new experience is epic.
+
+**CRITICAL INSTRUCTION: Write the ENTIRE story in ${languageName.toUpperCase()} language.**
+All narration text must be in ${languageName}. Use age-appropriate vocabulary in ${languageName} and maintain the warm, lyrical tone in ${languageName}.
 
 === THE GOLDEN RULE: TRUTH TO THE MEMORY ===
 This is the most important rule. **You must be 100% faithful to the memory provided.**
@@ -889,7 +905,7 @@ ${prompt}`;
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { babyProfile, conversation, illustrationStyle, storyLength, poeticStyle } = body;
+    const { babyProfile, conversation, illustrationStyle, storyLength, poeticStyle, locale = 'en' } = body;
 
     if (!babyProfile?.baby_name || !babyProfile?.birthdate) {
       // Return fallback immediately if missing data

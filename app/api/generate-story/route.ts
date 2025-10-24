@@ -1,6 +1,7 @@
 // app/api/generate-story/route.ts
 /**
  * Async Story Generation with Job Queue
+ * Supports both 3.0 (structured data) and legacy (conversation) modes
  * Prevents frontend timeouts by using polling pattern
  */
 
@@ -9,6 +10,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PersonId, type Locale } from '@/lib/store/bookStore';
 import { CAMERA_ANGLES } from '@/lib/camera/highContrastShots';
 import { generateSpreadSequence } from '@/lib/sequence/spreadSequence';
+import { compilePromptBrief, extractPromptString } from '@/lib/utils/PromptCompiler';
+import { BookType, WritingStyle } from '@/lib/types/bookTypes3';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
@@ -927,18 +930,199 @@ ${prompt}`;
   }
 }
 
+/**
+ * Process 3.0 story generation using structured data
+ */
+async function process3_0StoryGeneration(jobId: string, params: any) {
+  const job = storyJobs.get(jobId);
+  if (!job) return;
+
+  try {
+    job.status = 'processing';
+    job.progress = 10;
+    job.message = 'Compiling your story brief...';
+
+    const { babyProfile, bookType, writingStyle, structuredData, locale = 'en', recipient } = params;
+
+    // Compile the prompt brief using PromptCompiler
+    const brief = compilePromptBrief(
+      bookType as BookType,
+      writingStyle as WritingStyle,
+      babyProfile,
+      structuredData,
+      locale,
+      recipient
+    );
+
+    const compiledPrompt = extractPromptString(brief);
+
+    job.progress = 30;
+    job.message = 'Creating your magical story...';
+
+    // System prompt for 3.0
+    const systemPrompt = `You are a master children's book author specializing in personalized, emotionally resonant stories for young children. You excel at transforming structured story data into beautifully written narratives that capture the magic of childhood moments.
+
+You follow instructions precisely and always respond with valid JSON only. No markdown, no code blocks, just pure JSON.`;
+
+    const fullPrompt = `${systemPrompt}
+
+${compiledPrompt}`;
+
+    job.progress = 50;
+
+    // Call Gemini
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+      generationConfig: {
+        temperature: 0.85,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    job.progress = 70;
+    job.message = 'Bringing your story to life...';
+
+    const raw = result.response.text().trim();
+    if (!raw) throw new Error('Empty model response');
+
+    // Parse JSON response
+    const jsonText = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const storyData: StoryResponse = JSON.parse(jsonText);
+
+    job.progress = 80;
+    job.message = 'Adding the finishing touches...';
+
+    const ageInMonths = calculateAgeInMonths(babyProfile.birthdate);
+    const babyGender = babyProfile.gender || 'neutral';
+
+    // Enhance pages with camera angles and character mapping
+    const enhancedPages = storyData.pages.map((page, index) => {
+      const cameraAngle = page.camera_angle || page.shot_id || 'medium_shot';
+      const angle = CAMERA_ANGLES[cameraAngle];
+
+      const charactersOnPage: PersonId[] = [];
+
+      if (page.characters_on_page && page.characters_on_page.length > 0) {
+        for (const char of page.characters_on_page) {
+          const personId = mapToPersonId(char, babyProfile.baby_name);
+          if (personId && !charactersOnPage.includes(personId)) {
+            charactersOnPage.push(personId);
+          }
+        }
+      }
+
+      if (charactersOnPage.length === 0) {
+        charactersOnPage.push('baby');
+      }
+
+      return {
+        ...page,
+        page_number: page.page_number,
+        narration: page.narration,
+        illustration_description: page.illustration_description || 'Scene description',
+        visual_prompt: page.visual_action || page.action_description || 'Scene description',
+        shot_id: cameraAngle,
+        camera_angle: cameraAngle,
+        shot_description: angle?.name || page.shot_description || 'Unique angle',
+        characters_on_page: charactersOnPage,
+        scene_type: page.scene_type || (
+          index === 0 ? 'opening' :
+          index === storyData.pages.length - 1 ? 'closing' : 'action'
+        ),
+        emotion: page.emotion || 'joy',
+        layout_template: 'auto',
+        page_goal: page.page_goal || `Page ${index + 1} beat`
+      };
+    });
+
+    job.progress = 90;
+
+    // Generate landscape spread sequence metadata
+    const spreadSequences = generateSpreadSequence(enhancedPages, storyData.metadata);
+
+    // Attach sequence metadata to pages
+    const pagesWithSequence = enhancedPages.map((page, index) => {
+      const spreadIndex = Math.floor(index / 2);
+      return {
+        ...page,
+        spread_metadata: spreadSequences[spreadIndex]
+      };
+    });
+
+    const enhancedStory = {
+      title: storyData.title,
+      refrain: storyData.refrain,
+      pages: pagesWithSequence,
+      cast_members: Array.from(new Set(enhancedPages.flatMap(p => p.characters_on_page))),
+      metadata: {
+        ...storyData.metadata,
+        book_type: bookType,
+        writing_style: writingStyle,
+        emotional_core: storyData.emotional_core,
+        story_arc: storyData.story_arc,
+        spread_sequences: spreadSequences
+      },
+      style: 'isolated-paper-collage',
+      high_contrast_sequence: enhancedPages.map(p => p.shot_id),
+      gender: babyGender
+    };
+
+    job.progress = 100;
+    job.status = 'completed';
+    job.result = enhancedStory;
+    job.completedAt = Date.now();
+    job.message = `${babyProfile.baby_name}'s story is ready!`;
+
+    console.log(`3.0 Story job ${jobId} completed successfully`);
+
+  } catch (error: any) {
+    console.error(`3.0 Story job ${jobId} failed:`, error);
+
+    const job = storyJobs.get(jobId);
+    if (job) {
+      const safeName = params.babyProfile?.baby_name || 'Baby';
+      const safeBirth = params.babyProfile?.birthdate || '2024-01-01';
+      const safeGender = params.babyProfile?.gender || 'neutral';
+
+      job.status = 'completed';
+      job.result = createEngagingFallbackStory(
+        safeName,
+        calculateAgeInMonths(safeBirth),
+        safeGender
+      );
+      job.completedAt = Date.now();
+      job.message = 'Used fallback story due to generation error';
+    }
+  }
+}
+
 // POST - Start story generation job
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { babyProfile, conversation, illustrationStyle, storyLength, poeticStyle, locale = 'en' } = body;
+    const {
+      babyProfile,
+      conversation,
+      illustrationStyle,
+      storyLength,
+      poeticStyle,
+      locale = 'en',
+      // 3.0 fields
+      bookType,
+      writingStyle,
+      structuredData,
+      recipient
+    } = body;
+
+    // Detect if this is a 3.0 request
+    const is3_0Request = bookType && writingStyle && structuredData;
 
     if (!babyProfile?.baby_name || !babyProfile?.birthdate) {
       // Return fallback immediately if missing data
       const safeName = babyProfile?.baby_name || 'Baby';
       const safeBirth = babyProfile?.birthdate || '2024-01-01';
       const safeGender = babyProfile?.gender || 'neutral';
-      
+
       return NextResponse.json({
         success: true,
         story: createEngagingFallbackStory(
@@ -951,7 +1135,7 @@ export async function POST(request: NextRequest) {
 
     // Create job ID
     const jobId = `story-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
+
     // Create job entry
     const job: StoryJob = {
       id: jobId,
@@ -959,27 +1143,42 @@ export async function POST(request: NextRequest) {
       progress: 0,
       startTime: Date.now(),
       babyName: babyProfile.baby_name,
-      message: 'Starting story generation...'
+      message: is3_0Request ? 'Starting 3.0 story generation...' : 'Starting story generation...'
     };
-    
+
     storyJobs.set(jobId, job);
-    
-    // Start async processing
-    processStoryGeneration(jobId, body).catch(error => {
-      console.error(`Failed to process story job ${jobId}:`, error);
-      const job = storyJobs.get(jobId);
-      if (job) {
-        job.status = 'failed';
-        job.error = error.message;
-        job.completedAt = Date.now();
-      }
-    });
-    
+
+    // Start async processing - route to appropriate handler
+    if (is3_0Request) {
+      console.log(`Starting 3.0 story generation for ${babyProfile.baby_name} - BookType: ${bookType}, Style: ${writingStyle}`);
+      process3_0StoryGeneration(jobId, body).catch(error => {
+        console.error(`Failed to process 3.0 story job ${jobId}:`, error);
+        const job = storyJobs.get(jobId);
+        if (job) {
+          job.status = 'failed';
+          job.error = error.message;
+          job.completedAt = Date.now();
+        }
+      });
+    } else {
+      console.log(`Starting legacy story generation for ${babyProfile.baby_name}`);
+      processStoryGeneration(jobId, body).catch(error => {
+        console.error(`Failed to process story job ${jobId}:`, error);
+        const job = storyJobs.get(jobId);
+        if (job) {
+          job.status = 'failed';
+          job.error = error.message;
+          job.completedAt = Date.now();
+        }
+      });
+    }
+
     // Return job ID immediately
     return NextResponse.json({
       success: true,
       jobId,
-      message: 'Story generation started'
+      message: is3_0Request ? '3.0 Story generation started' : 'Story generation started',
+      mode: is3_0Request ? '3.0' : 'legacy'
     });
     
   } catch (error: any) {

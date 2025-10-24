@@ -1,6 +1,18 @@
-// lib/store/bookStore.ts - Updated with Paper Collage as single style + i18n support
+// lib/store/bookStore.ts - Updated with 3.0 architecture
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import {
+  BookType,
+  WritingStyle,
+  GuideConversationState,
+  SpecialMomentData,
+  GrowthStoryData,
+  TributeBookData,
+  SpecialWorldData,
+  GuidedTemplateData,
+  createEmptyDataSchema,
+  getRequiredFields
+} from '@/lib/types/bookTypes3';
 
 // Locale types
 export type Locale = 'en' | 'de' | 'fr' | 'es' | 'pt' | 'it';
@@ -102,6 +114,13 @@ interface BookStore {
   // Locale/Language
   locale: Locale;
 
+  // 3.0 Architecture - New fields
+  bookType: BookType | null;
+  writingStyle: WritingStyle | null;
+  structuredData: SpecialMomentData | GrowthStoryData | TributeBookData | SpecialWorldData | GuidedTemplateData | null;
+  guideConversationState: GuideConversationState | null;
+  recipient: string | null; // For tribute books
+
   // Basic info
   bookId: string | null;
   babyProfile: {
@@ -158,6 +177,15 @@ interface BookStore {
   
   // Actions
   setLocale: (locale: Locale) => void;
+
+  // 3.0 Architecture actions
+  setBookType: (bookType: BookType) => void;
+  setWritingStyle: (style: WritingStyle) => void;
+  setStructuredData: (data: any) => void;
+  setGuideConversationState: (state: GuideConversationState | null) => void;
+  setRecipient: (recipient: string) => void;
+  updateStructuredDataField: (field: string, value: any) => void;
+
   setBookId: (id: string) => void;
   setProfile: (profile: any) => void;
   setConversation: (conversation: any[]) => void;
@@ -272,6 +300,14 @@ export const useBookStore = create<BookStore>()(
   persist(
     (set, get) => ({
       locale: 'en',  // Default locale
+
+      // 3.0 Architecture - Initial state
+      bookType: null,
+      writingStyle: null,
+      structuredData: null,
+      guideConversationState: null,
+      recipient: null,
+
       bookId: null,
       babyProfile: null,
       cast: {},
@@ -286,6 +322,60 @@ export const useBookStore = create<BookStore>()(
       version: '',
 
       setLocale: (locale) => set({ locale }),
+
+      // 3.0 Architecture actions implementation
+      setBookType: (bookType) => {
+        const emptySchema = createEmptyDataSchema(bookType);
+        set({
+          bookType,
+          structuredData: emptySchema,
+          guideConversationState: {
+            bookType,
+            dataSchema: emptySchema,
+            fieldsCollected: [],
+            currentField: null,
+            conversationHistory: [],
+            isComplete: false
+          }
+        });
+      },
+
+      setWritingStyle: (style) => set({ writingStyle: style }),
+
+      setStructuredData: (data) => set({ structuredData: data }),
+
+      setGuideConversationState: (state) => set({ guideConversationState: state }),
+
+      setRecipient: (recipient) => set({ recipient }),
+
+      updateStructuredDataField: (field, value) => {
+        set((state) => {
+          if (!state.structuredData) return state;
+
+          const updatedData = { ...state.structuredData, [field]: value };
+          const updatedState: Partial<BookStore> = { structuredData: updatedData };
+
+          // Update guide conversation state
+          if (state.guideConversationState) {
+            const fieldsCollected = [...state.guideConversationState.fieldsCollected];
+            if (!fieldsCollected.includes(field)) {
+              fieldsCollected.push(field);
+            }
+
+            const requiredFields = getRequiredFields(state.guideConversationState.bookType);
+            const isComplete = requiredFields.every(f => fieldsCollected.includes(f));
+
+            updatedState.guideConversationState = {
+              ...state.guideConversationState,
+              dataSchema: updatedData,
+              fieldsCollected,
+              isComplete
+            };
+          }
+
+          return updatedState;
+        });
+      },
       setBookId: (id) => set({ bookId: id }),
       setProfile: (profile) => set({ babyProfile: profile }),
       setConversation: (conversation) => set({ conversation }),
@@ -390,6 +480,14 @@ export const useBookStore = create<BookStore>()(
       
       reset: () => set({
         locale: get().locale,  // Preserve locale across resets
+
+        // Reset 3.0 fields
+        bookType: null,
+        writingStyle: null,
+        structuredData: null,
+        guideConversationState: null,
+        recipient: null,
+
         bookId: null,
         babyProfile: null,
         cast: {},
@@ -409,6 +507,14 @@ export const useBookStore = create<BookStore>()(
       storage: customStorage,
       partialize: (state) => ({
         locale: state.locale,
+
+        // 3.0 fields to persist
+        bookType: state.bookType,
+        writingStyle: state.writingStyle,
+        structuredData: state.structuredData,
+        guideConversationState: state.guideConversationState,
+        recipient: state.recipient,
+
         bookId: state.bookId,
         babyProfile: state.babyProfile ? {
           ...state.babyProfile,

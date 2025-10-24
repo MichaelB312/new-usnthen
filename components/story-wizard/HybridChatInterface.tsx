@@ -63,6 +63,7 @@ function TypingIndicator() {
   );
 }
 
+
 function ProgressBar({ progress, collectedFields, t }: { progress: number; collectedFields: string[]; t: any }) {
   return (
     <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-purple-50 rounded-lg">
@@ -104,6 +105,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
   const [isComplete, setIsComplete] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [emotionContext, setEmotionContext] = useState<any>(null);
+  const [collectedData, setCollectedData] = useState<any>(null);
   const hasInitialized = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -217,9 +219,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
         // Check if conversation is complete
         if (data.isComplete) {
           setIsComplete(true);
-
-          // Convert Gemini data to legacy format for story generation
-          const legacyConversation = convertToLegacyFormat(data.collectedData || {});
+          setCollectedData(data.collectedData || {});
 
           // Validate we have minimum required data
           const validation = validateConversationData(data.collectedData || {});
@@ -227,10 +227,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
             console.warn('Missing required fields:', validation.missing);
           }
 
-          // Wait a bit then call onComplete with legacy format
-          setTimeout(() => {
-            onComplete(legacyConversation);
-          }, 2000);
+          // Don't auto-proceed - wait for user to click "Create Story" button
         }
       } else {
         addWizardMessage(t('didntCatch'));
@@ -330,6 +327,12 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
     }
   }, [audioBlob, isRecording, recordingDuration]);
 
+  // Handle create story button click
+  const handleCreateStory = () => {
+    const legacyConversation = convertToLegacyFormat(collectedData || {});
+    onComplete(legacyConversation);
+  };
+
   // Show recording error if any
   useEffect(() => {
     if (recordingError) {
@@ -360,13 +363,32 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
           <MessageBubble key={message.id} message={message} />
         ))}
         {isTyping && <TypingIndicator />}
+
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}
       <div className="border-t border-purple-100 pt-4 sm:pt-6">
+        {/* Create Story Button (shown when conversation is complete) */}
+        {isComplete && (
+          <div className="space-y-3">
+            <div className="text-center">
+              <p className="text-sm text-gray-600 mb-3">
+                ✨ Perfect! I have everything I need to create your magical story.
+              </p>
+              <button
+                onClick={handleCreateStory}
+                className="btn-primary px-8 py-4 text-lg flex items-center justify-center gap-3 mx-auto"
+              >
+                <Sparkles className="h-6 w-6" />
+                Create Your Story
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Recording Indicator */}
-        {isRecording && (
+        {!isComplete && isRecording && (
           <div className="mb-3 flex items-center justify-center gap-2 text-sm text-purple-600 bg-purple-50 rounded-lg py-2">
             <motion.div
               animate={{ scale: [1, 1.2, 1] }}
@@ -383,14 +405,16 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
         )}
 
         {/* Transcribing Indicator */}
-        {isTranscribing && (
+        {!isComplete && isTranscribing && (
           <div className="mb-3 flex items-center justify-center gap-2 text-sm text-purple-600 bg-purple-50 rounded-lg py-2">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="font-medium">{t('transcribing')}</span>
           </div>
         )}
 
-        <div className="flex gap-2 sm:gap-3">
+        {/* Input Fields (hidden when complete) */}
+        {!isComplete && (
+          <div className="flex gap-2 sm:gap-3">
           {/* Text Input */}
           <input
             value={input}
@@ -408,7 +432,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
               t('placeholderTyping')
             }
             className="input-magical flex-1 text-sm sm:text-base"
-            disabled={isComplete || isTyping || isRecording || isTranscribing}
+            disabled={isTyping || isRecording || isTranscribing}
           />
 
           {/* Voice Button (Hold to Record) */}
@@ -429,7 +453,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
               e.preventDefault();
               stopRecording();
             }}
-            disabled={isComplete || isTyping || isTranscribing}
+            disabled={isTyping || isTranscribing}
             className={`
               px-4 sm:px-5 py-2 sm:py-3 rounded-xl font-semibold
               transition-all duration-200 shadow-md
@@ -438,7 +462,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
                 : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white'
               }
               disabled:opacity-50 disabled:cursor-not-allowed
-              ${!isComplete && !isTyping && !isTranscribing ? 'ring-2 ring-purple-300 ring-offset-2' : ''}
+              ${!isTyping && !isTranscribing ? 'ring-2 ring-purple-300 ring-offset-2' : ''}
             `}
             title={t('holdToRecord')}
           >
@@ -457,20 +481,23 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
           {/* Send Button */}
           <button
             onClick={handleSend}
-            disabled={!input.trim() || isComplete || isTyping || isRecording || isTranscribing}
+            disabled={!input.trim() || isTyping || isRecording || isTranscribing}
             className="btn-primary px-4 sm:px-6"
           >
             <Send className="h-4 w-4 sm:h-5 sm:w-5" />
           </button>
         </div>
+        )}
 
-        {/* Help Text */}
-        <p className="text-xs text-gray-500 text-center mt-2">
-          {isRecording
-            ? t('helpTextRecording', { duration: recordingDuration })
-            : t('helpText')
-          }
-        </p>
+        {/* Help Text (only when not complete) */}
+        {!isComplete && (
+          <p className="text-xs text-gray-500 text-center mt-2">
+            {isRecording
+              ? t('helpTextRecording', { duration: recordingDuration })
+              : t('helpText')
+            }
+          </p>
+        )}
       </div>
     </div>
   );

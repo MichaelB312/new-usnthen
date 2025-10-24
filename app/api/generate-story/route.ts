@@ -56,6 +56,7 @@ interface StoryPage {
   shot_id: string;
   shot_description: string;
   visual_action: string;
+  illustration_description: string; // NEW: Customer-friendly description of what the page will show
   action_description: string;
   visual_focus?: string;
   emotion: string;
@@ -328,6 +329,7 @@ function createEngagingFallbackStory(
   const pages = [
     {
       narration: `${babyName} crawls closer. Eyes wide! ${refrain}`,
+      illustration_description: `${babyName} crawling forward with wide eyes, looking excited.`,
       page_goal: 'Opening scene with excitement',
       characters_on_page: ['baby' as PersonId],
       camera_angle: 'establishing_wide',
@@ -338,6 +340,7 @@ function createEngagingFallbackStory(
     },
     {
       narration: `Tiny fingers reach and grab! *Squeak!*`,
+      illustration_description: `${babyName}'s hands reaching out and grabbing a toy.`,
       page_goal: 'The moment of contact',
       characters_on_page: ['baby' as PersonId],
       camera_angle: 'discovery_moment',
@@ -349,6 +352,7 @@ function createEngagingFallbackStory(
     },
     {
       narration: `Splash splash splash! ${babyName} plays! ${refrain}`,
+      illustration_description: `${babyName} playing in the bath, splashing water everywhere.`,
       page_goal: 'Peak action and joy',
       characters_on_page: ['baby' as PersonId],
       camera_angle: 'birds_eye_overhead',
@@ -359,6 +363,7 @@ function createEngagingFallbackStory(
     },
     {
       narration: `Mommy wraps ${babyName} warm and snug.`,
+      illustration_description: `Mom wrapping ${babyName} in a cozy towel.`,
       page_goal: 'Comfort and care',
       characters_on_page: ['baby' as PersonId, 'mom' as PersonId],
       camera_angle: 'peek_through_frame',
@@ -427,6 +432,10 @@ async function processStoryGeneration(jobId: string, params: any) {
 
     // Developmental abilities (critical for accurate physical descriptions)
     const developmentalAbilities = conversation.find((c: any) => c.question === 'developmental_abilities')?.answer || '';
+
+    // Extract illustration feedback from preview (NEW)
+    const illustrationFeedback = conversation.find((c: any) => c.question === 'illustration_feedback')?.answer || '';
+    const editedPreviewPages = conversation.find((c: any) => c.question === 'edited_preview_pages')?.answer || '';
 
     // Extract setting from location
     const setting = extractSetting(location);
@@ -503,6 +512,20 @@ STORY ARC (provided by parent):
 
 Sensory Details: ${sensoryDetails}
 Cast Members: ${extractedCast.join(', ')}
+
+${illustrationFeedback && illustrationFeedback !== 'approved' ? `
+=== CUSTOMER ILLUSTRATION FEEDBACK ===
+**CRITICAL: The customer reviewed a story preview and provided the following feedback on what they want to see in the illustrations:**
+
+${illustrationFeedback}
+
+**YOU MUST incorporate these requests into the illustration_description and visual_action fields for the appropriate pages.**
+Ensure the requested elements (colors, objects, people, pets, etc.) appear exactly as the customer specified.
+If the customer requested specific changes to specific pages, make sure those changes are reflected.
+` : illustrationFeedback === 'approved' ? `
+=== CUSTOMER APPROVAL ===
+The customer reviewed and approved the story preview with no changes requested.
+` : ''}
 
 ENVIRONMENTAL ELEMENTS (weave these into the story for vivid scenes):
 - Weather: ${weatherCondition || 'Not specified - infer from setting'}
@@ -674,6 +697,7 @@ Guidelines:
     {
       "page_number": 1,
       "narration": "Full narration text (${wordLimits.min}-${wordLimits.max} words). Use lyrical, descriptive language. SHOW emotions through actions and sensory feelings. Onomatopoeia should be used sparingly and only if it truly serves the story, like the distant 'Caw!' of a seagull.",
+      "illustration_description": "A SHORT, CUSTOMER-FRIENDLY description (1-2 sentences, max 25 words) of what will appear in this illustration. Focus ONLY on: WHO is in the picture (which people/pets), WHAT key objects or elements are visible, and WHERE they are (the setting). Do NOT mention camera angles, lighting, or technical details. Example: '${babyProfile.baby_name} sitting on the beach with Mom, looking at the ocean waves. A small red bucket is beside them.' This is what customers will see and be able to edit.",
       "visual_action": "A rich description for the illustrator, staying **strictly faithful** to the user's provided memory and the child's developmental abilities. **Do not add actions that didn't happen.** For example, if the baby can only sit, describe them sitting and reaching, not standing. What is ${babyProfile.baby_name} doing? What is the expression of wonder on their face? Describe the light, the weather, the key objects.",
       "action_description": "How this visual establishes the story's sense of wonder and place.",
       "page_goal": "What this spread achieves in the story arc (e.g., 'To introduce the setting and spark the child's curiosity').",
@@ -690,6 +714,7 @@ Guidelines:
       "page_number": 2,
       "narration": "The whole world was a happy, bubbly splash.",
       "is_minimalist_moment": true,
+      "illustration_description": "${babyProfile.baby_name} sitting at the water's edge, splashing with their hands.",
       "visual_action": "${babyProfile.baby_name} sitting at the water's edge, hands splashing enthusiastically, sending droplets flying everywhere. A huge, open-mouthed laugh on their face.",
       "emotion": "joy",
       "characters_on_page": ["baby"],
@@ -819,6 +844,7 @@ ${prompt}`;
         ...page,
         page_number: page.page_number,
         narration: page.narration,
+        illustration_description: page.illustration_description || 'Scene description',
         visual_prompt: page.visual_action || page.action_description || 'Scene description',
         shot_id: cameraAngle, // For backward compatibility
         camera_angle: cameraAngle,

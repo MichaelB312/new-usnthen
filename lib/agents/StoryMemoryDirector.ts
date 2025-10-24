@@ -35,7 +35,8 @@ export interface ConversationState {
     content: string;
     timestamp: Date;
   }>;
-  currentPhase: 'gathering' | 'extraction' | 'complete';
+  currentPhase: 'gathering' | 'preview_feedback' | 'extraction' | 'complete';
+  storyPreview?: any; // Store the generated preview
 }
 
 export class StoryMemoryDirector {
@@ -89,6 +90,13 @@ export class StoryMemoryDirector {
       description: 'User confirms they are ready or wants to add more',
       required: true,
       validator: (value) => typeof value === 'boolean'
+    },
+    {
+      id: 'illustration_feedback',
+      name: 'Illustration Feedback',
+      description: 'Customer feedback on the story preview illustrations',
+      required: false, // NOT required - will be collected after preview is shown
+      validator: (value) => typeof value === 'string' || value === 'approved'
     },
     {
       id: 'sensory_details',
@@ -340,7 +348,39 @@ IMPORTANT:
   /**
    * Set phase
    */
-  setPhase(phase: 'gathering' | 'extraction' | 'complete'): void {
+  setPhase(phase: 'gathering' | 'preview_feedback' | 'extraction' | 'complete'): void {
     this.state.currentPhase = phase;
+  }
+
+  /**
+   * Store story preview for feedback
+   */
+  setStoryPreview(preview: any): void {
+    this.state.storyPreview = preview;
+  }
+
+  /**
+   * Get stored story preview
+   */
+  getStoryPreview(): any {
+    return this.state.storyPreview;
+  }
+
+  /**
+   * Check if we need to show preview and collect feedback
+   * This should happen after final_confirmation but before illustration_feedback
+   */
+  needsPreviewFeedback(): boolean {
+    return (
+      this.state.completedFields.has('final_confirmation') &&
+      !this.state.completedFields.has('illustration_feedback')
+    );
+  }
+
+  /**
+   * Mark preview as shown and transition to feedback phase
+   */
+  transitionToPreviewFeedback(): void {
+    this.state.currentPhase = 'preview_feedback';
   }
 }

@@ -60,6 +60,7 @@ export interface Page {
   page_number: number;
   scene_type: string;
   narration: string;
+  illustration_description?: string; // Customer-friendly description of what will appear in illustration
   visual_prompt: string;
   illustration_url?: string;
   layout_template: string;
@@ -175,7 +176,8 @@ interface BookStore {
   addUploadedPhoto: (photo: UploadedPhoto) => void;
   setStyleAnchor: (url: string) => void;
   updatePageCharacters: (pageNumber: number, characters: PersonId[], extras?: PersonId[]) => void;
-  
+  updatePageIllustrationDescription: (pageNumber: number, description: string) => void;
+
   reset: () => void;
   clearStorage: () => void;
   
@@ -334,13 +336,32 @@ export const useBookStore = create<BookStore>()(
       updatePageCharacters: (pageNumber, characters, extras) => {
         set((state) => {
           if (!state.storyData) return state;
-          
-          const updatedPages = state.storyData.pages.map(page => 
+
+          const updatedPages = state.storyData.pages.map(page =>
             page.page_number === pageNumber
               ? { ...page, characters_on_page: characters, background_extras: extras }
               : page
           );
-          
+
+          return {
+            storyData: {
+              ...state.storyData,
+              pages: updatedPages
+            }
+          };
+        });
+      },
+
+      updatePageIllustrationDescription: (pageNumber, description) => {
+        set((state) => {
+          if (!state.storyData) return state;
+
+          const updatedPages = state.storyData.pages.map(page =>
+            page.page_number === pageNumber
+              ? { ...page, illustration_description: description }
+              : page
+          );
+
           return {
             storyData: {
               ...state.storyData,

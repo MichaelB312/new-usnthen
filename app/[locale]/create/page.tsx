@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from '@/navigation';
 import { useTranslations } from 'next-intl';
-import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Home, ArrowLeft } from 'lucide-react';
+import { Baby, MessageCircle, BookOpen, Wand2, Image, Eye, CreditCard, Check, Home, ArrowLeft, Sparkles, Palette } from 'lucide-react';
 import { ChatInterface } from '@/components/story-wizard/ChatInterface';
 import { HybridChatInterface } from '@/components/story-wizard/HybridChatInterface';
 import { ProfileForm } from '@/components/baby-profile/ProfileForm';
@@ -13,6 +13,9 @@ import { StoryReviewSpreads } from '@/components/story-review/StoryReviewSpreads
 import { IntegratedBookPreview } from '@/components/book-preview/IntegratedBookPreview';
 import { AsyncBatchedImageGenerator as ImageGenerator } from '@/components/illustrations/AsyncBatchedImageGenerator';
 import { useBookStore } from '@/lib/store/bookStore';
+import BookTypeSelection from '@/components/story-wizard/BookTypeSelection';
+import WritingStyleSelection from '@/components/story-wizard/WritingStyleSelection';
+import { BookType, WritingStyle } from '@/lib/types/bookTypes3';
 import { isFeatureEnabled } from '@/lib/features/flags';
 import { TEST_BABY_PROFILE, TEST_STORY_DATA, TEST_CONVERSATION } from '@/lib/testing/testStoryData';
 import { SaveProgressButton } from '@/components/common/SaveProgressButton';
@@ -32,16 +35,18 @@ export default function CreateBookPage() {
   const router = useRouter();
   const t = useTranslations();
   const { width, height } = useWindowSize();
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(0); // Start at step 0 (BookType)
 
-  // Define steps with translations
+  // Define steps with translations - Added BookType and WritingStyle at beginning
   const steps = [
-    { id: 1, name: t('createPage.steps.babyProfile'), icon: Baby },
-    { id: 2, name: t('createPage.steps.memoryChat'), icon: MessageCircle },
-    { id: 3, name: t('createPage.steps.storyReview'), icon: BookOpen },
-    { id: 4, name: t('createPage.steps.illustrations'), icon: Image },
-    { id: 5, name: t('createPage.steps.bookLayout'), icon: Eye },
-    { id: 6, name: t('createPage.steps.order'), icon: CreditCard }
+    { id: 0, name: 'Book Type', icon: Sparkles },
+    { id: 1, name: 'Writing Style', icon: Palette },
+    { id: 2, name: t('createPage.steps.babyProfile'), icon: Baby },
+    { id: 3, name: t('createPage.steps.memoryChat'), icon: MessageCircle },
+    { id: 4, name: t('createPage.steps.storyReview'), icon: BookOpen },
+    { id: 5, name: t('createPage.steps.illustrations'), icon: Image },
+    { id: 6, name: t('createPage.steps.bookLayout'), icon: Eye },
+    { id: 7, name: t('createPage.steps.order'), icon: CreditCard }
   ];
   const [showConfetti, setShowConfetti] = useState(false);
   const [isGeneratingStory, setIsGeneratingStory] = useState(false);
@@ -64,7 +69,14 @@ export default function CreateBookPage() {
     setStory,
     illustrationStyle,
     locale,
-    reset
+    reset,
+    // 3.0 fields
+    bookType,
+    writingStyle,
+    structuredData,
+    recipient,
+    setBookType,
+    setWritingStyle
   } = useBookStore();
 
   // Check for saved progress and TEST MODE on mount
@@ -81,7 +93,7 @@ export default function CreateBookPage() {
       setProfile(TEST_BABY_PROFILE);
       setConversation(TEST_CONVERSATION);
       setStory(TEST_STORY_DATA);
-      setCurrentStep(3); // Jump to Story Review
+      setCurrentStep(4); // Jump to Story Review (was 3, now 4 with new steps)
 
       toast.success('🧪 Test mode: Loaded Yara\'s beach story', {
         duration: 3000,
@@ -102,7 +114,7 @@ export default function CreateBookPage() {
 
   // Auto-save progress whenever key data changes
   useEffect(() => {
-    if (currentStep > 1 && !isGeneratingStory && !isFeatureEnabled('test_mode')) {
+    if (currentStep > 2 && !isGeneratingStory && !isFeatureEnabled('test_mode')) { // Changed from >1 to >2 (skip BookType and Style)
       const conversation = useBookStore.getState().conversation;
       const illustrations = useBookStore.getState().illustrations;
 
@@ -134,9 +146,21 @@ export default function CreateBookPage() {
     };
   }, []);
 
+  // Handler for BookType selection (step 0)
+  const handleBookTypeSelect = (type: BookType) => {
+    toast.success('Book type selected!');
+    setCurrentStep(1); // Move to WritingStyle
+  };
+
+  // Handler for WritingStyle selection (step 1)
+  const handleWritingStyleSelect = (style: WritingStyle) => {
+    toast.success('Writing style selected!');
+    setCurrentStep(2); // Move to Profile
+  };
+
   const handleProfileComplete = (profile: any) => {
     setProfile(profile);
-    setCurrentStep(2);
+    setCurrentStep(3); // Changed from 2 to 3
   };
 
   const handleChatComplete = async (conversation: any) => {
@@ -152,16 +176,28 @@ export default function CreateBookPage() {
       const storyLengthEntry = conversation.find((c: any) => c.question === 'story_length');
       const storyLength = storyLengthEntry?.answer || 'medium';
 
+      // Build request body - include 3.0 data if available
+      const requestBody: any = {
+        babyProfile,
+        conversation,
+        illustrationStyle,
+        storyLength,
+        locale
+      };
+
+      // If 3.0 data is available, include it (this triggers 3.0 mode in API)
+      if (bookType && writingStyle && structuredData) {
+        requestBody.bookType = bookType;
+        requestBody.writingStyle = writingStyle;
+        requestBody.structuredData = structuredData;
+        requestBody.recipient = recipient;
+        console.log('🎉 Using 3.0 mode for story generation');
+      }
+
       const res = await fetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          babyProfile,
-          conversation,
-          illustrationStyle,
-          storyLength,
-          locale
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!res.ok) {
@@ -185,7 +221,7 @@ export default function CreateBookPage() {
       toast.error('Failed to start story generation. Please try again.');
       setIsGeneratingStory(false);
       setGenerationProgress(0);
-      setCurrentStep(2);
+      setCurrentStep(3); // Changed from 2 to 3
     }
   };
 
@@ -204,35 +240,35 @@ export default function CreateBookPage() {
           toast.error('Story generation is taking too long. Please try with a simpler memory.');
           setIsGeneratingStory(false);
           setGenerationProgress(0);
-          setCurrentStep(2);
+          setCurrentStep(3); // Changed from 2 to 3
           return;
         }
 
         const res = await fetch(`/api/generate-story?jobId=${jobId}`);
-        
+
         if (!res.ok) {
           if (res.status === 404) {
             console.error('Story job not found');
             clearInterval(pollingIntervalRef.current!);
             pollingIntervalRef.current = null;
-            
+
             toast.error('Story generation job was lost. Please try again.');
             setIsGeneratingStory(false);
             setGenerationProgress(0);
-            setCurrentStep(2);
+            setCurrentStep(3); // Changed from 2 to 3
             return;
           }
           throw new Error(`Failed to check story status: ${res.status}`);
         }
 
         const data = await res.json();
-        
+
         if (data.success && data.job) {
           const { status, progress, message, result, error } = data.job;
-          
+
           setGenerationProgress(progress || 0);
           setGenerationMessage(message || 'Generating story...');
-          
+
           if (status === 'completed' && result) {
             clearInterval(pollingIntervalRef.current!);
             pollingIntervalRef.current = null;
@@ -240,12 +276,12 @@ export default function CreateBookPage() {
           } else if (status === 'failed') {
             clearInterval(pollingIntervalRef.current!);
             pollingIntervalRef.current = null;
-            
+
             console.error('Story generation failed:', error);
             toast.error(error || 'Failed to generate story. Please try again.');
             setIsGeneratingStory(false);
             setGenerationProgress(0);
-            setCurrentStep(2);
+            setCurrentStep(3); // Changed from 2 to 3
           }
         }
         
@@ -262,7 +298,7 @@ export default function CreateBookPage() {
 
     setTimeout(() => {
       setIsGeneratingStory(false);
-      setCurrentStep(3);
+      setCurrentStep(4); // Changed from 3 to 4
       setCurrentJobId(null);
     }, 500);
   };
@@ -276,21 +312,21 @@ export default function CreateBookPage() {
   };
 
   const handleStoryContinue = () => {
-    setCurrentStep(4);
+    setCurrentStep(5); // Changed from 4 to 5
   };
 
   const handleIllustrationsComplete = () => {
-    setCurrentStep(5);
+    setCurrentStep(6); // Changed from 5 to 6
   };
 
   const handleLayoutComplete = () => {
-    setCurrentStep(6);
+    setCurrentStep(7); // Changed from 6 to 7
     setShowConfetti(true);
     setTimeout(() => setShowConfetti(false), 5000);
   };
 
   const handleBack = () => {
-    if (currentStep > 1) {
+    if (currentStep > 0) { // Changed from >1 to >0
       setCurrentStep(currentStep - 1);
     } else {
       router.push('/');
@@ -347,7 +383,7 @@ export default function CreateBookPage() {
 
           {/* Desktop only - hide on mobile */}
           <div className="hidden sm:flex items-center gap-2 w-full sm:w-auto justify-end">
-            {currentStep < 6 && !isGeneratingStory && (
+            {currentStep < 7 && currentStep > 2 && !isGeneratingStory && ( // Changed from <6 to <7, and added >2
               <SaveProgressButton
                 currentStep={currentStep}
                 babyProfile={babyProfile}
@@ -465,9 +501,17 @@ export default function CreateBookPage() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
             >
-              {currentStep === 1 && <ProfileForm onComplete={handleProfileComplete} />}
+              {/* Step 0: BookType Selection */}
+              {currentStep === 0 && <BookTypeSelection onSelect={handleBookTypeSelect} />}
 
-              {currentStep === 2 && babyProfile && (
+              {/* Step 1: WritingStyle Selection */}
+              {currentStep === 1 && <WritingStyleSelection onSelect={handleWritingStyleSelect} />}
+
+              {/* Step 2: Profile */}
+              {currentStep === 2 && <ProfileForm onComplete={handleProfileComplete} />}
+
+              {/* Step 3: Chat */}
+              {currentStep === 3 && babyProfile && (
                 isFeatureEnabled('hybrid_agent') ? (
                   <HybridChatInterface babyName={babyProfile.baby_name} onComplete={handleChatComplete} />
                 ) : (
@@ -475,22 +519,26 @@ export default function CreateBookPage() {
                 )
               )}
 
-              {currentStep === 3 && storyData && (
+              {/* Step 4: Story Review */}
+              {currentStep === 4 && storyData && (
                 <StoryReviewSpreads
                   onContinue={handleStoryContinue}
                   onRegenerate={handleStoryRegenerate}
                 />
               )}
 
-              {currentStep === 4 && storyData && (
+              {/* Step 5: Illustrations */}
+              {currentStep === 5 && storyData && (
                 <ImageGenerator onComplete={handleIllustrationsComplete} />
               )}
 
-              {currentStep === 5 && (
+              {/* Step 6: Book Layout */}
+              {currentStep === 6 && (
                 <IntegratedBookPreview onComplete={handleLayoutComplete} />
               )}
 
-              {currentStep === 6 && (
+              {/* Step 7: Order */}
+              {currentStep === 7 && (
                 <div className="card-magical text-center py-12 sm:py-16 lg:py-20 px-4">
                   <motion.div
                     initial={{ scale: 0 }}
@@ -518,7 +566,7 @@ export default function CreateBookPage() {
               )}
 
               {/* Mobile only - Save button below step content */}
-              {currentStep < 6 && (
+              {currentStep < 7 && currentStep > 2 && ( // Changed from <6 to <7, and added >2
                 <div className="sm:hidden mt-6">
                   <SaveProgressButton
                     currentStep={currentStep}

@@ -23,12 +23,11 @@ Each card shows:
 - Example prompt
 
 ### Step 1: Writing Style Selection
-**Interactive style picker with 5 options:**
+**Interactive style picker with 4 options:**
 - ❤️ Warm & Heartfelt
 - 🎵 Rhyme & Rhythm
 - 😄 Funny & Playful
 - 📚 Simple & Clear
-- 🌙 Poetic & Dreamy
 
 Each style shows:
 - Micro-preview text demonstrating the style
@@ -179,7 +178,7 @@ Try each book type:
 
 Try different styles:
 - See "Rhyme & Rhythm" vs "Simple & Clear"
-- Compare "Poetic & Dreamy" vs "Funny & Playful"
+- Compare "Warm & Heartfelt" vs "Funny & Playful"
 
 ## What Changed
 

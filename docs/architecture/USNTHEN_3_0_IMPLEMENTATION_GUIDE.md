@@ -17,12 +17,11 @@ The foundation of 3.0 is a robust type system that defines:
 - **Our Special World**: The baby's everyday environment
 - **Guided Template**: Pre-built personalized templates
 
-#### **Writing Styles** (5 total)
+#### **Writing Styles** (4 total)
 - **Warm & Heartfelt**: Emotional, tender, full of love
 - **Rhyme & Rhythm**: Musical verses with AABB rhyme schemes
 - **Funny & Playful**: Silly, joyful, full of giggles
 - **Simple & Clear**: Perfect for youngest readers
-- **Poetic & Dreamy**: Lyrical, atmospheric, magical
 
 #### **Structured Data Schemas**
 
@@ -308,7 +307,7 @@ The main orchestrator that manages:
    ↓
 4. Writing Style Selection
    ↓
-5. Pick from 5 styles (with micro-previews)
+5. Pick from 4 styles (with micro-previews)
    ↓
 6. Baby Profile
    ↓
@@ -397,7 +396,7 @@ Visit: `/en/create3` (or any other locale)
 
 - Try generating the same story with different styles
 - Compare "Rhyme & Rhythm" vs "Simple & Clear"
-- See how "Poetic & Dreamy" differs from "Funny & Playful"
+- See how "Warm & Heartfelt" differs from "Funny & Playful"
 
 ## Future Enhancements
 

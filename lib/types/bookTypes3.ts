@@ -20,14 +20,13 @@ export interface BookTypeInfo {
 }
 
 /**
- * Writing Styles - The 5 narrative voices users can choose from
+ * Writing Styles - The 4 narrative voices users can choose from
  */
 export enum WritingStyle {
   WARM_HEARTFELT = 'warm_heartfelt',
   RHYME_RHYTHM = 'rhyme_rhythm',
   FUNNY_PLAYFUL = 'funny_playful',
-  SIMPLE_CLEAR = 'simple_clear',
-  POETIC_DREAMY = 'poetic_dreamy'
+  SIMPLE_CLEAR = 'simple_clear'
 }
 
 export interface WritingStyleInfo {
@@ -235,13 +234,6 @@ export const WRITING_STYLE_CONFIGS: Record<WritingStyle, WritingStyleInfo> = {
     description: 'Perfect for the youngest readers',
     microPreview: 'Yara sees the cat. The cat is soft. Yara smiles.',
     emoji: '📚'
-  },
-  [WritingStyle.POETIC_DREAMY]: {
-    id: WritingStyle.POETIC_DREAMY,
-    title: 'Poetic & Dreamy',
-    description: 'Lyrical, atmospheric, and magical',
-    microPreview: 'Moonbeams sleep on the floor. The world is quiet. Time for rest.',
-    emoji: '🌙'
   }
 };
 

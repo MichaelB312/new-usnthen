@@ -43,9 +43,6 @@ function getWritingStyleInstructions(style: WritingStyle): string {
     case WritingStyle.SIMPLE_CLEAR:
       return `Write in very simple, clear language perfect for the youngest readers. Use short sentences (5-8 words max). Simple vocabulary. Direct statements. One idea per sentence. "Baby sees cat. Cat is soft. Baby smiles." This style prioritizes clarity and accessibility for beginning language learners.`;
 
-    case WritingStyle.POETIC_DREAMY:
-      return `Write in a poetic, dreamy, and lyrical style. Use beautiful imagery, atmospheric language, and a gentle, flowing rhythm. The prose should feel like a lullaby—soft, magical, and almost whispered. Focus on sensory details, metaphors, and creating a dreamlike quality.`;
-
     default:
       return 'Write naturally and engagingly for young children.';
   }

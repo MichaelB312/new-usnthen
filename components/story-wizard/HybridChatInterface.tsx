@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Sparkles, CheckCircle2, Mic, Loader2 } from 'lucide-react';
-import { convertToLegacyFormat, validateConversationData } from '@/lib/agents/conversationAdapter';
 import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
 import { useBookStore } from '@/lib/store/bookStore';
 import { useTranslations } from 'next-intl';
@@ -71,7 +70,7 @@ function ProgressBar({ progress, collectedFields, t }: { progress: number; colle
         <span className="text-xs sm:text-sm font-medium text-purple-700">{t('storyProgress')}</span>
         <span className="text-xs sm:text-sm font-bold text-purple-600">{progress}%</span>
       </div>
-      <div className="w-full bg-purple-200 rounded-full h-1.5 sm:h-2 mb-1.5 sm:mb-2">
+      <div className="w-full bg-purple-200 rounded-full h-1.5 sm:h-2">
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${progress}%` }}
@@ -79,16 +78,7 @@ function ProgressBar({ progress, collectedFields, t }: { progress: number; colle
           className="bg-gradient-to-r from-purple-500 to-pink-500 h-1.5 sm:h-2 rounded-full"
         />
       </div>
-      {collectedFields.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2">
-          {collectedFields.map(field => (
-            <div key={field} className="flex items-center gap-1 bg-purple-100 text-purple-700 text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full">
-              <CheckCircle2 className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-              <span className="capitalize">{field.replace('_', ' ')}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Hide field labels - they're confusing for users */}
     </div>
   );
 }
@@ -96,15 +86,18 @@ function ProgressBar({ progress, collectedFields, t }: { progress: number; colle
 export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfaceProps) {
   const t = useTranslations('storyWizard');
   const locale = useBookStore((state) => state.locale);
+  const bookType = useBookStore((state) => state.bookType);
+  const writingStyle = useBookStore((state) => state.writingStyle);
+  const setStructuredData = useBookStore((state) => state.setStructuredData);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).substring(7)}`);
+  const [sessionId] = useState(() => `guide-${Date.now()}-${Math.random().toString(36).substring(7)}`);
   const [progress, setProgress] = useState(0);
   const [collectedFields, setCollectedFields] = useState<string[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [emotionContext, setEmotionContext] = useState<any>(null);
   const [collectedData, setCollectedData] = useState<any>(null);
   const hasInitialized = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -136,12 +129,22 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/story-conversation', {
+      if (!bookType) {
+        console.error('BookType not selected');
+        addWizardMessage(t('welcomeInitial'));
+        setIsTyping(false);
+        return;
+      }
+
+      // Call AI-powered guide conversation API
+      const response = await fetch('/api/guide-conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
           babyName,
+          bookType,
+          writingStyle,
           locale,
           action: 'start'
         })
@@ -193,16 +196,18 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/story-conversation', {
+      // Call AI-powered guide conversation API
+      const response = await fetch('/api/guide-conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
           babyName,
+          bookType,
+          writingStyle,
           locale,
           userMessage: userInput,
-          action: 'continue',
-          emotionContext // Include detected emotion for richer story generation
+          action: 'continue'
         })
       });
 
@@ -221,13 +226,8 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
           setIsComplete(true);
           setCollectedData(data.collectedData || {});
 
-          // Validate we have minimum required data
-          const validation = validateConversationData(data.collectedData || {});
-          if (!validation.valid) {
-            console.warn('Missing required fields:', validation.missing);
-          }
-
-          // Don't auto-proceed - wait for user to click "Create Story" button
+          // Save structured data to store
+          setStructuredData(data.collectedData || {});
         }
       } else {
         addWizardMessage(t('didntCatch'));
@@ -266,10 +266,7 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
           return prev ? `${prev} ${newText}` : newText;
         });
 
-        // Store emotion context for story generation
-        if (data.emotion) {
-          setEmotionContext(data.emotion);
-        }
+        // Note: Emotion context is available in data.emotion if needed for future enhancements
 
         toast.success(t('voiceSuccess'));
       } else {
@@ -329,8 +326,15 @@ export function HybridChatInterface({ babyName, onComplete }: HybridChatInterfac
 
   // Handle create story button click
   const handleCreateStory = () => {
-    const legacyConversation = convertToLegacyFormat(collectedData || {});
-    onComplete(legacyConversation);
+    if (!collectedData) {
+      toast.error('No data collected yet');
+      return;
+    }
+
+    // Structured data already saved to store in handleSend
+    // Pass empty conversation array - the story generation will use structuredData from store
+    // The 3.0 API detects when structuredData is present and uses it instead
+    onComplete([]);
   };
 
   // Show recording error if any

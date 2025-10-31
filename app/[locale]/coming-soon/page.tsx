@@ -22,16 +22,16 @@ export default function ComingSoonPage() {
 
       {/* Main content */}
       <div className="relative z-10 w-full max-w-3xl">
-        <div className="bg-white/70 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 p-12 md:p-16">
+        <div className="bg-white/70 backdrop-blur-xl rounded-2xl md:rounded-3xl shadow-2xl border border-white/50 p-8 sm:p-10 md:p-16">
           {/* Icon */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5 }}
-            className="flex justify-center mb-8"
+            className="flex justify-center mb-6 sm:mb-8"
           >
-            <div className="w-20 h-20 bg-gradient-to-br from-purple-400 to-pink-400 rounded-2xl flex items-center justify-center shadow-lg">
-              <BookOpen className="w-10 h-10 text-white" strokeWidth={1.5} />
+            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-purple-400 to-pink-400 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg">
+              <BookOpen className="w-8 h-8 sm:w-10 sm:h-10 text-white" strokeWidth={1.5} />
             </div>
           </motion.div>
 
@@ -40,12 +40,12 @@ export default function ComingSoonPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.6 }}
-            className="text-center mb-6"
+            className="text-center mb-4 sm:mb-6"
           >
-            <h1 className="text-5xl md:text-6xl font-semibold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-4">
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-semibold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-3 sm:mb-4">
               Us & Then
             </h1>
-            <p className="text-xl md:text-2xl text-gray-700 font-medium">
+            <p className="text-lg sm:text-xl md:text-2xl text-gray-700 font-medium">
               Create Beautiful Memory Books
             </p>
           </motion.div>
@@ -55,17 +55,17 @@ export default function ComingSoonPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4, duration: 0.6 }}
-            className="text-center text-gray-600 text-lg mb-8 max-w-xl mx-auto leading-relaxed"
+            className="text-center text-gray-600 text-base sm:text-lg mb-6 sm:mb-8 max-w-xl mx-auto leading-relaxed px-2"
           >
             Transform your precious memories into personalized, illustrated storybooks.
             Powered by AI, crafted with love.
           </motion.p>
 
           {/* Divider */}
-          <div className="flex items-center justify-center mb-8">
-            <div className="h-px w-20 bg-gradient-to-r from-transparent via-purple-300 to-transparent" />
-            <span className="mx-4 text-sm text-purple-400 font-medium tracking-wider">COMING SOON</span>
-            <div className="h-px w-20 bg-gradient-to-r from-transparent via-pink-300 to-transparent" />
+          <div className="flex items-center justify-center mb-6 sm:mb-8">
+            <div className="h-px w-12 sm:w-20 bg-gradient-to-r from-transparent via-purple-300 to-transparent" />
+            <span className="mx-3 sm:mx-4 text-xs sm:text-sm text-purple-400 font-medium tracking-wider">COMING SOON</span>
+            <div className="h-px w-12 sm:w-20 bg-gradient-to-r from-transparent via-pink-300 to-transparent" />
           </div>
 
           {/* Email Form */}
@@ -115,36 +115,36 @@ export default function ComingSoonPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.8, duration: 0.6 }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center"
+            className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-4 md:gap-6 text-center"
           >
-            <div>
+            <div className="px-4">
               <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <svg className="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-gray-800 mb-1">AI Illustrations</h3>
-              <p className="text-sm text-gray-600">Beautiful paper-collage artwork</p>
+              <h3 className="font-semibold text-gray-800 mb-1 text-sm sm:text-base">AI Illustrations</h3>
+              <p className="text-xs sm:text-sm text-gray-600">Beautiful paper-collage artwork</p>
             </div>
 
-            <div>
+            <div className="px-4">
               <div className="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <svg className="w-6 h-6 text-pink-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-gray-800 mb-1">Your Story</h3>
-              <p className="text-sm text-gray-600">Personalized narratives</p>
+              <h3 className="font-semibold text-gray-800 mb-1 text-sm sm:text-base">Your Story</h3>
+              <p className="text-xs sm:text-sm text-gray-600">Personalized narratives</p>
             </div>
 
-            <div>
+            <div className="px-4">
               <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <svg className="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-gray-800 mb-1">Hardcover Books</h3>
-              <p className="text-sm text-gray-600">Premium printed editions</p>
+              <h3 className="font-semibold text-gray-800 mb-1 text-sm sm:text-base">Hardcover Books</h3>
+              <p className="text-xs sm:text-sm text-gray-600">Premium printed editions</p>
             </div>
           </motion.div>
         </div>

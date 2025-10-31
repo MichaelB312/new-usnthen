@@ -38,7 +38,7 @@ import { processPrintReady } from '@/lib/utils/upscaler';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 600; // Increased to 10 minutes to handle 8 parallel pages
+export const maxDuration = 300; // Maximum for Vercel Hobby plan (5 minutes)
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,

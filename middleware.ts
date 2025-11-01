@@ -9,9 +9,9 @@ const intlMiddleware = createMiddleware({
   // Used when no locale matches
   defaultLocale,
 
-  // Always show locale prefix in URL
-  // URLs: /en/create, /de/create, /fr/create, etc.
-  localePrefix: 'always'
+  // Hide locale prefix for default locale (English)
+  // URLs: /create (English), /de/create (German), /fr/create (French), etc.
+  localePrefix: 'as-needed'
 });
 
 export default function middleware(request: NextRequest) {
@@ -29,13 +29,23 @@ export default function middleware(request: NextRequest) {
 
   // COMING SOON MODE: Redirect all non-home pages to home page
   if (isComingSoonMode) {
-    // Extract locale from pathname (e.g., /en/create -> /en)
-    const locale = pathname.split('/')[1];
-    const pathWithoutLocale = pathname.slice(locale.length + 1); // Remove /locale part
+    // Check if the first path segment is a locale (e.g., /de/create)
+    const firstSegment = pathname.split('/')[1];
+    const isLocaleInPath = firstSegment && locales.includes(firstSegment as any);
 
-    // Redirect any non-home pages to home page (with locale)
-    if (pathWithoutLocale && pathWithoutLocale !== '/' && locales.includes(locale as any)) {
-      return NextResponse.redirect(new URL(`/${locale}`, request.url));
+    if (isLocaleInPath) {
+      // Non-English locale (e.g., /de/create)
+      const pathWithoutLocale = pathname.slice(firstSegment.length + 1);
+      // Redirect non-home pages to locale home (e.g., /de/create -> /de)
+      if (pathWithoutLocale && pathWithoutLocale !== '/') {
+        return NextResponse.redirect(new URL(`/${firstSegment}`, request.url));
+      }
+    } else {
+      // English (default locale) - no prefix (e.g., /create)
+      // Redirect non-home pages to home (e.g., /create -> /)
+      if (pathname !== '/') {
+        return NextResponse.redirect(new URL('/', request.url));
+      }
     }
   }
 

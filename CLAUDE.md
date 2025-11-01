@@ -119,7 +119,7 @@ The application supports 6 languages with complete UI translation:
    - All pages use dynamic `[locale]` parameter
    - Middleware (`middleware.ts`) handles automatic locale detection and routing
    - Navigation helper (`navigation.ts`) provides type-safe locale-aware navigation
-   - URLs follow pattern: `/en/create`, `/de/create`, `/fr/create`, etc.
+   - URLs follow pattern: `/create` (English), `/de/create`, `/fr/create`, etc. (English doesn't show locale prefix)
 
 2. **Translation System** (next-intl)
    - Translation files in `messages/` directory (one JSON file per language)

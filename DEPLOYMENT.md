@@ -4,6 +4,18 @@ This guide explains how to toggle between "Coming Soon" mode and "Live" mode wit
 
 ---
 
+## 🌐 URL Structure
+
+**English (Default Language):**
+- English URLs don't show the `/en` prefix
+- Examples: `usnthen.com`, `usnthen.com/create`, `usnthen.com/dashboard`
+
+**Other Languages:**
+- All other languages show their locale prefix
+- Examples: `usnthen.com/de`, `usnthen.com/fr/create`, `usnthen.com/es/dashboard`
+
+---
+
 ## 🚀 Quick Toggle: Coming Soon ↔️ Live
 
 ### Option 1: Using Vercel Dashboard (Recommended)
@@ -157,11 +169,11 @@ NEXT_PUBLIC_COMING_SOON_MODE=true
 # Restart dev server
 npm run dev
 
-# Visit http://localhost:3000/en
+# Visit http://localhost:3000 (English - no /en prefix)
 # Should show coming soon page
 
-# Try to visit http://localhost:3000/en/create
-# Should redirect to http://localhost:3000/en
+# Try to visit http://localhost:3000/create
+# Should redirect to http://localhost:3000
 ```
 
 ### Test Live Mode:
@@ -172,10 +184,10 @@ NEXT_PUBLIC_COMING_SOON_MODE=false
 # Restart dev server
 npm run dev
 
-# Visit http://localhost:3000/en
+# Visit http://localhost:3000 (English - no /en prefix)
 # Should show full landing page
 
-# Visit http://localhost:3000/en/create
+# Visit http://localhost:3000/create
 # Should show book creation wizard
 ```
 

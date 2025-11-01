@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Sparkles, Heart, Star } from 'lucide-react';
 import { useState } from 'react';
 
 export default function ComingSoonPage() {
@@ -15,37 +15,157 @@ export default function ComingSoonPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-100/40 via-pink-50/30 to-purple-50/40 flex items-center justify-center p-6 relative overflow-hidden">
-      {/* Decorative circles */}
-      <div className="absolute top-20 left-20 w-72 h-72 bg-purple-200/20 rounded-full blur-3xl" />
-      <div className="absolute bottom-20 right-20 w-96 h-96 bg-pink-200/20 rounded-full blur-3xl" />
+    <div className="h-screen w-screen overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 relative flex items-center justify-center">
+      {/* Animated gradient orbs */}
+      <motion.div
+        className="absolute top-0 left-0 w-96 h-96 bg-purple-300/30 rounded-full blur-3xl"
+        animate={{
+          x: [0, 100, 0],
+          y: [0, 50, 0],
+          scale: [1, 1.2, 1],
+        }}
+        transition={{
+          duration: 20,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+      />
+      <motion.div
+        className="absolute bottom-0 right-0 w-96 h-96 bg-pink-300/30 rounded-full blur-3xl"
+        animate={{
+          x: [0, -50, 0],
+          y: [0, -100, 0],
+          scale: [1, 1.3, 1],
+        }}
+        transition={{
+          duration: 15,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+      />
+      <motion.div
+        className="absolute top-1/2 left-1/2 w-64 h-64 bg-blue-300/20 rounded-full blur-3xl"
+        animate={{
+          x: [-128, -100, -128],
+          y: [-128, -150, -128],
+          scale: [1, 1.1, 1],
+        }}
+        transition={{
+          duration: 18,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+      />
+
+      {/* Floating particles */}
+      <motion.div
+        className="absolute top-[15%] left-[10%]"
+        animate={{
+          y: [0, -20, 0],
+          rotate: [0, 10, 0],
+          opacity: [0.5, 0.8, 0.5]
+        }}
+        transition={{
+          duration: 4,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+      >
+        <Sparkles className="h-6 w-6 md:h-8 md:w-8 text-purple-400" />
+      </motion.div>
+      <motion.div
+        className="absolute top-[20%] right-[15%]"
+        animate={{
+          y: [0, 20, 0],
+          rotate: [0, -15, 0],
+          opacity: [0.4, 0.7, 0.4]
+        }}
+        transition={{
+          duration: 5,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+      >
+        <Heart className="h-5 w-5 md:h-7 md:w-7 text-pink-400 fill-pink-400/50" />
+      </motion.div>
+      <motion.div
+        className="absolute bottom-[25%] left-[20%]"
+        animate={{
+          y: [0, -15, 0],
+          scale: [1, 1.2, 1],
+          opacity: [0.3, 0.6, 0.3]
+        }}
+        transition={{
+          duration: 6,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+      >
+        <Star className="h-5 w-5 md:h-6 md:w-6 text-yellow-400 fill-yellow-400/50" />
+      </motion.div>
+      <motion.div
+        className="absolute bottom-[15%] right-[25%]"
+        animate={{
+          y: [0, 25, 0],
+          rotate: [0, 20, 0],
+          opacity: [0.4, 0.8, 0.4]
+        }}
+        transition={{
+          duration: 7,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+      >
+        <BookOpen className="h-6 w-6 md:h-8 md:w-8 text-blue-400" />
+      </motion.div>
 
       {/* Main content */}
-      <div className="relative z-10 w-full max-w-3xl">
-        <div className="bg-white/70 backdrop-blur-xl rounded-2xl md:rounded-3xl shadow-2xl border border-white/50 p-8 sm:p-10 md:p-16">
-          {/* Icon */}
+      <div className="relative z-10 w-full max-w-2xl px-4 sm:px-6">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="bg-white/60 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 p-6 sm:p-8 md:p-12"
+        >
+          {/* Icon with glow */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.6 }}
             className="flex justify-center mb-6 sm:mb-8"
           >
-            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-purple-400 to-pink-400 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg">
-              <BookOpen className="w-8 h-8 sm:w-10 sm:h-10 text-white" strokeWidth={1.5} />
-            </div>
+            <motion.div
+              className="relative"
+              animate={{
+                boxShadow: [
+                  '0 0 20px rgba(168, 85, 247, 0.4)',
+                  '0 0 40px rgba(236, 72, 153, 0.6)',
+                  '0 0 20px rgba(168, 85, 247, 0.4)',
+                ]
+              }}
+              transition={{
+                duration: 3,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+            >
+              <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-gradient-to-br from-purple-500 via-pink-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-xl">
+                <BookOpen className="w-7 h-7 sm:w-8 sm:h-8 md:w-10 md:h-10 text-white" strokeWidth={2} />
+              </div>
+            </motion.div>
           </motion.div>
 
           {/* Title */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2, duration: 0.6 }}
-            className="text-center mb-4 sm:mb-6"
+            transition={{ delay: 0.3, duration: 0.6 }}
+            className="text-center mb-3 sm:mb-4"
           >
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-semibold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-3 sm:mb-4">
+            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 bg-clip-text text-transparent mb-2 sm:mb-3 tracking-tight">
               Us & Then
             </h1>
-            <p className="text-lg sm:text-xl md:text-2xl text-gray-700 font-medium">
+            <p className="text-base sm:text-lg md:text-xl text-gray-700 font-medium">
               Create Beautiful Memory Books
             </p>
           </motion.div>
@@ -55,106 +175,102 @@ export default function ComingSoonPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4, duration: 0.6 }}
-            className="text-center text-gray-600 text-base sm:text-lg mb-6 sm:mb-8 max-w-xl mx-auto leading-relaxed px-2"
+            className="text-center text-gray-600 text-sm sm:text-base md:text-lg mb-5 sm:mb-6 max-w-lg mx-auto leading-relaxed"
           >
-            Transform your precious memories into personalized, illustrated storybooks.
-            Powered by AI, crafted with love.
+            Transform precious memories into personalized, AI-illustrated storybooks
           </motion.p>
 
-          {/* Divider */}
-          <div className="flex items-center justify-center mb-6 sm:mb-8">
-            <div className="h-px w-12 sm:w-20 bg-gradient-to-r from-transparent via-purple-300 to-transparent" />
-            <span className="mx-3 sm:mx-4 text-xs sm:text-sm text-purple-400 font-medium tracking-wider">COMING SOON</span>
-            <div className="h-px w-12 sm:w-20 bg-gradient-to-r from-transparent via-pink-300 to-transparent" />
-          </div>
+          {/* Coming Soon Badge */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.5, duration: 0.5 }}
+            className="flex justify-center mb-5 sm:mb-6"
+          >
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-100 to-pink-100 border border-purple-200/50">
+              <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 text-purple-500" />
+              <span className="text-xs sm:text-sm text-purple-700 font-semibold tracking-wide">COMING SOON</span>
+            </div>
+          </motion.div>
 
           {/* Email Form */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6, duration: 0.6 }}
-            className="max-w-md mx-auto mb-10"
+            className="max-w-md mx-auto"
           >
             {!submitted ? (
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-3">
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email address"
+                  placeholder="your@email.com"
                   required
-                  className="w-full px-6 py-4 rounded-xl bg-white/80 border-2 border-purple-200 focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-100 transition-all text-gray-800 placeholder:text-gray-400"
+                  className="w-full px-4 py-3 sm:px-5 sm:py-3.5 rounded-xl sm:rounded-2xl bg-white/90 border-2 border-purple-200/50 focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-100/50 transition-all text-gray-800 placeholder:text-gray-400 text-sm sm:text-base shadow-sm"
                 />
                 <motion.button
-                  whileHover={{ scale: 1.02 }}
+                  whileHover={{ scale: 1.02, boxShadow: '0 10px 40px rgba(168, 85, 247, 0.3)' }}
                   whileTap={{ scale: 0.98 }}
                   type="submit"
-                  className="w-full px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all"
+                  className="w-full px-6 py-3 sm:py-3.5 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 bg-size-200 bg-pos-0 hover:bg-pos-100 text-white rounded-xl sm:rounded-2xl font-semibold shadow-lg transition-all duration-300 text-sm sm:text-base"
                 >
-                  Get Notified
+                  Notify Me at Launch
                 </motion.button>
               </form>
             ) : (
               <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
+                initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="text-center py-6 bg-purple-50 rounded-xl"
+                className="text-center py-5 sm:py-6 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl sm:rounded-2xl border border-purple-100"
               >
-                <p className="text-purple-700 font-semibold text-lg">
-                  Thank you for joining our waitlist!
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+                >
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Heart className="w-6 h-6 sm:w-7 sm:h-7 text-white fill-white" />
+                  </div>
+                </motion.div>
+                <p className="text-purple-700 font-bold text-base sm:text-lg mb-1">
+                  You're on the list!
                 </p>
-                <p className="text-gray-600 mt-2">
-                  We'll notify you when we launch.
+                <p className="text-gray-600 text-xs sm:text-sm">
+                  We'll notify you when we launch
                 </p>
               </motion.div>
             )}
           </motion.div>
 
-          {/* Features */}
+          {/* Simple feature tags */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.8, duration: 0.6 }}
-            className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-4 md:gap-6 text-center"
+            className="flex flex-wrap justify-center gap-2 mt-6 sm:mt-8"
           >
-            <div className="px-4">
-              <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <svg className="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-                </svg>
-              </div>
-              <h3 className="font-semibold text-gray-800 mb-1 text-sm sm:text-base">AI Illustrations</h3>
-              <p className="text-xs sm:text-sm text-gray-600">Beautiful paper-collage artwork</p>
-            </div>
-
-            <div className="px-4">
-              <div className="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <svg className="w-6 h-6 text-pink-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </div>
-              <h3 className="font-semibold text-gray-800 mb-1 text-sm sm:text-base">Your Story</h3>
-              <p className="text-xs sm:text-sm text-gray-600">Personalized narratives</p>
-            </div>
-
-            <div className="px-4">
-              <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <svg className="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                </svg>
-              </div>
-              <h3 className="font-semibold text-gray-800 mb-1 text-sm sm:text-base">Hardcover Books</h3>
-              <p className="text-xs sm:text-sm text-gray-600">Premium printed editions</p>
-            </div>
+            {['AI Illustrations', 'Your Story', 'Premium Books'].map((feature, i) => (
+              <motion.span
+                key={feature}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8 + i * 0.1 }}
+                className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white/50 backdrop-blur-sm rounded-full text-xs sm:text-sm text-gray-700 font-medium border border-white/60"
+              >
+                {feature}
+              </motion.span>
+            ))}
           </motion.div>
-        </div>
+        </motion.div>
 
         {/* Footer */}
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1, duration: 0.6 }}
-          className="text-center text-gray-500 text-sm mt-8"
+          className="text-center text-gray-500/80 text-xs sm:text-sm mt-4 sm:mt-6"
         >
           © 2025 Us & Then
         </motion.p>

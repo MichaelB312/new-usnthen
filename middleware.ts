@@ -19,7 +19,7 @@ export default function middleware(request: NextRequest) {
 
   // COMING SOON MODE: Check environment variable
   // Set NEXT_PUBLIC_COMING_SOON_MODE=true in Vercel to enable coming soon mode
-  // Set NEXT_PUBLIC_COMING_SOON_MODE=false (or unset) to go live
+  // Set NEXT_PUBLIC_COMING_SOON_MODE=false (or unset) to go live with full website
   const isComingSoonMode = process.env.NEXT_PUBLIC_COMING_SOON_MODE === 'true';
 
   // Allow API routes and static files to always pass through
@@ -27,7 +27,7 @@ export default function middleware(request: NextRequest) {
     return intlMiddleware(request);
   }
 
-  // COMING SOON MODE: Redirect all non-home pages to home page
+  // COMING SOON MODE: Redirect all pages to /coming-soon
   if (isComingSoonMode) {
     // Check if the first path segment is a locale (e.g., /de/create)
     const firstSegment = pathname.split('/')[1];
@@ -36,15 +36,15 @@ export default function middleware(request: NextRequest) {
     if (isLocaleInPath) {
       // Non-English locale (e.g., /de/create)
       const pathWithoutLocale = pathname.slice(firstSegment.length + 1);
-      // Redirect non-home pages to locale home (e.g., /de/create -> /de)
-      if (pathWithoutLocale && pathWithoutLocale !== '/') {
-        return NextResponse.redirect(new URL(`/${firstSegment}`, request.url));
+      // If not already on coming-soon page, redirect to it
+      if (pathWithoutLocale !== '/coming-soon') {
+        return NextResponse.redirect(new URL(`/${firstSegment}/coming-soon`, request.url));
       }
     } else {
       // English (default locale) - no prefix (e.g., /create)
-      // Redirect non-home pages to home (e.g., /create -> /)
-      if (pathname !== '/') {
-        return NextResponse.redirect(new URL('/', request.url));
+      // If not already on coming-soon page, redirect to it
+      if (pathname !== '/coming-soon') {
+        return NextResponse.redirect(new URL('/coming-soon', request.url));
       }
     }
   }

@@ -18,13 +18,17 @@ This guide explains how to toggle between "Coming Soon" mode and "Live" mode wit
 
 ## 🚀 Quick Toggle: Coming Soon ↔️ Live
 
+**🎯 BY DEFAULT: Coming Soon mode is ON**
+
+The app shows the coming soon page by default. To show the full website, you need to explicitly disable it.
+
 ### Option 1: Using Vercel Dashboard (Recommended)
 
 1. Go to your Vercel project dashboard
 2. Navigate to **Settings** → **Environment Variables**
-3. Find or add `NEXT_PUBLIC_COMING_SOON_MODE`
+3. Add `NEXT_PUBLIC_COMING_SOON_MODE`
 4. Set the value:
-   - `true` = Coming Soon page (hides all app functionality)
+   - **No variable or empty** = Coming Soon page (DEFAULT)
    - `false` = Live mode (full app available)
 5. Click **Save**
 6. Vercel will automatically redeploy
@@ -36,13 +40,13 @@ This guide explains how to toggle between "Coming Soon" mode and "Live" mode wit
 ### Option 2: Using Vercel CLI
 
 ```bash
-# Set to Coming Soon mode
+# Coming Soon mode is ON by default (no variable needed)
+# To enable Live mode:
 vercel env add NEXT_PUBLIC_COMING_SOON_MODE production
-# Enter: true
+# Enter: false
 
-# Set to Live mode
+# To go back to Coming Soon mode:
 vercel env rm NEXT_PUBLIC_COMING_SOON_MODE production
-# Or change to: false
 
 # Trigger redeployment
 vercel --prod
@@ -52,12 +56,14 @@ vercel --prod
 
 ### Option 3: Using .env.local (Local Development)
 
-Add to your `.env.local` file:
+**Coming Soon mode is ON by default** - no .env.local file needed!
+
+To show the full website, create a `.env.local` file:
 
 ```bash
-# Coming Soon Mode
-NEXT_PUBLIC_COMING_SOON_MODE=true   # Show coming soon page only
-# NEXT_PUBLIC_COMING_SOON_MODE=false  # Show full app (live mode)
+# By default: Coming Soon mode is ON (no variable needed)
+# To disable and show full website:
+NEXT_PUBLIC_COMING_SOON_MODE=false
 ```
 
 Then restart your dev server:
@@ -69,7 +75,7 @@ npm run dev
 
 ## 📋 What Each Mode Does
 
-### Coming Soon Mode (`NEXT_PUBLIC_COMING_SOON_MODE=true`)
+### Coming Soon Mode (DEFAULT - no variable or unset)
 
 ✅ **Shows:**
 - Beautiful coming soon page at all routes
@@ -91,7 +97,7 @@ npm run dev
 
 ---
 
-### Live Mode (`NEXT_PUBLIC_COMING_SOON_MODE=false` or unset)
+### Live Mode (`NEXT_PUBLIC_COMING_SOON_MODE=false`)
 
 ✅ **Shows:**
 - Full landing page with all features
@@ -128,8 +134,7 @@ npm run dev
 
 1. **Update Environment Variable in Vercel:**
    - Dashboard → Settings → Environment Variables
-   - Set `NEXT_PUBLIC_COMING_SOON_MODE` to `false`
-   - OR delete the variable entirely
+   - Add `NEXT_PUBLIC_COMING_SOON_MODE` and set to `false`
    - Save changes
 
 2. **Vercel Auto-Deploys:**
@@ -153,7 +158,7 @@ npm run dev
 
 If you need to take the app offline temporarily:
 
-1. Set `NEXT_PUBLIC_COMING_SOON_MODE` to `true` in Vercel
+1. Delete `NEXT_PUBLIC_COMING_SOON_MODE` variable in Vercel (or leave it unset)
 2. Wait for auto-redeployment (~2-3 minutes)
 3. Coming soon page is now showing again
 
@@ -161,12 +166,12 @@ If you need to take the app offline temporarily:
 
 ## 🧪 Testing Locally
 
-### Test Coming Soon Mode:
+### Test Coming Soon Mode (DEFAULT):
 ```bash
-# Add to .env.local
-NEXT_PUBLIC_COMING_SOON_MODE=true
+# No .env.local file needed - it's the default!
+# Or delete any existing NEXT_PUBLIC_COMING_SOON_MODE from .env.local
 
-# Restart dev server
+# Start dev server
 npm run dev
 
 # Visit http://localhost:3000 (English - no /en prefix)
@@ -178,7 +183,7 @@ npm run dev
 
 ### Test Live Mode:
 ```bash
-# Change in .env.local
+# Create or update .env.local
 NEXT_PUBLIC_COMING_SOON_MODE=false
 
 # Restart dev server
@@ -275,14 +280,16 @@ Before going live, ensure:
 
 ## 🎯 Simple Command for Later
 
-**To Enable Coming Soon Mode:**
-```
-Set NEXT_PUBLIC_COMING_SOON_MODE=true in Vercel
-```
+**Coming Soon Mode is ON by default** - No action needed!
 
-**To Go Live:**
+**To Go Live (show full website):**
 ```
 Set NEXT_PUBLIC_COMING_SOON_MODE=false in Vercel
+```
+
+**To Go Back to Coming Soon:**
+```
+Delete NEXT_PUBLIC_COMING_SOON_MODE variable in Vercel
 ```
 
 That's it! 🚀

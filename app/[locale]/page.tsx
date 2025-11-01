@@ -371,8 +371,9 @@ function LandingPage() {
 
 // Main Page Component with Conditional Rendering
 export default function HomePage() {
-  // Check environment variable for coming soon mode
-  const isComingSoonMode = process.env.NEXT_PUBLIC_COMING_SOON_MODE === 'true';
+  // Coming soon mode is ON by default unless explicitly disabled
+  // Set NEXT_PUBLIC_COMING_SOON_MODE=false to show the full website
+  const isComingSoonMode = process.env.NEXT_PUBLIC_COMING_SOON_MODE !== 'false';
 
   // Render coming soon page or full landing page based on environment variable
   return isComingSoonMode ? <ComingSoonPage /> : <LandingPage />;
